@@ -14,7 +14,7 @@ import {
   saveCompanyMembershipToSupabase,
   saveStoreToSupabase,
   saveSuperAdminUserToSupabase,
-} from "./supabaseStore.js";
+} from "./postgresStore.js";
 import {
   COMPANY_STATUSES,
   DEFAULT_COMPANY_DOMAIN,

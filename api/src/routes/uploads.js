@@ -121,6 +121,10 @@ function requiresPersistentStorage() {
   return process.env.NODE_ENV === "production" || Boolean(process.env.VERCEL);
 }
 
+function hasLocalPersistentStorage() {
+  return Boolean(process.env.UPLOADS_DIR?.trim());
+}
+
 router.post(
   "/",
   requireAuth,
@@ -139,9 +143,9 @@ router.post(
 
     const useSupabaseStorage = isSupabaseStorageConfigured();
 
-    if (!useSupabaseStorage && requiresPersistentStorage()) {
+    if (!useSupabaseStorage && requiresPersistentStorage() && !hasLocalPersistentStorage()) {
       return res.status(500).json({
-        message: "Persistent image storage is not configured. Set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and SUPABASE_BUCKET.",
+        message: "Persistent image storage is not configured. Set UPLOADS_DIR for VPS local storage or configure remote storage.",
       });
     }
 
@@ -187,3 +191,5 @@ router.post(
 );
 
 export default router;
+
+
