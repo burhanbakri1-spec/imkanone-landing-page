@@ -1,0 +1,31 @@
+const reservedTenantFields = new Set([
+  "company_id",
+  "companyId",
+  "company",
+  "tenant_id",
+  "tenantId",
+  "tenant",
+]);
+
+export function stripReservedTenantFields(value) {
+  if (Array.isArray(value)) {
+    return value.map(stripReservedTenantFields);
+  }
+
+  if (!value || typeof value !== "object" || Buffer.isBuffer(value)) {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !reservedTenantFields.has(key))
+      .map(([key, entry]) => [key, stripReservedTenantFields(entry)]),
+  );
+}
+
+export function sanitizeTenantRequestBody(req, _res, next) {
+  if (req.body !== undefined && !Buffer.isBuffer(req.body)) {
+    req.body = stripReservedTenantFields(req.body);
+  }
+  next();
+}
