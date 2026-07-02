@@ -72,6 +72,22 @@ export function requireAuth(req, res, next) {
   return next();
 }
 
+export function optionalAuth(req, res, next) {
+  const authHeader = req.headers.authorization || "";
+  if (!authHeader) {
+    req.user = null;
+    return next();
+  }
+
+  const user = getSessionUser(req);
+  if (!user) {
+    return res.status(401).json({ message: "Invalid or expired authentication token." });
+  }
+
+  req.user = user;
+  return next();
+}
+
 export function requireAdmin(req, res, next) {
   if (req.user?.role !== "admin") {
     return res.status(403).json({ message: "Admin access required." });
