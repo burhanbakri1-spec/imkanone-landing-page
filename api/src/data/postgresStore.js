@@ -61,6 +61,39 @@ function toPgValue(value) {
   return value;
 }
 
+const TIMESTAMP_COLUMNS = new Set([
+  "login_time",
+  "logout_time",
+]);
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})?)?$/;
+
+export function normalizePostgresTimestamp(value) {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+
+  if (typeof value !== "string") return null;
+
+  const normalized = value.trim();
+  if (!ISO_DATE_PATTERN.test(normalized) || Number.isNaN(Date.parse(normalized))) return null;
+  const [year, month, day] = normalized.slice(0, 10).split("-").map(Number);
+  const calendarDate = new Date(Date.UTC(year, month - 1, day));
+  if (
+    calendarDate.getUTCFullYear() !== year
+    || calendarDate.getUTCMonth() !== month - 1
+    || calendarDate.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+function toPgColumnValue(column, value) {
+  return column.endsWith("_at") || TIMESTAMP_COLUMNS.has(column)
+    ? normalizePostgresTimestamp(value)
+    : toPgValue(value);
+}
+
 function filterValue(raw) {
   if (raw === "true") return true;
   if (raw === "false") return false;
@@ -145,7 +178,7 @@ async function upsertRowsSql(table, rows, conflictColumn = "id", ignoreDuplicate
   const values = [];
   const tuples = rows.map((row) => {
     const placeholders = columns.map((column) => {
-      values.push(toPgValue(row[column]));
+      values.push(toPgColumnValue(column, row[column]));
       return `$${values.length}`;
     });
     return `(${placeholders.join(", ")})`;
@@ -262,7 +295,7 @@ async function upsertCompanyRows(table, rows, companyId) {
 }
 
 function rowDate(value) {
-  return value || new Date().toISOString();
+  return normalizePostgresTimestamp(value) || new Date().toISOString();
 }
 
 function uniqueRowId(baseId, usedIds) {
@@ -868,8 +901,8 @@ export async function saveStoreToSupabase(store, options = {}) {
     company_id: companyId,
     employee_id: session.employeeId,
     date: session.date,
-    login_time: session.loginTime,
-    logout_time: session.logoutTime,
+    login_time: normalizePostgresTimestamp(session.loginTime),
+    logout_time: normalizePostgresTimestamp(session.logoutTime),
     data: session,
     created_at: rowDate(session.createdAt),
     updated_at: rowDate(session.updatedAt),
@@ -939,10 +972,9 @@ export async function saveStoreToSupabase(store, options = {}) {
 }
 
 export async function saveCompanyToSupabase(company) {
-  const now = new Date().toISOString();
   const companyId = normalizeCompanyId(company.id);
-  const createdAt = company.createdAt || now;
-  const updatedAt = company.updatedAt || now;
+  const createdAt = rowDate(company.createdAt);
+  const updatedAt = rowDate(company.updatedAt);
 
   await upsertRows("companies", [{
     id: companyId,
