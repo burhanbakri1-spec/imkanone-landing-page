@@ -133,6 +133,37 @@ case-insensitive full user scan to reject ambiguity; this safe one-time tradeoff
 can be replaced with indexed normalized-email lookup later. A transactional
 Supabase RPC remains the recommended production-hardening improvement.
 
+## Trusted admin password reset
+
+For an existing PostgreSQL user whose password is no longer known, run the
+password-reset CLI from a trusted deployment console. Passwords and stored hashes
+cannot be recovered from the database; this command replaces the stored value
+with a new versioned `scrypt` hash and never prints the password or hash.
+
+```powershell
+$env:ADMIN_RESET_EMAIL="admin@example.test"
+$env:ADMIN_RESET_PASSWORD="Replace-With-A-Strong-Temporary-Password-2026!"
+npm run admin:reset-password
+Remove-Item Env:ADMIN_RESET_EMAIL,Env:ADMIN_RESET_PASSWORD
+```
+
+The default `ADMIN_RESET_ROLE=keep` updates only the matched active user's
+password and timestamp. Email matching is case-insensitive, ambiguous matches
+are rejected, and the PostgreSQL operation is transactional. To deliberately
+repair authorization at the same time, set `ADMIN_RESET_ROLE` to one of:
+
+- `super_admin`: platform/CPanel company management access.
+- `admin`: legacy EB Chemical admin dashboard access.
+- `company_admin`: membership-aware API role; the current CPanel shell does not
+  treat this role as a legacy dashboard admin.
+
+An explicit role option also creates or updates that user's active
+`eb-chemical` membership. Do not set it when only rotating a password. The
+script refuses inactive or missing users and never creates identities. Run it
+only where `DATABASE_URL` or `POSTGRES_URL` is already supplied securely by the
+deployment provider; never paste database URLs or passwords into source files,
+commits, tickets, or shared logs.
+
 ## Deployment notes
 
 Install the locked production dependencies and start the API with:
