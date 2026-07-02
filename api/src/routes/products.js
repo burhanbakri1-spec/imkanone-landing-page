@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { persistCompanyStore, productRepository } from "../data/store.js";
+import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
 
 const router = Router();
 const placeholderImage = "/images/products/product-placeholder.svg";
@@ -32,7 +33,8 @@ function normalizeVariants(product) {
   const variants = Array.isArray(product.variants) ? product.variants : [];
   if (variants.length) {
     return variants
-      .map((variant, index) => ({
+      .map((variant, index) => withVariantVisibility({
+        ...variant,
         id: variant.id || `${product.id || "product"}-variant-${index}-${Date.now()}`,
         color_name: variant.color_name || variant.colorName || "Default",
         color_value: variant.color_value || variant.colorValue || variant.colorHex || "",
@@ -45,7 +47,7 @@ function normalizeVariants(product) {
       .sort((a, b) => a.sort_order - b.sort_order);
   }
 
-  return (product.sizes || []).map((sizeOption, index) => ({
+  return (product.sizes || []).map((sizeOption, index) => withVariantVisibility({
     id: `${product.id || "product"}-variant-${index}`,
     color_name: "Default",
     color_value: "",
@@ -59,13 +61,14 @@ function normalizeVariants(product) {
 
 function sizesFromVariants(variants, fallbackSizes = []) {
   const bySize = new Map();
-  variants.forEach((variant) => {
+  variants.filter(isVariantVisible).forEach((variant) => {
     const current = bySize.get(variant.size);
     if (!current || Number(variant.price) < Number(current.price)) {
       bySize.set(variant.size, { size: variant.size, price: Number(variant.price || 0) });
     }
   });
-  return bySize.size ? Array.from(bySize.values()) : fallbackSizes;
+  if (bySize.size) return Array.from(bySize.values());
+  return variants.length ? [] : fallbackSizes;
 }
 
 function normalizeProduct(product) {

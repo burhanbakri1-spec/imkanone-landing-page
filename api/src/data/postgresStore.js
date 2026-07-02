@@ -4,6 +4,7 @@ import {
   normalizeCompanyId,
 } from "../tenancy/company.js";
 import { Pool } from "pg";
+import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
 
 let pool;
 
@@ -334,7 +335,9 @@ function ensureUniqueRowIds(rows, fallbackIdForRow) {
 }
 
 function productRow(product, companyId) {
-  const firstVariant = Array.isArray(product.variants) ? product.variants[0] : null;
+  const firstVariant = Array.isArray(product.variants)
+    ? product.variants.find(isVariantVisible) || null
+    : null;
   return {
     id: product.id,
     company_id: normalizeCompanyId(companyId),
@@ -357,21 +360,24 @@ function productRow(product, companyId) {
 }
 
 function variantRows(product, companyId) {
-  const rows = (product.variants || []).map((variant, index) => ({
-    id: variant.id || `${product.id}-variant-${index}`,
-    company_id: normalizeCompanyId(companyId),
-    product_id: product.id,
-    color_name: variant.color_name || variant.colorName || "Default",
-    color_value: variant.color_value || variant.colorValue || variant.colorHex || "",
-    size: variant.size || "500ml",
-    price: Number(variant.price || 0),
-    stock: Number(variant.stock ?? 0),
-    image_url: variant.image_url || variant.imageUrl || variant.image || "",
-    sort_order: Number(variant.sort_order ?? variant.sortOrder ?? index),
-    data: variant,
-    created_at: rowDate(variant.createdAt),
-    updated_at: rowDate(variant.updatedAt),
-  }));
+  const rows = (product.variants || []).map((variant, index) => {
+    const normalizedVariant = withVariantVisibility(variant);
+    return {
+      id: variant.id || `${product.id}-variant-${index}`,
+      company_id: normalizeCompanyId(companyId),
+      product_id: product.id,
+      color_name: variant.color_name || variant.colorName || "Default",
+      color_value: variant.color_value || variant.colorValue || variant.colorHex || "",
+      size: variant.size || "500ml",
+      price: Number(variant.price || 0),
+      stock: Number(variant.stock ?? 0),
+      image_url: variant.image_url || variant.imageUrl || variant.image || "",
+      sort_order: Number(variant.sort_order ?? variant.sortOrder ?? index),
+      data: normalizedVariant,
+      created_at: rowDate(variant.createdAt),
+      updated_at: rowDate(variant.updatedAt),
+    };
+  });
 
   return ensureUniqueRowIds(rows, (row, index) => `${row.product_id}-variant-${index}`);
 }
@@ -606,6 +612,7 @@ function mergeProduct(row, variants, galleryImages) {
       stock: Number(variant.stock || 0),
       image_url: variant.image_url || "",
       sort_order: Number(variant.sort_order || 0),
+      isVisible: isVariantVisible(variant.data || {}),
     }));
   const productGallery = galleryImages
     .filter((entry) => entry.product_id === row.id)

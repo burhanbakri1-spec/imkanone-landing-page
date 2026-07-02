@@ -1,6 +1,7 @@
 import { Router } from "express";
-import { orderRepository, persistCompanyStore } from "../data/store.js";
+import { orderRepository, persistCompanyStore, productRepository } from "../data/store.js";
 import { optionalAuth, publicUser, requireAuth } from "../middleware/auth.js";
+import { isVariantVisible } from "../products/variantVisibility.js";
 
 const router = Router();
 
@@ -49,6 +50,30 @@ function orderItems(input) {
   }).filter((item) => item.productId || item.slug);
 }
 
+function hasUnavailableVariant(items, companyId) {
+  const products = productRepository.getByCompany(companyId);
+  return items.some((item) => {
+    const product = products.find(
+      (candidate) => candidate.id === item.productId || candidate.slug === item.slug,
+    );
+    if (!product) return true;
+
+    const variants = Array.isArray(product.variants) ? product.variants : [];
+    if (!variants.length) return false;
+
+    const matchingVariant = item.variantId
+      ? variants.find((variant) => variant.id === item.variantId)
+      : variants.find((variant) => {
+          const sameSize = String(variant.size || "") === String(item.selectedSize || item.size || "");
+          const selectedColor = item.colorName || item.selectedColor || "";
+          const variantColor = variant.color_name || variant.colorName || "";
+          return sameSize && (!selectedColor || selectedColor === variantColor);
+        });
+
+    return !matchingVariant || !isVariantVisible(matchingVariant);
+  });
+}
+
 router.get("/", requireAuth, (req, res) => {
   const orders = orderRepository.getByCompany(req.companyId);
   if (req.user.role === "admin" || req.user.permissions?.includes("orders.view")) {
@@ -84,6 +109,9 @@ router.post("/", optionalAuth, async (req, res) => {
   }
   if (!items.length) {
     return res.status(400).json({ message: "At least one order item is required." });
+  }
+  if (hasUnavailableVariant(items, req.companyId)) {
+    return res.status(409).json({ message: "One or more selected product variants are unavailable." });
   }
 
   const orderTotal = Math.max(0, safeNumber(req.body.total || req.body.subtotal));
