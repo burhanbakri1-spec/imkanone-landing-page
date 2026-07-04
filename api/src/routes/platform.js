@@ -213,7 +213,6 @@ function validatePlatformUserCreateBody(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw validationError("Request body must be an object.");
   }
-  rejectMembershipSecrets(body);
   if (hasOwn(body, "id")) throw validationError("User ID is managed by the server.");
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name) throw validationError("name is required.");
