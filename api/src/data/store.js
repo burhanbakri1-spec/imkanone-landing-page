@@ -27,7 +27,7 @@ import {
   normalizeCompanyId,
   selectPreferredCompanyDomains,
 } from "../tenancy/company.js";
-import { isPasswordHash } from "../auth/passwords.js";
+import { hashPassword, isPasswordHash } from "../auth/passwords.js";
 import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
