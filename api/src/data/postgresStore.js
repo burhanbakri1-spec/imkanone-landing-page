@@ -688,6 +688,16 @@ export async function findUsersByEmailFromSupabase(email) {
     .map(mergeUser);
 }
 
+export async function listPlatformUsersFromSupabase() {
+  const rows = await selectAll("users", "select=*");
+  return rows.map(mergeUser);
+}
+
+export async function savePlatformUserToSupabase(user) {
+  await upsertRows("users", [userRow(user)]);
+  return user;
+}
+
 export async function listCompanyMembershipsFromSupabase(companyId) {
   const normalizedCompanyId = normalizeCompanyId(companyId);
   const [memberships, allUsers] = await Promise.all([

@@ -8,10 +8,12 @@ import { fileURLToPath } from "node:url";
 import {
   findUsersByEmailFromSupabase,
   isSupabaseConfigured,
+  listPlatformUsersFromSupabase,
   listCompanyMembershipsFromSupabase,
   loadStoreFromSupabase,
   saveCompanyToSupabase,
   saveCompanyMembershipToSupabase,
+  savePlatformUserToSupabase,
   saveStoreToSupabase,
   saveSuperAdminUserToSupabase,
 } from "./postgresStore.js";
@@ -614,6 +616,12 @@ export const categoryCardRepository = new TenantRepository(categoryCards, "key")
 export const reviewRepository = new TenantRepository(reviews);
 export const websiteMediaRepository = new TenantRepository(websiteMedia);
 
+function platformDirectoryError(message, statusCode = 400) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
 function superAdminProvisioningError(message, code) {
   const error = new Error(message);
   error.code = code;
@@ -846,7 +854,14 @@ export const companyRepository = {
   },
 };
 
-const allowedMembershipRoles = new Set(["company_admin", "employee", "customer"]);
+const allowedMembershipRoles = new Set([
+  "admin",
+  "manager",
+  "company_admin",
+  "employee",
+  "staff",
+  "customer",
+]);
 const allowedMembershipStatuses = new Set(["active", "inactive"]);
 
 function membershipRepositoryError(message, statusCode = 400) {
@@ -990,6 +1005,19 @@ async function persistMembershipRecord(membership, user, createUser, previousMem
 }
 
 export const companyMembershipRepository = {
+  async listAllMemberships() {
+    const allMemberships = await Promise.all(
+      companies.map(async (company) => {
+        const memberships = await membershipsForCompany(company.id);
+        return memberships.map((membership) => ({
+          ...membership,
+          company: serializeCompany(company),
+        }));
+      }),
+    );
+    return allMemberships.flat();
+  },
+
   async listUsersForCompany(companyId) {
     assertMembershipCompany(companyId);
     return membershipsForCompany(companyId);
@@ -1072,6 +1100,86 @@ export const companyMembershipRepository = {
 
   async disableMembership(companyId, userId) {
     return this.updateMembership(companyId, userId, { status: "inactive" });
+  },
+
+  async updateMembershipById(id, changes) {
+    const memberships = await this.listAllMemberships();
+    const matches = memberships.filter((membership) => membership.id === id);
+    if (matches.length > 1) {
+      throw membershipRepositoryError("Membership ID is ambiguous.", 409);
+    }
+    const current = matches[0];
+    if (!current) throw membershipRepositoryError("Membership not found.", 404);
+    return this.updateMembership(current.companyId, current.userId, changes);
+  },
+};
+
+async function assertPlatformUserStatusChangeSafe(user, isActive) {
+  if (user.role === "super_admin") {
+    throw platformDirectoryError("Super Admin identities remain CLI-managed.", 403);
+  }
+  if (isActive !== false || user.isActive === false) return;
+
+  for (const company of companies) {
+    const memberships = await membershipsForCompany(company.id);
+    const membership = memberships.find(
+      (entry) => entry.userId === user.id
+        && entry.role === "company_admin"
+        && entry.status === "active",
+    );
+    if (!membership) continue;
+    assertLastEbAdmin(
+      company.id,
+      membership,
+      { ...membership, status: "inactive" },
+      memberships,
+    );
+  }
+}
+
+export const platformUserRepository = {
+  async listUsers() {
+    if (isSupabaseConfigured()) {
+      if (!canPersistToSupabase) {
+        throw platformDirectoryError("Platform users are unavailable until PostgreSQL validation succeeds.", 503);
+      }
+      return listPlatformUsersFromSupabase();
+    }
+    return users.map(clone);
+  },
+
+  async updateUserStatus(id, isActive) {
+    const platformUsers = await this.listUsers();
+    const matches = platformUsers.filter((user) => user.id === id);
+    if (matches.length > 1) throw platformDirectoryError("User ID is ambiguous.", 409);
+    const current = matches[0];
+    if (!current) throw platformDirectoryError("User not found.", 404);
+    await assertPlatformUserStatusChangeSafe(current, isActive);
+
+    const next = normalizeUser({
+      ...current,
+      isActive,
+      updatedAt: new Date().toISOString(),
+    });
+
+    if (isSupabaseConfigured()) {
+      await savePlatformUserToSupabase(next);
+      const local = users.find((user) => user.id === id);
+      if (local) Object.assign(local, next);
+      return clone(next);
+    }
+
+    const index = users.findIndex((user) => user.id === id);
+    const previousCompanyId = getRecordCompanyId(users[index]);
+    const previous = clone(users[index]);
+    users[index] = tagRecord(next, previousCompanyId);
+    try {
+      persistLocalMembershipDirectory();
+      return clone(users[index]);
+    } catch (error) {
+      users[index] = tagRecord(previous, previousCompanyId);
+      throw error;
+    }
   },
 };
 

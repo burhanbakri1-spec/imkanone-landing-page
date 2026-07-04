@@ -1,6 +1,10 @@
 import { Router } from "express";
 import { platformRoles } from "../auth/roles.js";
-import { companyMembershipRepository, companyRepository } from "../data/store.js";
+import {
+  companyMembershipRepository,
+  companyRepository,
+  platformUserRepository,
+} from "../data/store.js";
 import { requireAuth, requireSuperAdmin } from "../middleware/auth.js";
 import {
   COMPANY_STATUSES,
@@ -14,8 +18,11 @@ import {
 const router = Router();
 const allowedStatuses = new Set(COMPANY_STATUSES);
 const allowedMembershipRoles = new Set([
+  "admin",
+  "manager",
   platformRoles.COMPANY_ADMIN,
   platformRoles.EMPLOYEE,
+  "staff",
   platformRoles.CUSTOMER,
 ]);
 const allowedMembershipStatuses = new Set(["active", "inactive"]);
@@ -146,9 +153,53 @@ function rejectMembershipSecrets(body) {
 
 function validateMembershipRole(value) {
   if (!allowedMembershipRoles.has(value)) {
-    throw validationError("role must be one of: company_admin, employee, customer.");
+    throw validationError("role must be one of: admin, manager, company_admin, employee, staff, customer.");
   }
   return value;
+}
+
+function validatePlatformUserUpdateBody(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw validationError("Request body must be an object.");
+  }
+  rejectMembershipSecrets(body);
+  if (hasOwn(body, "role")) {
+    throw validationError(
+      "Platform user role changes are not enabled until all company authorization paths use memberships consistently.",
+    );
+  }
+  if (!hasOwn(body, "isActive") || typeof body.isActive !== "boolean") {
+    throw validationError("isActive must be a boolean.");
+  }
+  return { isActive: body.isActive };
+}
+
+function createPlatformUserSummary(user) {
+  return {
+    id: String(user?.id || ""),
+    name: String(user?.name || ""),
+    email: String(user?.email || "").trim().toLowerCase(),
+    role: String(user?.role || "customer"),
+    isActive: user?.isActive !== false,
+    createdAt: user?.createdAt || null,
+    updatedAt: user?.updatedAt || null,
+  };
+}
+
+function createPlatformMembershipSummary(record) {
+  return {
+    id: record.id,
+    companyId: record.companyId,
+    companyName: record.company?.name || "",
+    userId: record.userId,
+    userName: record.user?.name || "",
+    userEmail: String(record.user?.email || "").trim().toLowerCase(),
+    userRole: record.user?.role || "customer",
+    role: record.role,
+    isActive: record.status === "active",
+    createdAt: record.createdAt || null,
+    updatedAt: record.updatedAt || null,
+  };
 }
 
 function validateMembershipStatus(value) {
@@ -221,6 +272,48 @@ function membershipCompanyOr404(companyId) {
   if (!company) throw Object.assign(new Error("Company not found."), { statusCode: 404 });
   return company;
 }
+
+router.get("/users", async (_req, res) => {
+  try {
+    const users = await platformUserRepository.listUsers();
+    return res.json({ users: users.map(createPlatformUserSummary) });
+  } catch (error) {
+    return sendCompanyError(res, error);
+  }
+});
+
+router.patch("/users/:id", async (req, res) => {
+  try {
+    const changes = validatePlatformUserUpdateBody(req.body);
+    const user = await platformUserRepository.updateUserStatus(req.params.id, changes.isActive);
+    return res.json(createPlatformUserSummary(user));
+  } catch (error) {
+    return sendCompanyError(res, error);
+  }
+});
+
+router.get("/memberships", async (_req, res) => {
+  try {
+    const memberships = await companyMembershipRepository.listAllMemberships();
+    return res.json({ memberships: memberships.map(createPlatformMembershipSummary) });
+  } catch (error) {
+    return sendCompanyError(res, error);
+  }
+});
+
+router.patch("/memberships/:id", async (req, res) => {
+  try {
+    const changes = validateMembershipUpdateBody(req.body);
+    const membership = await companyMembershipRepository.updateMembershipById(
+      req.params.id,
+      changes,
+    );
+    const company = membershipCompanyOr404(membership.companyId);
+    return res.json(createPlatformMembershipSummary({ ...membership, company }));
+  } catch (error) {
+    return sendCompanyError(res, error);
+  }
+});
 
 router.get("/companies/:companyId/memberships", async (req, res) => {
   try {
