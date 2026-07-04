@@ -1,5 +1,5 @@
 export const DEFAULT_COMPANY_ID = "eb-chemical";
-export const DEFAULT_COMPANY_DOMAIN = "eb-chemical-full.vercel.app";
+export const DEFAULT_COMPANY_DOMAIN = "ebchemi.com";
 export const COMPANY_STATUSES = Object.freeze(["draft", "inactive", "active"]);
 
 const publicSettingKeys = new Set([
@@ -92,6 +92,52 @@ export function normalizeCompanyHost(value) {
     .replace(/^www\./, "");
 }
 
+function normalizeDisplayDomain(value) {
+  const firstValue = Array.isArray(value) ? value[0] : String(value || "").split(",")[0];
+  const input = String(firstValue || "").trim().slice(0, 2048);
+  if (!input) return "";
+
+  try {
+    return new URL(input.includes("://") ? input : `http://${input}`).hostname
+      .trim()
+      .toLowerCase()
+      .replace(/\.$/, "");
+  } catch {
+    return input
+      .replace(/^[a-z][a-z0-9+.-]*:\/\//i, "")
+      .split(/[/?#]/, 1)[0]
+      .replace(/:\d+$/, "")
+      .trim()
+      .toLowerCase()
+      .replace(/\.$/, "");
+  }
+}
+
+function domainPreference(entry) {
+  const domain = normalizeDisplayDomain(typeof entry === "string" ? entry : entry?.domain);
+  let score = 20;
+  if (domain === "ebchemi.com") score = 0;
+  else if (domain === "www.ebchemi.com") score = 1;
+  else if (domain.startsWith("www.")) score = 21;
+  else if (domain.startsWith("api.")) score = 80;
+  else if (domain.endsWith(".vercel.app")) score = 100;
+
+  score *= 100;
+  if (typeof entry === "object" && entry?.is_active === false) score += 100000;
+  if (typeof entry === "object" && entry?.is_primary === true) score -= 2;
+  return score;
+}
+
+export function selectPreferredCompanyDomains(entries = []) {
+  const unique = new Map();
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const domain = normalizeDisplayDomain(typeof entry === "string" ? entry : entry?.domain);
+    if (!domain || unique.has(domain)) continue;
+    unique.set(domain, typeof entry === "string" ? { domain } : { ...entry, domain });
+  }
+  return [...unique.values()].sort((a, b) => domainPreference(a) - domainPreference(b));
+}
+
 function clonePublicValue(value) {
   if (Array.isArray(value)) return value.map(clonePublicValue);
   if (!value || typeof value !== "object") return value;
@@ -129,10 +175,15 @@ export function createPublicCompanyContext(company = defaultCompany, options = {
 export function createPlatformCompanySummary(company = defaultCompany) {
   const source = company && typeof company === "object" ? company : defaultCompany;
   const context = createPublicCompanyContext(source);
+  const preferredDomains = selectPreferredCompanyDomains([
+    ...(Array.isArray(source.domains) ? source.domains : []),
+    source.domain,
+  ]);
   return {
     ...context,
     isDefault: source.id === DEFAULT_COMPANY_ID || source.isDefault === true,
-    domain: normalizeCompanyHost(source.domain),
+    domain: preferredDomains[0]?.domain || normalizeCompanyHost(source.domain),
+    domains: preferredDomains.map((entry) => entry.domain),
     settings: publicSettingsFor(source),
     createdAt: source.createdAt || null,
     updatedAt: source.updatedAt || null,

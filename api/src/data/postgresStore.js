@@ -2,6 +2,7 @@ import {
   DEFAULT_COMPANY_ID,
   companyStoragePath,
   normalizeCompanyId,
+  selectPreferredCompanyDomains,
 } from "../tenancy/company.js";
 import { Pool } from "pg";
 import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
@@ -738,7 +739,11 @@ export async function saveCompanyMembershipToSupabase({ membership, user, create
 
 function mergeCompany(row, domains, settingsRows) {
   const companyDomains = domains.filter((entry) => entry.company_id === row.id);
-  const domain = companyDomains.find((entry) => entry.is_primary) || companyDomains[0];
+  const activeDomains = companyDomains.filter((entry) => entry.is_active !== false);
+  const preferredDomains = selectPreferredCompanyDomains(
+    activeDomains.length ? activeDomains : companyDomains,
+  );
+  const domain = preferredDomains[0];
   const settings = settingsRows.find((entry) => entry.company_id === row.id);
   return {
     id: row.id,
@@ -747,6 +752,7 @@ function mergeCompany(row, domains, settingsRows) {
     status: row.status,
     isDefault: row.is_default === true,
     domain: domain?.domain || "",
+    domains: preferredDomains.map((entry) => entry.domain),
     settings: settings?.settings || {},
     createdAt: row.created_at,
     updatedAt: row.updated_at,

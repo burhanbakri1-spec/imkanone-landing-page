@@ -23,6 +23,7 @@ import {
   isSafeCompanySlug,
   normalizeCompanyHost,
   normalizeCompanyId,
+  selectPreferredCompanyDomains,
 } from "../tenancy/company.js";
 import { isPasswordHash } from "../auth/passwords.js";
 import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
@@ -362,6 +363,11 @@ function normalizeCompanyRecord(company = {}, index = 0) {
     : company.publicSettings && typeof company.publicSettings === "object"
       ? clone(company.publicSettings)
       : {};
+  const preferredDomains = selectPreferredCompanyDomains([
+    ...(Array.isArray(company.domains) ? company.domains : []),
+    company.domain,
+    ...(isDefault ? [DEFAULT_COMPANY_DOMAIN] : []),
+  ]);
   return {
     id,
     slug: isDefault ? DEFAULT_COMPANY_ID : String(company.slug || id).trim().toLowerCase(),
@@ -372,9 +378,8 @@ function normalizeCompanyRecord(company = {}, index = 0) {
         ? company.status
         : "inactive",
     isDefault,
-    domain: isDefault
-      ? DEFAULT_COMPANY_DOMAIN
-      : normalizeCompanyHost(company.domain),
+    domain: preferredDomains[0]?.domain || (isDefault ? DEFAULT_COMPANY_DOMAIN : ""),
+    domains: preferredDomains.map((entry) => entry.domain),
     settings,
     createdAt: company.createdAt || company.created_at || now,
     updatedAt: company.updatedAt || company.updated_at || company.createdAt || now,
