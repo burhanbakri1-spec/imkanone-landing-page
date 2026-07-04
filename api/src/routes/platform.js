@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { platformRoles } from "../auth/roles.js";
+import { hashPassword } from "../auth/passwords.js";
 import {
   companyMembershipRepository,
   companyRepository,
@@ -163,15 +164,80 @@ function validatePlatformUserUpdateBody(body) {
     throw validationError("Request body must be an object.");
   }
   rejectMembershipSecrets(body);
+  const changes = {};
+  if (hasOwn(body, "name")) {
+    if (typeof body.name !== "string" || !body.name.trim()) {
+      throw validationError("name cannot be empty.");
+    }
+    if (body.name.trim().length > 120) {
+      throw validationError("name must be 120 characters or fewer.");
+    }
+    changes.name = body.name.trim();
+  }
+  if (hasOwn(body, "email")) {
+    if (typeof body.email !== "string" || !body.email.trim()) {
+      throw validationError("email cannot be empty.");
+    }
+    if (body.email.trim().length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email.trim())) {
+      throw validationError("email must be a valid email address.");
+    }
+    changes.email = body.email.trim().toLowerCase();
+  }
+  if (hasOwn(body, "phone")) {
+    if (typeof body.phone !== "string") throw validationError("phone must be a string.");
+    changes.phone = body.phone.trim();
+  }
+  if (hasOwn(body, "department")) {
+    if (typeof body.department !== "string") throw validationError("department must be a string.");
+    changes.department = body.department.trim();
+  }
   if (hasOwn(body, "role")) {
-    throw validationError(
-      "Platform user role changes are not enabled until all company authorization paths use memberships consistently.",
-    );
+    const role = String(body.role).trim();
+    const allowedRoles = new Set(["admin", "manager", "company_admin", "employee", "staff", "customer"]);
+    if (!allowedRoles.has(role)) {
+      throw validationError("role must be one of: admin, manager, company_admin, employee, staff, customer.");
+    }
+    changes.role = role;
   }
-  if (!hasOwn(body, "isActive") || typeof body.isActive !== "boolean") {
-    throw validationError("isActive must be a boolean.");
+  if (hasOwn(body, "isActive")) {
+    if (typeof body.isActive !== "boolean") throw validationError("isActive must be a boolean.");
+    changes.isActive = body.isActive;
   }
-  return { isActive: body.isActive };
+  if (!Object.keys(changes).length) {
+    throw validationError("No supported user fields were provided.");
+  }
+  return changes;
+}
+
+function validatePlatformUserCreateBody(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw validationError("Request body must be an object.");
+  }
+  rejectMembershipSecrets(body);
+  if (hasOwn(body, "id")) throw validationError("User ID is managed by the server.");
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (!name) throw validationError("name is required.");
+  if (name.length > 120) throw validationError("name must be 120 characters or fewer.");
+  const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+  if (!email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw validationError("email must be a valid email address.");
+  }
+  const password = typeof body.password === "string" && body.password.length ? body.password : "";
+  if (!password) throw validationError("password is required for new users.");
+  const role = hasOwn(body, "role") ? String(body.role).trim() : "customer";
+  const allowedRoles = new Set(["admin", "manager", "company_admin", "employee", "staff", "customer"]);
+  if (!allowedRoles.has(role)) {
+    throw validationError("role must be one of: admin, manager, company_admin, employee, staff, customer.");
+  }
+  return {
+    name,
+    email,
+    password,
+    role,
+    phone: hasOwn(body, "phone") ? String(body.phone || "").trim() : "",
+    department: hasOwn(body, "department") ? String(body.department || "").trim() : "",
+    isActive: hasOwn(body, "isActive") ? body.isActive === true : true,
+  };
 }
 
 function createPlatformUserSummary(user) {
@@ -180,6 +246,8 @@ function createPlatformUserSummary(user) {
     name: String(user?.name || ""),
     email: String(user?.email || "").trim().toLowerCase(),
     role: String(user?.role || "customer"),
+    phone: String(user?.phone || ""),
+    department: String(user?.department || ""),
     isActive: user?.isActive !== false,
     createdAt: user?.createdAt || null,
     updatedAt: user?.updatedAt || null,
@@ -282,10 +350,20 @@ router.get("/users", async (_req, res) => {
   }
 });
 
+router.post("/users", async (req, res) => {
+  try {
+    const input = validatePlatformUserCreateBody(req.body);
+    const user = await platformUserRepository.createUser(input);
+    return res.status(201).json(createPlatformUserSummary(user));
+  } catch (error) {
+    return sendCompanyError(res, error);
+  }
+});
+
 router.patch("/users/:id", async (req, res) => {
   try {
     const changes = validatePlatformUserUpdateBody(req.body);
-    const user = await platformUserRepository.updateUserStatus(req.params.id, changes.isActive);
+    const user = await platformUserRepository.updateUser(req.params.id, changes);
     return res.json(createPlatformUserSummary(user));
   } catch (error) {
     return sendCompanyError(res, error);
@@ -310,6 +388,24 @@ router.patch("/memberships/:id", async (req, res) => {
     );
     const company = membershipCompanyOr404(membership.companyId);
     return res.json(createPlatformMembershipSummary({ ...membership, company }));
+  } catch (error) {
+    return sendCompanyError(res, error);
+  }
+});
+
+router.post("/memberships", async (req, res) => {
+  try {
+    if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+      throw validationError("Request body must be an object.");
+    }
+    const companyId = String(req.body.companyId || req.body.company_id || "").trim().toLowerCase();
+    if (!companyId) throw validationError("companyId is required.");
+    const company = membershipCompanyOr404(companyId);
+    const membership = await companyMembershipRepository.createOrUpdateMembership(
+      company.id,
+      req.body,
+    );
+    return res.status(201).json(createPlatformMembershipSummary({ ...membership, company }));
   } catch (error) {
     return sendCompanyError(res, error);
   }

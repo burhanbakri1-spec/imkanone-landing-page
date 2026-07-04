@@ -1137,6 +1137,29 @@ async function assertPlatformUserStatusChangeSafe(user, isActive) {
   }
 }
 
+function assertPlatformUserCreateSafe(input) {
+  if (!input || typeof input !== "object") {
+    throw platformDirectoryError("Request body must be an object.");
+  }
+  const email = typeof input.email === "string" ? input.email.trim().toLowerCase() : "";
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw platformDirectoryError("email must be a valid email address.");
+  }
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  if (!name) throw platformDirectoryError("name is required.");
+  if (name.length > 120) throw platformDirectoryError("name must be 120 characters or fewer.");
+  const role = typeof input.role === "string" ? input.role.trim() : "customer";
+  const allowedCreateRoles = new Set(["admin", "manager", "company_admin", "employee", "staff", "customer"]);
+  if (!allowedCreateRoles.has(role)) {
+    throw platformDirectoryError("role must be one of: admin, manager, company_admin, employee, staff, customer.");
+  }
+  const password = typeof input.password === "string" && input.password.length ? input.password : "";
+  if (!password) throw platformDirectoryError("password is required.");
+  const existing = users.find((u) => String(u.email || "").trim().toLowerCase() === email);
+  if (existing) throw platformDirectoryError("A user with this email already exists.", 409);
+  return { email, name, role, password };
+}
+
 export const platformUserRepository = {
   async listUsers() {
     if (isSupabaseConfigured()) {
@@ -1148,17 +1171,72 @@ export const platformUserRepository = {
     return users.map(clone);
   },
 
-  async updateUserStatus(id, isActive) {
+  async createUser(input) {
+    const safe = assertPlatformUserCreateSafe(input);
+    const passwordHash = await hashPassword(safe.password);
+    const now = new Date().toISOString();
+    const id = `user-${crypto.randomUUID()}`;
+    const user = normalizeUser({
+      id,
+      name: safe.name,
+      email: safe.email,
+      phone: typeof input.phone === "string" ? input.phone.trim() : "",
+      department: typeof input.department === "string" ? input.department.trim() : "",
+      password: passwordHash,
+      role: safe.role,
+      permissions: [],
+      isActive: input.isActive !== false,
+      createdAt: now,
+      updatedAt: now,
+    });
+    tagRecord(user, DEFAULT_COMPANY_ID);
+    users.push(user);
+    try {
+      if (isSupabaseConfigured()) {
+        await savePlatformUserToSupabase(user);
+      } else {
+        persistLocalMembershipDirectory();
+      }
+    } catch (error) {
+      users.pop();
+      throw error;
+    }
+    return clone(user);
+  },
+
+  async updateUser(id, changes) {
     const platformUsers = await this.listUsers();
     const matches = platformUsers.filter((user) => user.id === id);
     if (matches.length > 1) throw platformDirectoryError("User ID is ambiguous.", 409);
     const current = matches[0];
     if (!current) throw platformDirectoryError("User not found.", 404);
-    await assertPlatformUserStatusChangeSafe(current, isActive);
+
+    if (current.role === "super_admin") {
+      if (changes.role !== undefined && changes.role !== "super_admin") {
+        throw platformDirectoryError("Super Admin role cannot be demoted.", 403);
+      }
+      if (changes.isActive === false) {
+        throw platformDirectoryError("Super Admin cannot be disabled.", 403);
+      }
+    }
+
+    if (changes.email !== undefined) {
+      const email = String(changes.email || "").trim().toLowerCase();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        throw platformDirectoryError("email must be a valid email address.");
+      }
+      const duplicate = users.find((u) => u.id !== id && String(u.email || "").trim().toLowerCase() === email);
+      if (duplicate) throw platformDirectoryError("A user with this email already exists.", 409);
+      changes.email = email;
+    }
+
+    if (changes.isActive === false) {
+      await assertPlatformUserStatusChangeSafe(current, false);
+    }
 
     const next = normalizeUser({
       ...current,
-      isActive,
+      ...changes,
       updatedAt: new Date().toISOString(),
     });
 
@@ -1180,6 +1258,10 @@ export const platformUserRepository = {
       users[index] = tagRecord(previous, previousCompanyId);
       throw error;
     }
+  },
+
+  async updateUserStatus(id, isActive) {
+    return this.updateUser(id, { isActive });
   },
 };
 
