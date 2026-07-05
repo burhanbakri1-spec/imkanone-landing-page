@@ -11,6 +11,7 @@ export const ADMIN_MODULE_KEYS = Object.freeze([
   "website_media",
   "homepage_content",
   "settings",
+  "custom_modules",
   "reports",
   "activity_log",
 ]);

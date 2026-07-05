@@ -523,6 +523,16 @@ persistedWebsiteMedia
 export const websiteMedia = [...websiteMediaBySection.values()].map((item, index) =>
   tagRecord(normalizeWebsiteMedia(withoutCompanyFields(item), index), DEFAULT_COMPANY_ID),
 );
+export const customAdminModules = normalizeTenantRecords(
+  persisted?.customAdminModules,
+  [],
+  normalizeCustomAdminModule,
+);
+export const customAdminModuleEntries = normalizeTenantRecords(
+  persisted?.customAdminModuleEntries,
+  [],
+  normalizeCustomAdminModuleEntry,
+);
 
 class TenantRepository {
   constructor(collection, idKey = "id") {
@@ -615,11 +625,54 @@ export const offerRepository = new TenantRepository(offers);
 export const categoryCardRepository = new TenantRepository(categoryCards, "key");
 export const reviewRepository = new TenantRepository(reviews);
 export const websiteMediaRepository = new TenantRepository(websiteMedia);
+export const customAdminModuleRepository = new TenantRepository(customAdminModules);
+export const customAdminModuleEntryRepository = new TenantRepository(customAdminModuleEntries);
 
 function platformDirectoryError(message, statusCode = 400) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
+}
+
+function normalizeCustomAdminModule(module, index = 0) {
+  const now = new Date().toISOString();
+  return {
+    ...module,
+    id: String(module.id || `custom-module-${index}-${Date.now()}`),
+    key: String(module.key || `custom_module_${index}`),
+    label: String(module.label || "Custom Module"),
+    description: String(module.description || ""),
+    icon: String(module.icon || "folder"),
+    sidebarOrder: Number(module.sidebarOrder ?? module.sidebar_order ?? 100),
+    enabled: module.enabled !== false,
+    fieldsSchema: Array.isArray(module.fieldsSchema ?? module.fields_schema)
+      ? clone(module.fieldsSchema ?? module.fields_schema)
+      : [],
+    listConfig: clone(module.listConfig ?? module.list_config ?? {}),
+    formConfig: clone(module.formConfig ?? module.form_config ?? {}),
+    permissions: clone(module.permissions || {}),
+    createdBy: module.createdBy || module.created_by || "",
+    updatedBy: module.updatedBy || module.updated_by || "",
+    createdAt: module.createdAt || module.created_at || now,
+    updatedAt: module.updatedAt || module.updated_at || module.createdAt || now,
+  };
+}
+
+function normalizeCustomAdminModuleEntry(entry, index = 0) {
+  const now = new Date().toISOString();
+  return {
+    ...entry,
+    id: String(entry.id || `custom-entry-${index}-${Date.now()}`),
+    moduleId: String(entry.moduleId || entry.module_id || ""),
+    data: entry.data && typeof entry.data === "object" && !Array.isArray(entry.data)
+      ? clone(entry.data)
+      : {},
+    status: entry.status === "deleted" ? "deleted" : "active",
+    createdBy: entry.createdBy || entry.created_by || "",
+    updatedBy: entry.updatedBy || entry.updated_by || "",
+    createdAt: entry.createdAt || entry.created_at || now,
+    updatedAt: entry.updatedAt || entry.updated_at || entry.createdAt || now,
+  };
 }
 
 function superAdminProvisioningError(message, code) {
@@ -1278,6 +1331,8 @@ export function currentStoreSnapshot(companyId = DEFAULT_COMPANY_ID) {
     reviews: reviewRepository.getByCompany(normalized),
     websiteMedia: websiteMediaRepository.getByCompany(normalized),
     workSessions: workSessionRepository.getByCompany(normalized),
+    customAdminModules: customAdminModuleRepository.getByCompany(normalized),
+    customAdminModuleEntries: customAdminModuleEntryRepository.getByCompany(normalized),
     carts: Object.fromEntries(
       cartRepository.getByCompany(normalized).map(({ userId, items }) => [userId, items]),
     ),
@@ -1345,6 +1400,8 @@ function persistLocalCompanyStore(companyId, store) {
     "reviews",
     "websiteMedia",
     "workSessions",
+    "customAdminModules",
+    "customAdminModuleEntries",
   ]) {
     merged[key] = mergeLocalTenantRecords(existing[key], store[key], normalized);
   }

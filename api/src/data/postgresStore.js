@@ -688,6 +688,39 @@ export async function findUsersByEmailFromSupabase(email) {
     .map(mergeUser);
 }
 
+function mergeCustomAdminModule(row) {
+  return {
+    id: row.id,
+    key: row.key,
+    label: row.label,
+    description: row.description || "",
+    icon: row.icon || "folder",
+    sidebarOrder: Number(row.sidebar_order || 0),
+    enabled: row.enabled !== false,
+    fieldsSchema: row.fields_schema || [],
+    listConfig: row.list_config || {},
+    formConfig: row.form_config || {},
+    permissions: row.permissions || {},
+    createdBy: row.created_by || "",
+    updatedBy: row.updated_by || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mergeCustomAdminModuleEntry(row) {
+  return {
+    id: row.id,
+    moduleId: row.module_id,
+    data: row.data || {},
+    status: row.status || "active",
+    createdBy: row.created_by || "",
+    updatedBy: row.updated_by || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 export async function listPlatformUsersFromSupabase() {
   const rows = await selectAll("users", "select=*");
   return rows.map(mergeUser);
@@ -786,6 +819,8 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
     reviews,
     workSessions,
     websiteMedia,
+    customAdminModules,
+    customAdminModuleEntries,
     companies,
     companyDomains,
     companySettings,
@@ -806,6 +841,8 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
     selectCompanyRows("reviews", normalizedCompanyId),
     selectCompanyRows("work_sessions", normalizedCompanyId),
     selectCompanyRows("website_media", normalizedCompanyId),
+    selectCompanyRows("custom_admin_modules", normalizedCompanyId),
+    selectCompanyRows("custom_admin_module_entries", normalizedCompanyId),
     selectAll("companies", "select=*"),
     selectAll("company_domains", "select=*"),
     selectAll("company_settings", "select=*"),
@@ -831,6 +868,8 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
     reviews,
     workSessions,
     websiteMedia,
+    customAdminModules,
+    customAdminModuleEntries,
   ].some((rows) => rows.length);
 
   return {
@@ -856,6 +895,8 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
       reviews: reviews.map((review) => review.data || review),
       websiteMedia: websiteMedia.map(mergeWebsiteMedia),
       workSessions: workSessions.map((session) => session.data || session),
+      customAdminModules: customAdminModules.map(mergeCustomAdminModule),
+      customAdminModuleEntries: customAdminModuleEntries.map(mergeCustomAdminModuleEntry),
       companies: companies.map((company) =>
         mergeCompany(company, companyDomains, companySettings),
       ),
@@ -874,6 +915,8 @@ export async function saveStoreToSupabase(store, options = {}) {
   const reviews = store.reviews || [];
   const workSessions = store.workSessions || [];
   const websiteMedia = store.websiteMedia || [];
+  const customAdminModules = store.customAdminModules || [];
+  const customAdminModuleEntries = store.customAdminModuleEntries || [];
   const carts = Object.entries(store.carts || {});
 
   const productRows = products.map((product) => productRow(product, companyId));
@@ -940,6 +983,35 @@ export async function saveStoreToSupabase(store, options = {}) {
   const websiteMediaRows = websiteMedia.map((item, index) =>
     websiteMediaRow(item, index, companyId),
   );
+  const customAdminModuleRows = customAdminModules.map((module) => ({
+    id: module.id,
+    company_id: companyId,
+    key: module.key,
+    label: module.label,
+    description: module.description || "",
+    icon: module.icon || "folder",
+    sidebar_order: Number(module.sidebarOrder || 0),
+    enabled: module.enabled !== false,
+    fields_schema: module.fieldsSchema || [],
+    list_config: module.listConfig || {},
+    form_config: module.formConfig || {},
+    permissions: module.permissions || {},
+    created_by: module.createdBy || null,
+    updated_by: module.updatedBy || null,
+    created_at: rowDate(module.createdAt),
+    updated_at: rowDate(module.updatedAt),
+  }));
+  const customAdminModuleEntryRows = customAdminModuleEntries.map((entry) => ({
+    id: entry.id,
+    company_id: companyId,
+    module_id: entry.moduleId,
+    data: entry.data || {},
+    status: entry.status || "active",
+    created_by: entry.createdBy || null,
+    updated_by: entry.updatedBy || null,
+    created_at: rowDate(entry.createdAt),
+    updated_at: rowDate(entry.updatedAt),
+  }));
 
   await upsertRows("users", userRows);
   // Runtime store saves may seed missing memberships, but must never overwrite
@@ -978,6 +1050,8 @@ export async function saveStoreToSupabase(store, options = {}) {
   await upsertCompanyRows("reviews", reviewRows, companyId);
   await upsertCompanyRows("work_sessions", workSessionRows, companyId);
   await upsertCompanyRows("website_media", websiteMediaRows, companyId);
+  await upsertCompanyRows("custom_admin_modules", customAdminModuleRows, companyId);
+  await upsertCompanyRows("custom_admin_module_entries", customAdminModuleEntryRows, companyId);
 
   if (pruneMissing) {
     await deleteMissingCompanyRows("products", productRows.map((row) => row.id), companyId);
@@ -991,6 +1065,8 @@ export async function saveStoreToSupabase(store, options = {}) {
     await deleteMissingCompanyRows("reviews", reviewRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("work_sessions", workSessionRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("website_media", websiteMediaRows.map((row) => row.id), companyId);
+    await deleteMissingCompanyRows("custom_admin_modules", customAdminModuleRows.map((row) => row.id), companyId);
+    await deleteMissingCompanyRows("custom_admin_module_entries", customAdminModuleEntryRows.map((row) => row.id), companyId);
   }
 }
 
