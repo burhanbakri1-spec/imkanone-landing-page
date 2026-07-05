@@ -1,9 +1,25 @@
 export const DEFAULT_COMPANY_ID = "eb-chemical";
 export const DEFAULT_COMPANY_DOMAIN = "ebchemi.com";
 export const COMPANY_STATUSES = Object.freeze(["draft", "inactive", "active"]);
+export const ADMIN_MODULE_KEYS = Object.freeze([
+  "dashboard",
+  "products",
+  "categories",
+  "orders",
+  "customers",
+  "employees",
+  "website_media",
+  "homepage_content",
+  "settings",
+  "reports",
+  "activity_log",
+]);
+
+const adminModuleKeys = new Set(ADMIN_MODULE_KEYS);
 
 const publicSettingKeys = new Set([
   "currency",
+  "adminModules",
   "direction",
   "faviconUrl",
   "language",
@@ -154,7 +170,15 @@ function publicSettingsFor(company) {
   return Object.fromEntries(
     Object.entries(source)
       .filter(([key]) => publicSettingKeys.has(key))
-      .map(([key, value]) => [key, clonePublicValue(value)]),
+      .map(([key, value]) => [
+        key,
+        key === "adminModules"
+          ? Object.fromEntries(
+              Object.entries(value && typeof value === "object" && !Array.isArray(value) ? value : {})
+                .filter(([moduleKey, enabled]) => adminModuleKeys.has(moduleKey) && typeof enabled === "boolean"),
+            )
+          : clonePublicValue(value),
+      ]),
   );
 }
 

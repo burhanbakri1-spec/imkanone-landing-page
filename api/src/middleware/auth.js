@@ -89,7 +89,7 @@ export function optionalAuth(req, res, next) {
 }
 
 export function requireAdmin(req, res, next) {
-  if (req.user?.role !== "admin") {
+  if (!["admin", "company_admin"].includes(req.user?.role)) {
     return res.status(403).json({ message: "Admin access required." });
   }
   return next();

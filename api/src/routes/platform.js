@@ -8,6 +8,7 @@ import {
 } from "../data/store.js";
 import { requireAuth, requireSuperAdmin } from "../middleware/auth.js";
 import {
+  ADMIN_MODULE_KEYS,
   COMPANY_STATUSES,
   createPlatformCompanySummary,
   isSafeCompanySlug,
@@ -43,6 +44,21 @@ function validationError(message) {
 function validateSettings(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw validationError("settings must be an object.");
+  }
+  if (hasOwn(value, "adminModules")) {
+    const modules = value.adminModules;
+    if (!modules || typeof modules !== "object" || Array.isArray(modules)) {
+      throw validationError("settings.adminModules must be an object.");
+    }
+    const allowedModuleKeys = new Set(ADMIN_MODULE_KEYS);
+    for (const [moduleKey, enabled] of Object.entries(modules)) {
+      if (!allowedModuleKeys.has(moduleKey)) {
+        throw validationError(`Unknown admin module: ${moduleKey}.`);
+      }
+      if (typeof enabled !== "boolean") {
+        throw validationError(`settings.adminModules.${moduleKey} must be a boolean.`);
+      }
+    }
   }
   return sanitizePublicCompanySettings(value);
 }
