@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { persistCompanyStore, productRepository } from "../data/store.js";
 import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
+import { recordActivityLog } from "../activityLog/logger.js";
 
 const router = Router();
 const placeholderImage = "/images/products/product-placeholder.svg";
@@ -166,6 +167,16 @@ router.post("/", async (req, res) => {
   });
   productRepository.createForCompany(req.companyId, product, { prepend: true });
   await persistCompanyStore(req.companyId);
+  recordActivityLog({
+    req,
+    companyId: req.companyId,
+    action: "product.created",
+    entityType: "product",
+    entityId: product.id,
+    entityLabel: product.name?.en || product.slug || "",
+    summary: `Product "${product.name?.en || product.slug}" created`,
+    afterData: { name: product.name?.en || product.slug, category: product.categoryId },
+  });
   res.status(201).json(product);
 });
 
@@ -179,6 +190,23 @@ router.put("/:id", async (req, res) => {
     id: req.params.id,
   })));
   await persistCompanyStore(req.companyId);
+  const updatedName = updated.name?.en || updated.slug || "";
+  const wasVisible = existing.visible !== false;
+  const nowVisible = updated.visible !== false;
+  const visibilityChanged = wasVisible !== nowVisible;
+  recordActivityLog({
+    req,
+    companyId: req.companyId,
+    action: visibilityChanged ? "product.visibility_changed" : "product.updated",
+    entityType: "product",
+    entityId: existing.id,
+    entityLabel: updatedName,
+    summary: visibilityChanged
+      ? `Product "${updatedName}" ${nowVisible ? "shown" : "hidden"}`
+      : `Product "${updatedName}" updated`,
+    beforeData: { name: existing.name?.en || existing.slug, visible: existing.visible !== false },
+    afterData: { name: updatedName, visible: updated.visible !== false },
+  });
   return res.json(updated);
 });
 
@@ -188,6 +216,17 @@ router.delete("/:id", async (req, res) => {
     return res.status(404).json({ message: "Product not found." });
   }
   await persistCompanyStore(req.companyId, { pruneMissing: true });
+  const removedName = removed.name?.en || removed.slug || "";
+  recordActivityLog({
+    req,
+    companyId: req.companyId,
+    action: "product.deleted",
+    entityType: "product",
+    entityId: removed.id,
+    entityLabel: removedName,
+    summary: `Product "${removedName}" deleted`,
+    beforeData: { name: removedName, category: removed.categoryId },
+  });
   return res.status(204).end();
 });
 

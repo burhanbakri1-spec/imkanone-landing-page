@@ -3,6 +3,7 @@ import { Router } from "express";
 import { deliveryZoneRepository, persistCompanyStore } from "../data/store.js";
 import { requireAuth, requireAdmin } from "../middleware/auth.js";
 import { sanitizeCreateZone, sanitizeUpdateZone } from "../delivery/schema.js";
+import { recordActivityLog } from "../activityLog/logger.js";
 
 function zoneError(message, statusCode = 400) {
   const error = new Error(message);
@@ -75,6 +76,16 @@ adminRouter.post("/", async (req, res) => {
       updated_at: now,
     });
     await persistCompanyStore(req.companyId);
+    recordActivityLog({
+      req,
+      companyId: req.companyId,
+      action: "delivery_zone.created",
+      entityType: "delivery_zone",
+      entityId: zone.id,
+      entityLabel: zone.city_name || "",
+      summary: `Delivery zone created for ${zone.city_name}`,
+      afterData: { city_name: zone.city_name, delivery_price: zone.delivery_price, enabled: zone.enabled },
+    });
     return res.status(201).json(zone);
   } catch (error) {
     return sendError(res, error);
@@ -101,6 +112,20 @@ adminRouter.patch("/:zoneId", async (req, res) => {
       updated_at: now,
     });
     await persistCompanyStore(req.companyId);
+    const enabledChanged = current.enabled !== zone.enabled;
+    recordActivityLog({
+      req,
+      companyId: req.companyId,
+      action: enabledChanged ? "delivery_zone.enabled_changed" : "delivery_zone.updated",
+      entityType: "delivery_zone",
+      entityId: current.id,
+      entityLabel: current.city_name || "",
+      summary: enabledChanged
+        ? `Delivery zone ${current.city_name} ${zone.enabled ? "enabled" : "disabled"}`
+        : `Delivery zone ${current.city_name} updated`,
+      beforeData: { city_name: current.city_name, delivery_price: current.delivery_price, enabled: current.enabled },
+      afterData: { city_name: zone.city_name, delivery_price: zone.delivery_price, enabled: zone.enabled },
+    });
     return res.json(zone);
   } catch (error) {
     return sendError(res, error);
@@ -119,6 +144,16 @@ adminRouter.delete("/:zoneId", async (req, res) => {
       updated_at: now,
     });
     await persistCompanyStore(req.companyId);
+    recordActivityLog({
+      req,
+      companyId: req.companyId,
+      action: "delivery_zone.deleted",
+      entityType: "delivery_zone",
+      entityId: current.id,
+      entityLabel: current.city_name || "",
+      summary: `Delivery zone ${current.city_name} deleted`,
+      beforeData: { city_name: current.city_name, delivery_price: current.delivery_price, enabled: current.enabled },
+    });
     return res.json(zone);
   } catch (error) {
     return sendError(res, error);

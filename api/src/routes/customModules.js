@@ -7,6 +7,7 @@ import {
   persistCompanyStore,
 } from "../data/store.js";
 import { requireAuth } from "../middleware/auth.js";
+import { recordActivityLog } from "../activityLog/logger.js";
 import { normalizeCompanyId } from "../tenancy/company.js";
 import {
   customModuleValidationError,
@@ -99,6 +100,16 @@ router.post("/", async (req, res) => {
       updatedAt: now,
     });
     await persistCompanyStore(companyId);
+    recordActivityLog({
+      req,
+      companyId,
+      action: "custom_module.created",
+      entityType: "custom_module",
+      entityId: module.id,
+      entityLabel: module.label || module.key || "",
+      summary: `Custom module "${module.label || module.key}" created`,
+      afterData: { label: module.label, key: module.key, enabled: module.enabled },
+    });
     return res.status(201).json(module);
   } catch (error) {
     return sendError(res, error);
@@ -132,6 +143,20 @@ router.patch("/:moduleId", async (req, res) => {
       updatedAt: new Date().toISOString(),
     });
     await persistCompanyStore(companyId);
+    const disabled = config.enabled === false;
+    recordActivityLog({
+      req,
+      companyId,
+      action: disabled ? "custom_module.disabled" : "custom_module.updated",
+      entityType: "custom_module",
+      entityId: current.id,
+      entityLabel: current.label || current.key || "",
+      summary: disabled
+        ? `Custom module "${current.label || current.key}" disabled`
+        : `Custom module "${current.label || current.key}" updated`,
+      beforeData: { label: current.label, key: current.key, enabled: current.enabled },
+      afterData: { label: module.label, key: module.key, enabled: module.enabled },
+    });
     return res.json(module);
   } catch (error) {
     return sendError(res, error);
@@ -149,6 +174,17 @@ router.delete("/:moduleId", async (req, res) => {
       updatedAt: new Date().toISOString(),
     });
     await persistCompanyStore(companyId);
+    recordActivityLog({
+      req,
+      companyId,
+      action: "custom_module.disabled",
+      entityType: "custom_module",
+      entityId: current.id,
+      entityLabel: current.label || current.key || "",
+      summary: `Custom module "${current.label || current.key}" disabled via delete`,
+      beforeData: { label: current.label, key: current.key, enabled: current.enabled },
+      afterData: { enabled: false },
+    });
     return res.json(module);
   } catch (error) {
     return sendError(res, error);
@@ -189,6 +225,16 @@ router.post("/:moduleId/entries", async (req, res) => {
       updatedAt: now,
     });
     await persistCompanyStore(companyId);
+    recordActivityLog({
+      req,
+      companyId,
+      action: "custom_module_entry.created",
+      entityType: "custom_module_entry",
+      entityId: entry.id,
+      entityLabel: module.label || module.key || "",
+      summary: `Entry created in custom module "${module.label || module.key}"`,
+      afterData: { moduleId: module.id, moduleKey: module.key, entryId: entry.id },
+    });
     return res.status(201).json(entry);
   } catch (error) {
     return sendError(res, error);
@@ -221,6 +267,17 @@ router.patch("/:moduleId/entries/:entryId", async (req, res) => {
       updatedAt: new Date().toISOString(),
     });
     await persistCompanyStore(companyId);
+    recordActivityLog({
+      req,
+      companyId,
+      action: "custom_module_entry.updated",
+      entityType: "custom_module_entry",
+      entityId: current.id,
+      entityLabel: module.label || module.key || "",
+      summary: `Entry updated in custom module "${module.label || module.key}"`,
+      beforeData: { moduleId: module.id, moduleKey: module.key },
+      afterData: { moduleId: module.id, moduleKey: module.key, entryId: entry.id },
+    });
     return res.json(entry);
   } catch (error) {
     return sendError(res, error);
@@ -241,6 +298,16 @@ router.delete("/:moduleId/entries/:entryId", async (req, res) => {
       updatedAt: new Date().toISOString(),
     });
     await persistCompanyStore(companyId);
+    recordActivityLog({
+      req,
+      companyId,
+      action: "custom_module_entry.deleted",
+      entityType: "custom_module_entry",
+      entityId: current.id,
+      entityLabel: module.label || module.key || "",
+      summary: `Entry deleted from custom module "${module.label || module.key}"`,
+      beforeData: { moduleId: module.id, moduleKey: module.key, entryId: current.id },
+    });
     return res.json(entry);
   } catch (error) {
     return sendError(res, error);

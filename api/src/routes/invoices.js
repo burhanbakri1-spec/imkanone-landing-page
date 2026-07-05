@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { Router } from "express";
 import { invoiceRepository, persistCompanyStore } from "../data/store.js";
 import { requireAuth, requireAdmin } from "../middleware/auth.js";
+import { recordActivityLog } from "../activityLog/logger.js";
 import {
   generateInvoiceNumber,
   sanitizeCreateInvoice,
@@ -67,6 +68,16 @@ router.post("/", async (req, res) => {
     });
 
     await persistCompanyStore(req.companyId);
+    recordActivityLog({
+      req,
+      companyId: req.companyId,
+      action: "invoice.created",
+      entityType: "invoice",
+      entityId: invoice.id,
+      entityLabel: invoice.invoice_number || "",
+      summary: `Invoice ${invoice.invoice_number} created for ${invoice.customer_name || "unknown"}`,
+      afterData: { customer_name: invoice.customer_name, total: invoice.total, status: invoice.status },
+    });
     return res.status(201).json(invoice);
   } catch (error) {
     return sendError(res, error);
@@ -102,6 +113,17 @@ router.patch("/:invoiceId", async (req, res) => {
     });
 
     await persistCompanyStore(req.companyId);
+    recordActivityLog({
+      req,
+      companyId: req.companyId,
+      action: "invoice.updated",
+      entityType: "invoice",
+      entityId: invoice.id,
+      entityLabel: invoice.invoice_number || "",
+      summary: `Invoice ${invoice.invoice_number} updated`,
+      beforeData: { customer_name: current.customer_name, total: current.total, status: current.status },
+      afterData: { customer_name: invoice.customer_name, total: invoice.total, status: invoice.status },
+    });
     return res.json(invoice);
   } catch (error) {
     return sendError(res, error);
@@ -125,6 +147,17 @@ router.delete("/:invoiceId", async (req, res) => {
     });
 
     await persistCompanyStore(req.companyId);
+    recordActivityLog({
+      req,
+      companyId: req.companyId,
+      action: "invoice.voided",
+      entityType: "invoice",
+      entityId: current.id,
+      entityLabel: current.invoice_number || "",
+      summary: `Invoice ${current.invoice_number} voided`,
+      beforeData: { status: current.status },
+      afterData: { status: "void" },
+    });
     return res.json(invoice);
   } catch (error) {
     return sendError(res, error);
@@ -148,6 +181,17 @@ router.post("/:invoiceId/void", async (req, res) => {
     });
 
     await persistCompanyStore(req.companyId);
+    recordActivityLog({
+      req,
+      companyId: req.companyId,
+      action: "invoice.voided",
+      entityType: "invoice",
+      entityId: current.id,
+      entityLabel: current.invoice_number || "",
+      summary: `Invoice ${current.invoice_number} voided`,
+      beforeData: { status: current.status },
+      afterData: { status: "void" },
+    });
     return res.json(invoice);
   } catch (error) {
     return sendError(res, error);

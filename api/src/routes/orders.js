@@ -3,6 +3,7 @@ import { deliveryZoneRepository, orderRepository, persistCompanyStore, productRe
 import { optionalAuth, publicUser, requireAuth } from "../middleware/auth.js";
 import { findEnabledZone } from "../delivery/schema.js";
 import { isVariantVisible } from "../products/variantVisibility.js";
+import { recordActivityLog } from "../activityLog/logger.js";
 
 const router = Router();
 
@@ -180,6 +181,16 @@ router.post("/", optionalAuth, async (req, res) => {
 
   orderRepository.createForCompany(req.companyId, order, { prepend: true });
   await persistCompanyStore(req.companyId);
+  recordActivityLog({
+    req,
+    companyId: req.companyId,
+    action: "order.created",
+    entityType: "order",
+    entityId: order.id,
+    entityLabel: order.id || "",
+    summary: `Order ${order.id} created for ${customer.name}`,
+    afterData: { customer_name: customer.name, total: orderTotal, item_count: items.length },
+  });
   res.status(201).json(order);
 });
 
@@ -187,10 +198,22 @@ router.put("/:id/status", requireAuth, async (req, res) => {
   const order = orderRepository.findByCompany(req.companyId, req.params.id);
   if (!order) return res.status(404).json({ message: "Order not found." });
 
+  const prevStatus = order.status;
   order.status = req.body.status || order.status;
   order.lastUpdatedBy = publicUser(req.user);
   order.updatedAt = new Date().toISOString();
   await persistCompanyStore(req.companyId);
+  recordActivityLog({
+    req,
+    companyId: req.companyId,
+    action: "order.status_updated",
+    entityType: "order",
+    entityId: order.id,
+    entityLabel: order.id || "",
+    summary: `Order ${order.id} status changed from ${prevStatus} to ${order.status}`,
+    beforeData: { status: prevStatus },
+    afterData: { status: order.status },
+  });
   return res.json(order);
 });
 
