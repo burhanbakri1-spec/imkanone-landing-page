@@ -1,6 +1,7 @@
 import { Router } from "express";
-import { orderRepository, persistCompanyStore, productRepository } from "../data/store.js";
+import { deliveryZoneRepository, orderRepository, persistCompanyStore, productRepository } from "../data/store.js";
 import { optionalAuth, publicUser, requireAuth } from "../middleware/auth.js";
+import { findEnabledZone } from "../delivery/schema.js";
 import { isVariantVisible } from "../products/variantVisibility.js";
 
 const router = Router();
@@ -114,7 +115,22 @@ router.post("/", optionalAuth, async (req, res) => {
     return res.status(409).json({ message: "One or more selected product variants are unavailable." });
   }
 
-  const orderTotal = Math.max(0, safeNumber(req.body.total || req.body.subtotal));
+  // Delivery zone lookup
+  const allZones = deliveryZoneRepository.getByCompany(req.companyId).filter((z) => !z.deleted_at);
+  let deliveryPrice = 0;
+  let deliveryZone = null;
+  if (allZones.length > 0) {
+    const deliveryZoneId = cleanText(req.body.delivery_zone_id || req.body.deliveryZoneId, 160);
+    const cityKey = cleanText(req.body.delivery_city_key || req.body.deliveryCityKey, 120);
+    deliveryZone = findEnabledZone(allZones, deliveryZoneId, cityKey);
+    if (!deliveryZone) {
+      return res.status(400).json({ message: "Selected delivery city is not available." });
+    }
+    deliveryPrice = deliveryZone.delivery_price;
+  }
+
+  const subtotal = Math.max(0, safeNumber(req.body.subtotal || req.body.total));
+  const orderTotal = subtotal + deliveryPrice;
   const isCustomer = user?.role === "customer";
   const isStaff = isStaffRole(user?.role);
   const isPortalOperator = user?.role === "admin" || user?.role === "manager";
@@ -132,11 +148,16 @@ router.post("/", optionalAuth, async (req, res) => {
         ? cleanText(req.body.customerUserId, 160) || null
         : null,
     items,
-    subtotal: Math.max(0, safeNumber(req.body.subtotal, orderTotal)),
+    subtotal,
     total: orderTotal,
     pointsEarned,
     pointsRedeemed,
     discountFromPoints,
+    delivery_city_key: deliveryZone ? deliveryZone.city_key : "",
+    delivery_city_name: deliveryZone ? deliveryZone.city_name : "",
+    delivery_region: deliveryZone ? deliveryZone.region : "",
+    delivery_price: deliveryPrice,
+    delivery_currency: deliveryZone ? deliveryZone.currency : "",
     paymentMethod: cleanText(req.body.paymentMethod, 80) || "Cash on delivery",
     status: "Pending",
     handledByEmployeeId: isStaff ? user.id : "",

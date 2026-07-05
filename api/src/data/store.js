@@ -51,6 +51,7 @@ export const allPermissions = [
   "employees.view",
   "website_media.manage",
   "invoices.view",
+  "delivery.view",
 ];
 
 const seedUsers = [
@@ -541,6 +542,12 @@ export const invoices = normalizeTenantRecords(
   (inv) => inv,
 );
 
+export const deliveryZones = normalizeTenantRecords(
+  persisted?.deliveryZones,
+  [],
+  (z) => z,
+);
+
 class TenantRepository {
   constructor(collection, idKey = "id") {
     this.collection = collection;
@@ -635,6 +642,7 @@ export const websiteMediaRepository = new TenantRepository(websiteMedia);
 export const customAdminModuleRepository = new TenantRepository(customAdminModules);
 export const customAdminModuleEntryRepository = new TenantRepository(customAdminModuleEntries);
 export const invoiceRepository = new TenantRepository(invoices);
+export const deliveryZoneRepository = new TenantRepository(deliveryZones);
 
 function platformDirectoryError(message, statusCode = 400) {
   const error = new Error(message);
@@ -1342,6 +1350,7 @@ export function currentStoreSnapshot(companyId = DEFAULT_COMPANY_ID) {
     customAdminModules: customAdminModuleRepository.getByCompany(normalized),
     customAdminModuleEntries: customAdminModuleEntryRepository.getByCompany(normalized),
     invoices: invoiceRepository.getByCompany(normalized),
+    deliveryZones: deliveryZoneRepository.getByCompany(normalized),
     carts: Object.fromEntries(
       cartRepository.getByCompany(normalized).map(({ userId, items }) => [userId, items]),
     ),
@@ -1412,6 +1421,7 @@ function persistLocalCompanyStore(companyId, store) {
     "customAdminModules",
     "customAdminModuleEntries",
     "invoices",
+    "deliveryZones",
   ]) {
     merged[key] = mergeLocalTenantRecords(existing[key], store[key], normalized);
   }
