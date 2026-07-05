@@ -53,6 +53,7 @@ export const allPermissions = [
   "invoices.view",
   "delivery.view",
   "activity_log.view",
+  "reports.view",
 ];
 
 const seedUsers = [

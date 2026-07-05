@@ -19,6 +19,7 @@ import workSessionRoutes from "./routes/workSessions.js";
 import invoiceRoutes from "./routes/invoices.js";
 import { publicRouter as deliveryPublicRouter, adminRouter as deliveryAdminRouter } from "./routes/deliveryZones.js";
 import activityLogRoutes from "./routes/activityLog.js";
+import reportsRoutes from "./routes/reports.js";
 import websiteMediaRoutes from "./routes/websiteMedia.js";
 
 const app = express();
@@ -98,6 +99,7 @@ app.use("/api/admin/delivery-zones", deliveryAdminRouter);
 app.use("/api/admin", adminRoutes);
 app.use("/api/delivery-zones", deliveryPublicRouter);
 app.use("/api/admin/activity-log", activityLogRoutes);
+app.use("/api/admin/reports", reportsRoutes);
 app.use("/api/employee", employeeRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/work-sessions", workSessionRoutes);
