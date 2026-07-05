@@ -803,6 +803,33 @@ function mergeCompany(row, domains, settingsRows) {
   };
 }
 
+function mergeCompanyInvoice(row) {
+  return {
+    id: row.id,
+    company_id: row.company_id,
+    invoice_number: row.invoice_number,
+    customer_name: row.customer_name,
+    customer_email: row.customer_email,
+    customer_phone: row.customer_phone,
+    order_id: row.order_id,
+    status: row.status,
+    currency: row.currency,
+    issue_date: row.issue_date,
+    due_date: row.due_date,
+    notes: row.notes,
+    line_items: row.line_items || [],
+    subtotal: Number(row.subtotal || 0),
+    discount_total: Number(row.discount_total || 0),
+    tax_total: Number(row.tax_total || 0),
+    total: Number(row.total || 0),
+    created_by: row.created_by,
+    updated_by: row.updated_by,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    deleted_at: row.deleted_at,
+  };
+}
+
 export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
   const normalizedCompanyId = normalizeCompanyId(companyId);
   const [
@@ -821,6 +848,7 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
     websiteMedia,
     customAdminModules,
     customAdminModuleEntries,
+    companyInvoices,
     companies,
     companyDomains,
     companySettings,
@@ -843,6 +871,7 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
     selectCompanyRows("website_media", normalizedCompanyId),
     selectCompanyRows("custom_admin_modules", normalizedCompanyId),
     selectCompanyRows("custom_admin_module_entries", normalizedCompanyId),
+    selectCompanyRows("company_invoices", normalizedCompanyId),
     selectAll("companies", "select=*"),
     selectAll("company_domains", "select=*"),
     selectAll("company_settings", "select=*"),
@@ -870,6 +899,7 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
     websiteMedia,
     customAdminModules,
     customAdminModuleEntries,
+    companyInvoices,
   ].some((rows) => rows.length);
 
   return {
@@ -897,6 +927,7 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
       workSessions: workSessions.map((session) => session.data || session),
       customAdminModules: customAdminModules.map(mergeCustomAdminModule),
       customAdminModuleEntries: customAdminModuleEntries.map(mergeCustomAdminModuleEntry),
+      invoices: companyInvoices.map(mergeCompanyInvoice),
       companies: companies.map((company) =>
         mergeCompany(company, companyDomains, companySettings),
       ),
@@ -1001,6 +1032,30 @@ export async function saveStoreToSupabase(store, options = {}) {
     created_at: rowDate(module.createdAt),
     updated_at: rowDate(module.updatedAt),
   }));
+  const invoiceRows = (store.invoices || []).map((inv) => ({
+    id: inv.id,
+    company_id: companyId,
+    invoice_number: inv.invoice_number,
+    customer_name: inv.customer_name,
+    customer_email: inv.customer_email || null,
+    customer_phone: inv.customer_phone || null,
+    order_id: inv.order_id || null,
+    status: inv.status || "draft",
+    currency: inv.currency || "ILS",
+    issue_date: inv.issue_date,
+    due_date: inv.due_date || null,
+    notes: inv.notes || null,
+    line_items: inv.line_items || [],
+    subtotal: Number(inv.subtotal || 0),
+    discount_total: Number(inv.discount_total || 0),
+    tax_total: Number(inv.tax_total || 0),
+    total: Number(inv.total || 0),
+    created_by: inv.created_by || "",
+    updated_by: inv.updated_by || "",
+    created_at: rowDate(inv.created_at),
+    updated_at: rowDate(inv.updated_at),
+    deleted_at: inv.deleted_at ? rowDate(inv.deleted_at) : null,
+  }));
   const customAdminModuleEntryRows = customAdminModuleEntries.map((entry) => ({
     id: entry.id,
     company_id: companyId,
@@ -1052,6 +1107,7 @@ export async function saveStoreToSupabase(store, options = {}) {
   await upsertCompanyRows("website_media", websiteMediaRows, companyId);
   await upsertCompanyRows("custom_admin_modules", customAdminModuleRows, companyId);
   await upsertCompanyRows("custom_admin_module_entries", customAdminModuleEntryRows, companyId);
+  await upsertCompanyRows("company_invoices", invoiceRows, companyId);
 
   if (pruneMissing) {
     await deleteMissingCompanyRows("products", productRows.map((row) => row.id), companyId);
@@ -1067,6 +1123,7 @@ export async function saveStoreToSupabase(store, options = {}) {
     await deleteMissingCompanyRows("website_media", websiteMediaRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("custom_admin_modules", customAdminModuleRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("custom_admin_module_entries", customAdminModuleEntryRows.map((row) => row.id), companyId);
+    await deleteMissingCompanyRows("company_invoices", invoiceRows.map((row) => row.id), companyId);
   }
 }
 

@@ -14,6 +14,7 @@ export const ADMIN_MODULE_KEYS = Object.freeze([
   "custom_modules",
   "reports",
   "activity_log",
+  "invoices",
 ]);
 
 const adminModuleKeys = new Set(ADMIN_MODULE_KEYS);
