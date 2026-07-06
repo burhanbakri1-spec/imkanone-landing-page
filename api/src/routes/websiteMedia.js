@@ -1,9 +1,13 @@
 import { Router } from "express";
-import { persistCompanyStore, websiteMediaRepository } from "../data/store.js";
+import {
+  persistCompanyStore,
+  websiteMediaHiddenKeysRepository,
+  websiteMediaRepository,
+} from "../data/store.js";
 import { requireAuth } from "../middleware/auth.js";
 
 const router = Router();
-const allowedRoles = new Set(["admin", "manager", "employee", "staff"]);
+const allowedRoles = new Set(["admin", "company_admin", "manager", "employee", "staff"]);
 const mediaPermission = "website_media.manage";
 
 router.use((_req, res, next) => {
@@ -18,7 +22,7 @@ function requireMediaEditor(req, res, next) {
     return res.status(403).json({ message: "Admin or employee access required." });
   }
 
-  if (req.user?.role !== "admin" && !req.user?.permissions?.includes(mediaPermission)) {
+  if (!["admin", "company_admin"].includes(req.user?.role) && !req.user?.permissions?.includes(mediaPermission)) {
     return res.status(403).json({ message: "Website media permission required." });
   }
 
@@ -52,24 +56,91 @@ function normalizeMedia(input, existing = {}) {
   };
 }
 
+function hiddenSectionKeys(companyId) {
+  return new Set(
+    websiteMediaHiddenKeysRepository
+      .getByCompany(companyId)
+      .map((item) => item.sectionKey)
+      .filter(Boolean),
+  );
+}
+
+function visibleCompanyMedia(companyId, { includeInactive = false } = {}) {
+  const hiddenKeys = hiddenSectionKeys(companyId);
+  return websiteMediaRepository.getByCompany(companyId).filter(
+    (item) => !hiddenKeys.has(item.sectionKey) && (includeInactive || item.isActive !== false),
+  );
+}
+
+function hideSection(companyId, sectionKey) {
+  const normalizedKey = String(sectionKey || "").trim().slice(0, 160);
+  if (!normalizedKey) return null;
+  const existing = websiteMediaHiddenKeysRepository.findByCompany(
+    companyId,
+    (item) => item.sectionKey === normalizedKey,
+  );
+  if (existing) return existing;
+  const now = new Date().toISOString();
+  return websiteMediaHiddenKeysRepository.createForCompany(companyId, {
+    id: `hidden-media-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    sectionKey: normalizedKey,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+function restoreSection(companyId, sectionKey) {
+  const existing = websiteMediaHiddenKeysRepository.findByCompany(
+    companyId,
+    (item) => item.sectionKey === sectionKey,
+  );
+  return existing
+    ? websiteMediaHiddenKeysRepository.deleteForCompany(companyId, existing.id)
+    : null;
+}
+
 router.get("/", (req, res) => {
-  res.json(sortMedia(websiteMediaRepository.getByCompany(req.companyId).filter((item) => item.isActive !== false)));
+  const hiddenMarkers = [...hiddenSectionKeys(req.companyId)].map((sectionKey) => ({
+    sectionKey,
+    isHidden: true,
+  }));
+  res.json([...sortMedia(visibleCompanyMedia(req.companyId)), ...hiddenMarkers]);
 });
 
 router.get("/all", requireAuth, requireMediaEditor, (req, res) => {
-  res.json(sortMedia(websiteMediaRepository.getByCompany(req.companyId)));
+  res.json({
+    items: sortMedia(visibleCompanyMedia(req.companyId, { includeInactive: true })),
+    hiddenSectionKeys: [...hiddenSectionKeys(req.companyId)],
+  });
+});
+
+router.delete("/by-section/:sectionKey", requireAuth, requireMediaEditor, async (req, res) => {
+  const sectionKey = String(req.params.sectionKey || "").trim();
+  if (!sectionKey) return res.status(400).json({ message: "Website media section key is required." });
+
+  hideSection(req.companyId, sectionKey);
+  await persistCompanyStore(req.companyId, { pruneMissing: true });
+  return res.json({ sectionKey });
+});
+
+router.post("/by-section/:sectionKey/restore", requireAuth, requireMediaEditor, async (req, res) => {
+  const sectionKey = String(req.params.sectionKey || "").trim();
+  restoreSection(req.companyId, sectionKey);
+  await persistCompanyStore(req.companyId, { pruneMissing: true });
+  return res.json({ sectionKey });
 });
 
 router.get("/:sectionKey", (req, res) => {
-  res.json(sortMedia(websiteMediaRepository.getByCompany(req.companyId).filter(
-    (item) => item.sectionKey === req.params.sectionKey && item.isActive !== false,
+  res.json(sortMedia(visibleCompanyMedia(req.companyId).filter(
+    (item) => item.sectionKey === req.params.sectionKey,
   )));
 });
 
 router.post("/", requireAuth, requireMediaEditor, async (req, res) => {
   const item = normalizeMedia(req.body);
+  restoreSection(req.companyId, item.sectionKey);
   websiteMediaRepository.createForCompany(req.companyId, item);
-  await persistCompanyStore(req.companyId);
+  await persistCompanyStore(req.companyId, { pruneMissing: true });
   return res.status(201).json(item);
 });
 
@@ -82,16 +153,21 @@ router.put("/:id", requireAuth, requireMediaEditor, async (req, res) => {
     req.params.id,
     normalizeMedia({ ...req.body, id: req.params.id }, existing),
   );
-  await persistCompanyStore(req.companyId);
+  restoreSection(req.companyId, updated.sectionKey);
+  await persistCompanyStore(req.companyId, { pruneMissing: true });
   return res.json(updated);
 });
 
 router.delete("/:id", requireAuth, requireMediaEditor, async (req, res) => {
+  const existing = websiteMediaRepository.findByCompany(req.companyId, req.params.id);
+  if (!existing) return res.status(404).json({ message: "Website media item not found." });
+
   const removed = websiteMediaRepository.deleteForCompany(req.companyId, req.params.id);
   if (!removed) return res.status(404).json({ message: "Website media item not found." });
 
+  hideSection(req.companyId, existing.sectionKey);
   await persistCompanyStore(req.companyId, { pruneMissing: true });
-  return res.status(204).end();
+  return res.json({ id: removed.id, sectionKey: existing.sectionKey });
 });
 
 export default router;

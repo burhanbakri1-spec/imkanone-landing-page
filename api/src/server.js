@@ -22,6 +22,10 @@ import { publicRouter as deliveryPublicRouter, adminRouter as deliveryAdminRoute
 import activityLogRoutes from "./routes/activityLog.js";
 import reportsRoutes from "./routes/reports.js";
 import websiteMediaRoutes from "./routes/websiteMedia.js";
+import {
+  adminWebsiteTextsRouter,
+  publicWebsiteTextsRouter,
+} from "./routes/websiteTexts.js";
 
 const app = express();
 const port = Number(process.env.PORT || 5000);
@@ -107,6 +111,8 @@ app.use("/api/employee", employeeRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/work-sessions", workSessionRoutes);
 app.use("/api/website-media", websiteMediaRoutes);
+app.use("/api/website-texts", publicWebsiteTextsRouter);
+app.use("/api/admin/website-texts", adminWebsiteTextsRouter);
 
 app.use((_req, res) => {
   res.status(404).json({ message: "API route not found." });

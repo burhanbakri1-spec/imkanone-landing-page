@@ -525,8 +525,46 @@ persistedWebsiteMedia
   const sectionKey = item.sectionKey || item.section_key || item.id || `persisted-website-media-${index}`;
   websiteMediaBySection.set(sectionKey, preferWebsiteMediaItem(websiteMediaBySection.get(sectionKey), item));
 });
-export const websiteMedia = [...websiteMediaBySection.values()].map((item, index) =>
-  tagRecord(normalizeWebsiteMedia(withoutCompanyFields(item), index), DEFAULT_COMPANY_ID),
+const deletedWebsiteMediaKeys = Array.isArray(persisted?.deletedWebsiteMediaKeys) ? persisted.deletedWebsiteMediaKeys : [];
+export const websiteMedia = [...websiteMediaBySection.values()]
+  .filter((item) => !deletedWebsiteMediaKeys.includes(item.sectionKey || item.id))
+  .map((item, index) =>
+    tagRecord(normalizeWebsiteMedia(withoutCompanyFields(item), index), DEFAULT_COMPANY_ID),
+  );
+const legacyHiddenWebsiteMediaKeys = deletedWebsiteMediaKeys.map((sectionKey) => ({
+  id: `hidden-media-${DEFAULT_COMPANY_ID}-${sectionKey}`,
+  company_id: DEFAULT_COMPANY_ID,
+  sectionKey,
+}));
+export const websiteMediaHiddenKeys = normalizeTenantRecords(
+  persisted?.websiteMediaHiddenKeys,
+  legacyHiddenWebsiteMediaKeys,
+  (item, index) => ({
+    ...item,
+    id: item.id || `hidden-media-${index}-${Date.now()}`,
+    sectionKey: item.sectionKey || item.section_key || "",
+    createdAt: item.createdAt || item.created_at || new Date().toISOString(),
+    updatedAt: item.updatedAt || item.updated_at || new Date().toISOString(),
+  }),
+).filter((item) => item.sectionKey);
+export const websiteTexts = normalizeTenantRecords(
+  persisted?.websiteTexts,
+  [],
+  (item, index) => ({
+    ...item,
+    id: item.id || `website-text-${index}-${Date.now()}`,
+    key: item.key || item.text_key || `text_${index}`,
+    group: item.group || item.group_key || "general",
+    label: item.label || "",
+    valueEn: item.valueEn || item.value?.en || item.value_en || "",
+    valueAr: item.valueAr || item.value?.ar || item.value_ar || "",
+    valueHe: item.valueHe || item.value?.he || item.value_he || "",
+    isActive: item.isActive !== false,
+    sortOrder: Number(item.sortOrder ?? item.sort_order ?? 0),
+    createdAt: item.createdAt || item.created_at || new Date().toISOString(),
+    updatedAt: item.updatedAt || item.updated_at || new Date().toISOString(),
+    deletedAt: item.deletedAt || item.deleted_at || null,
+  }),
 );
 export const customAdminModules = normalizeTenantRecords(
   persisted?.customAdminModules,
@@ -653,6 +691,8 @@ export const offerRepository = new TenantRepository(offers);
 export const categoryCardRepository = new TenantRepository(categoryCards, "key");
 export const reviewRepository = new TenantRepository(reviews);
 export const websiteMediaRepository = new TenantRepository(websiteMedia);
+export const websiteMediaHiddenKeysRepository = new TenantRepository(websiteMediaHiddenKeys);
+export const websiteTextsRepository = new TenantRepository(websiteTexts);
 export const customAdminModuleRepository = new TenantRepository(customAdminModules);
 export const customAdminModuleEntryRepository = new TenantRepository(customAdminModuleEntries);
 export const companyProductSchemaRepository = new TenantRepository(companyProductSchemas);
@@ -1377,6 +1417,9 @@ export function currentStoreSnapshot(companyId = DEFAULT_COMPANY_ID) {
     categoryCards: categoryCardRepository.getByCompany(normalized),
     reviews: reviewRepository.getByCompany(normalized),
     websiteMedia: websiteMediaRepository.getByCompany(normalized),
+    websiteMediaHiddenKeys: websiteMediaHiddenKeysRepository.getByCompany(normalized),
+    websiteTexts: websiteTextsRepository.getByCompany(normalized),
+    deletedWebsiteMediaKeys: normalized === DEFAULT_COMPANY_ID ? (persisted?.deletedWebsiteMediaKeys || []) : [],
     workSessions: workSessionRepository.getByCompany(normalized),
     customAdminModules: customAdminModuleRepository.getByCompany(normalized),
     customAdminModuleEntries: customAdminModuleEntryRepository.getByCompany(normalized),
@@ -1450,6 +1493,8 @@ function persistLocalCompanyStore(companyId, store) {
     "categoryCards",
     "reviews",
     "websiteMedia",
+    "websiteMediaHiddenKeys",
+    "websiteTexts",
     "workSessions",
     "customAdminModules",
     "customAdminModuleEntries",
@@ -1467,6 +1512,9 @@ function persistLocalCompanyStore(companyId, store) {
   };
   if (normalized === DEFAULT_COMPANY_ID) {
     merged.carts = store.carts;
+  }
+  if (normalized === DEFAULT_COMPANY_ID) {
+    merged.deletedWebsiteMediaKeys = store.deletedWebsiteMediaKeys || [];
   }
   merged.companies = companies.map(serializeCompany);
 

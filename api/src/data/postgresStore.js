@@ -579,6 +579,40 @@ function mergeWebsiteMedia(row) {
   };
 }
 
+function websiteTextRow(item, index = 0, companyId = DEFAULT_COMPANY_ID) {
+  return {
+    id: item.id || `website-text-${index}`,
+    company_id: normalizeCompanyId(companyId),
+    text_key: item.key || "",
+    group_key: item.group || "general",
+    label: item.label || "",
+    value_json: { ar: item.valueAr || "", en: item.valueEn || "", he: item.valueHe || "" },
+    sort_order: Number(item.sortOrder ?? index),
+    is_active: item.isActive !== false,
+    created_at: rowDate(item.createdAt),
+    updated_at: rowDate(item.updatedAt),
+    deleted_at: item.deletedAt || null,
+  };
+}
+
+function mergeWebsiteText(row) {
+  let values = { ar: "", en: "", he: "" };
+  try { values = typeof row.value_json === 'string' ? JSON.parse(row.value_json) : (row.value_json || values); } catch {}
+  return {
+    id: row.id,
+    key: row.text_key,
+    group: row.group_key,
+    label: row.label || "",
+    valueAr: values.ar || "",
+    valueEn: values.en || "",
+    valueHe: values.he || "",
+    sortOrder: Number(row.sort_order || 0),
+    isActive: row.is_active !== false,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 function mergeUser(row) {
   return {
     ...(row.data || {}),
@@ -703,6 +737,26 @@ function mergeCustomAdminModule(row) {
     permissions: row.permissions || {},
     createdBy: row.created_by || "",
     updatedBy: row.updated_by || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    deletedAt: row.deleted_at || null,
+  };
+}
+
+function websiteMediaHiddenKeyRow(item, index = 0, companyId = DEFAULT_COMPANY_ID) {
+  return {
+    id: item.id || `hidden-media-${index}`,
+    company_id: normalizeCompanyId(companyId),
+    section_key: item.sectionKey || "",
+    created_at: rowDate(item.createdAt),
+    updated_at: rowDate(item.updatedAt),
+  };
+}
+
+function mergeWebsiteMediaHiddenKey(row) {
+  return {
+    id: row.id,
+    sectionKey: row.section_key,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -896,6 +950,8 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
     reviews,
     workSessions,
     websiteMedia,
+    websiteMediaHiddenKeys,
+    websiteTexts,
     customAdminModules,
     customAdminModuleEntries,
     companyProductSchemas,
@@ -922,6 +978,8 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
     selectCompanyRows("reviews", normalizedCompanyId),
     selectCompanyRows("work_sessions", normalizedCompanyId),
     selectCompanyRows("website_media", normalizedCompanyId),
+    selectCompanyRows("company_website_media_hidden_keys", normalizedCompanyId),
+    selectCompanyRows("company_website_texts", normalizedCompanyId),
     selectCompanyRows("custom_admin_modules", normalizedCompanyId),
     selectCompanyRows("custom_admin_module_entries", normalizedCompanyId),
     selectCompanyRows("company_product_schemas", normalizedCompanyId),
@@ -953,6 +1011,8 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
     reviews,
     workSessions,
     websiteMedia,
+    websiteMediaHiddenKeys,
+    websiteTexts,
     customAdminModules,
     customAdminModuleEntries,
     companyProductSchemas,
@@ -983,6 +1043,8 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
       categoryCards: categoryCards.map((card) => card.data || card),
       reviews: reviews.map((review) => review.data || review),
       websiteMedia: websiteMedia.map(mergeWebsiteMedia),
+      websiteMediaHiddenKeys: websiteMediaHiddenKeys.map(mergeWebsiteMediaHiddenKey),
+      websiteTexts: websiteTexts.map(mergeWebsiteText),
       workSessions: workSessions.map((session) => session.data || session),
       customAdminModules: customAdminModules.map(mergeCustomAdminModule),
       customAdminModuleEntries: customAdminModuleEntries.map(mergeCustomAdminModuleEntry),
@@ -1008,6 +1070,8 @@ export async function saveStoreToSupabase(store, options = {}) {
   const reviews = store.reviews || [];
   const workSessions = store.workSessions || [];
   const websiteMedia = store.websiteMedia || [];
+  const websiteMediaHiddenKeys = store.websiteMediaHiddenKeys || [];
+  const websiteTexts = store.websiteTexts || [];
   const customAdminModules = store.customAdminModules || [];
   const customAdminModuleEntries = store.customAdminModuleEntries || [];
   const companyProductSchemas = store.companyProductSchemas || [];
@@ -1076,6 +1140,12 @@ export async function saveStoreToSupabase(store, options = {}) {
   }));
   const websiteMediaRows = websiteMedia.map((item, index) =>
     websiteMediaRow(item, index, companyId),
+  );
+  const websiteMediaHiddenKeyRows = websiteMediaHiddenKeys.map((item, index) =>
+    websiteMediaHiddenKeyRow(item, index, companyId),
+  );
+  const websiteTextRows = websiteTexts.map((item, index) =>
+    websiteTextRow(item, index, companyId),
   );
   const customAdminModuleRows = customAdminModules.map((module) => ({
     id: module.id,
@@ -1212,6 +1282,8 @@ export async function saveStoreToSupabase(store, options = {}) {
   await upsertCompanyRows("reviews", reviewRows, companyId);
   await upsertCompanyRows("work_sessions", workSessionRows, companyId);
   await upsertCompanyRows("website_media", websiteMediaRows, companyId);
+  await upsertCompanyRows("company_website_media_hidden_keys", websiteMediaHiddenKeyRows, companyId);
+  await upsertCompanyRows("company_website_texts", websiteTextRows, companyId);
   await upsertCompanyRows("custom_admin_modules", customAdminModuleRows, companyId);
   await upsertCompanyRows("custom_admin_module_entries", customAdminModuleEntryRows, companyId);
   await upsertCompanyRows("company_product_schemas", companyProductSchemaRows, companyId);
@@ -1231,6 +1303,8 @@ export async function saveStoreToSupabase(store, options = {}) {
     await deleteMissingCompanyRows("reviews", reviewRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("work_sessions", workSessionRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("website_media", websiteMediaRows.map((row) => row.id), companyId);
+    await deleteMissingCompanyRows("company_website_media_hidden_keys", websiteMediaHiddenKeyRows.map((row) => row.id), companyId);
+    await deleteMissingCompanyRows("company_website_texts", websiteTextRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("custom_admin_modules", customAdminModuleRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("custom_admin_module_entries", customAdminModuleEntryRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("company_product_schemas", companyProductSchemaRows.map((row) => row.id), companyId);
