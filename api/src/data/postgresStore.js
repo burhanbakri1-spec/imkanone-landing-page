@@ -721,6 +721,15 @@ function mergeCustomAdminModuleEntry(row) {
   };
 }
 
+function mergeCompanyProductSchema(row) {
+  return {
+    id: row.id,
+    schema: row.schema_json || {},
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 export async function listPlatformUsersFromSupabase() {
   const rows = await selectAll("users", "select=*");
   return rows.map(mergeUser);
@@ -889,6 +898,7 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
     websiteMedia,
     customAdminModules,
     customAdminModuleEntries,
+    companyProductSchemas,
     companyInvoices,
     deliveryZoneRows,
     activityLogRows,
@@ -914,6 +924,7 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
     selectCompanyRows("website_media", normalizedCompanyId),
     selectCompanyRows("custom_admin_modules", normalizedCompanyId),
     selectCompanyRows("custom_admin_module_entries", normalizedCompanyId),
+    selectCompanyRows("company_product_schemas", normalizedCompanyId),
     selectCompanyRows("company_invoices", normalizedCompanyId),
     selectCompanyRows("company_delivery_zones", normalizedCompanyId),
     selectCompanyRows("company_activity_logs", normalizedCompanyId),
@@ -944,6 +955,7 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
     websiteMedia,
     customAdminModules,
     customAdminModuleEntries,
+    companyProductSchemas,
     companyInvoices,
     deliveryZoneRows,
     activityLogRows,
@@ -974,6 +986,7 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
       workSessions: workSessions.map((session) => session.data || session),
       customAdminModules: customAdminModules.map(mergeCustomAdminModule),
       customAdminModuleEntries: customAdminModuleEntries.map(mergeCustomAdminModuleEntry),
+      companyProductSchemas: companyProductSchemas.map(mergeCompanyProductSchema),
       invoices: companyInvoices.map(mergeCompanyInvoice),
       deliveryZones: deliveryZoneRows.map(mergeDeliveryZone),
       activityLogs: activityLogRows.map(mergeActivityLog),
@@ -997,6 +1010,7 @@ export async function saveStoreToSupabase(store, options = {}) {
   const websiteMedia = store.websiteMedia || [];
   const customAdminModules = store.customAdminModules || [];
   const customAdminModuleEntries = store.customAdminModuleEntries || [];
+  const companyProductSchemas = store.companyProductSchemas || [];
   const carts = Object.entries(store.carts || {});
 
   const productRows = products.map((product) => productRow(product, companyId));
@@ -1116,6 +1130,13 @@ export async function saveStoreToSupabase(store, options = {}) {
     created_at: rowDate(entry.createdAt),
     updated_at: rowDate(entry.updatedAt),
   }));
+  const companyProductSchemaRows = companyProductSchemas.map((record) => ({
+    id: record.id,
+    company_id: companyId,
+    schema_json: record.schema || {},
+    created_at: rowDate(record.createdAt),
+    updated_at: rowDate(record.updatedAt),
+  }));
 
   const deliveryZoneRows = (store.deliveryZones || []).map((z) => ({
     id: z.id,
@@ -1193,6 +1214,7 @@ export async function saveStoreToSupabase(store, options = {}) {
   await upsertCompanyRows("website_media", websiteMediaRows, companyId);
   await upsertCompanyRows("custom_admin_modules", customAdminModuleRows, companyId);
   await upsertCompanyRows("custom_admin_module_entries", customAdminModuleEntryRows, companyId);
+  await upsertCompanyRows("company_product_schemas", companyProductSchemaRows, companyId);
   await upsertCompanyRows("company_invoices", invoiceRows, companyId);
   await upsertCompanyRows("company_delivery_zones", deliveryZoneRows, companyId);
   await upsertCompanyRows("company_activity_logs", activityLogRows, companyId);
@@ -1211,6 +1233,7 @@ export async function saveStoreToSupabase(store, options = {}) {
     await deleteMissingCompanyRows("website_media", websiteMediaRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("custom_admin_modules", customAdminModuleRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("custom_admin_module_entries", customAdminModuleEntryRows.map((row) => row.id), companyId);
+    await deleteMissingCompanyRows("company_product_schemas", companyProductSchemaRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("company_invoices", invoiceRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("company_delivery_zones", deliveryZoneRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("company_activity_logs", activityLogRows.map((row) => row.id), companyId);

@@ -1,7 +1,8 @@
 import { Router } from "express";
-import { persistCompanyStore, productRepository } from "../data/store.js";
+import { companyProductSchemaRepository, persistCompanyStore, productRepository } from "../data/store.js";
 import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
 import { recordActivityLog } from "../activityLog/logger.js";
+import { defaultProductSchema, sanitizeProductSchemaData } from "../productSchema/schema.js";
 
 const router = Router();
 const placeholderImage = "/images/products/product-placeholder.svg";
@@ -95,6 +96,10 @@ function normalizeProduct(product) {
   };
 }
 
+function productSchemaForCompany(companyId) {
+  return companyProductSchemaRepository.findByCompany(companyId, () => true)?.schema || defaultProductSchema();
+}
+
 function hasOwn(object, key) {
   return Object.prototype.hasOwnProperty.call(object, key);
 }
@@ -160,11 +165,16 @@ router.get("/", (_req, res) => {
 });
 
 router.post("/", async (req, res) => {
-  const product = normalizeProduct({
-    ...req.body,
-    id: req.body.id || `product-${Date.now()}`,
-    slug: req.body.slug || `product-${Date.now()}`,
-  });
+  let product;
+  try {
+    product = normalizeProduct(sanitizeProductSchemaData({
+      ...req.body,
+      id: req.body.id || `product-${Date.now()}`,
+      slug: req.body.slug || `product-${Date.now()}`,
+    }, productSchemaForCompany(req.companyId)));
+  } catch (error) {
+    return res.status(error.statusCode || 400).json({ message: error.message });
+  }
   productRepository.createForCompany(req.companyId, product, { prepend: true });
   await persistCompanyStore(req.companyId);
   recordActivityLog({
@@ -185,10 +195,16 @@ router.put("/:id", async (req, res) => {
   if (!existing) {
     return res.status(404).json({ message: "Product not found." });
   }
-  const updated = productRepository.updateForCompany(req.companyId, req.params.id, normalizeProduct(mergeProductUpdate(existing, {
-    ...req.body,
-    id: req.params.id,
-  })));
+  let normalizedUpdate;
+  try {
+    normalizedUpdate = normalizeProduct(sanitizeProductSchemaData(mergeProductUpdate(existing, {
+      ...req.body,
+      id: req.params.id,
+    }), productSchemaForCompany(req.companyId)));
+  } catch (error) {
+    return res.status(error.statusCode || 400).json({ message: error.message });
+  }
+  const updated = productRepository.updateForCompany(req.companyId, req.params.id, normalizedUpdate);
   await persistCompanyStore(req.companyId);
   const updatedName = updated.name?.en || updated.slug || "";
   const wasVisible = existing.visible !== false;

@@ -537,6 +537,11 @@ export const customAdminModuleEntries = normalizeTenantRecords(
   [],
   normalizeCustomAdminModuleEntry,
 );
+export const companyProductSchemas = normalizeTenantRecords(
+  persisted?.companyProductSchemas,
+  [],
+  normalizeCompanyProductSchema,
+);
 
 export const invoices = normalizeTenantRecords(
   persisted?.invoices,
@@ -649,6 +654,7 @@ export const reviewRepository = new TenantRepository(reviews);
 export const websiteMediaRepository = new TenantRepository(websiteMedia);
 export const customAdminModuleRepository = new TenantRepository(customAdminModules);
 export const customAdminModuleEntryRepository = new TenantRepository(customAdminModuleEntries);
+export const companyProductSchemaRepository = new TenantRepository(companyProductSchemas);
 export const invoiceRepository = new TenantRepository(invoices);
 export const deliveryZoneRepository = new TenantRepository(deliveryZones);
 export const activityLogRepository = new TenantRepository(activityLogs);
@@ -697,6 +703,21 @@ function normalizeCustomAdminModuleEntry(entry, index = 0) {
     updatedBy: entry.updatedBy || entry.updated_by || "",
     createdAt: entry.createdAt || entry.created_at || now,
     updatedAt: entry.updatedAt || entry.updated_at || entry.createdAt || now,
+  };
+}
+
+function normalizeCompanyProductSchema(record, index = 0) {
+  const now = new Date().toISOString();
+  return {
+    ...record,
+    id: String(record.id || `company-product-schema-${index}`),
+    schema: record.schema && typeof record.schema === "object" && !Array.isArray(record.schema)
+      ? clone(record.schema)
+      : record.schema_json && typeof record.schema_json === "object"
+        ? clone(record.schema_json)
+        : {},
+    createdAt: record.createdAt || record.created_at || now,
+    updatedAt: record.updatedAt || record.updated_at || record.createdAt || now,
   };
 }
 
@@ -1358,6 +1379,7 @@ export function currentStoreSnapshot(companyId = DEFAULT_COMPANY_ID) {
     workSessions: workSessionRepository.getByCompany(normalized),
     customAdminModules: customAdminModuleRepository.getByCompany(normalized),
     customAdminModuleEntries: customAdminModuleEntryRepository.getByCompany(normalized),
+    companyProductSchemas: companyProductSchemaRepository.getByCompany(normalized),
     invoices: invoiceRepository.getByCompany(normalized),
     deliveryZones: deliveryZoneRepository.getByCompany(normalized),
     activityLogs: activityLogRepository.getByCompany(normalized),
@@ -1430,6 +1452,7 @@ function persistLocalCompanyStore(companyId, store) {
     "workSessions",
     "customAdminModules",
     "customAdminModuleEntries",
+    "companyProductSchemas",
     "invoices",
     "deliveryZones",
     "activityLogs",
