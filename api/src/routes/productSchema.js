@@ -1,9 +1,11 @@
 import { Router } from "express";
 import {
   companyProductSchemaRepository,
+  companyRepository,
   persistCompanyStore,
 } from "../data/store.js";
 import { requireAdmin, requireAuth } from "../middleware/auth.js";
+import { isProductSettingsModuleEnabled } from "../tenancy/company.js";
 import {
   defaultProductSchema,
   sanitizeProductSchema,
@@ -22,7 +24,18 @@ publicProductSchemaRouter.get("/", (req, res) => {
   res.json(schemaForCompany(req.companyId));
 });
 
-adminProductSchemaRouter.use(requireAuth, requireAdmin);
+function requireProductSettingsModule(req, res, next) {
+  const company = companyRepository.getCompanyById(req.companyId);
+  if (!company) return res.status(404).json({ message: "Company not found." });
+  if (!isProductSettingsModuleEnabled(company)) {
+    return res.status(403).json({
+      message: "Product Settings module is not enabled for this company.",
+    });
+  }
+  return next();
+}
+
+adminProductSchemaRouter.use(requireAuth, requireAdmin, requireProductSettingsModule);
 
 adminProductSchemaRouter.get("/", (req, res) => {
   res.json(schemaForCompany(req.companyId));

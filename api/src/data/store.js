@@ -42,6 +42,7 @@ export const allPermissions = [
   "products.create",
   "products.update",
   "products.delete",
+  "product_settings.manage",
   "orders.view",
   "orders.create",
   "orders.update",

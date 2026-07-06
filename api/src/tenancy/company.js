@@ -4,6 +4,7 @@ export const COMPANY_STATUSES = Object.freeze(["draft", "inactive", "active"]);
 export const ADMIN_MODULE_KEYS = Object.freeze([
   "dashboard",
   "products",
+  "product_settings",
   "categories",
   "orders",
   "customers",
@@ -109,6 +110,12 @@ export function normalizeCompanyHost(value) {
     .replace(/^\[|\]$/g, "")
     .replace(/\.$/, "")
     .replace(/^www\./, "");
+}
+
+export function isProductSettingsModuleEnabled(company) {
+  const configured = company?.settings?.adminModules?.product_settings;
+  if (typeof configured === "boolean") return configured;
+  return normalizeCompanyId(company?.id) === DEFAULT_COMPANY_ID;
 }
 
 function normalizeDisplayDomain(value) {
