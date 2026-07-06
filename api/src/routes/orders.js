@@ -1,5 +1,11 @@
 import { Router } from "express";
-import { deliveryZoneRepository, orderRepository, persistCompanyStore, productRepository } from "../data/store.js";
+import {
+  deliveryZoneRepository,
+  orderRepository,
+  persistCompanyStore,
+  productRepository,
+  userRepository,
+} from "../data/store.js";
 import { optionalAuth, publicUser, requireAuth } from "../middleware/auth.js";
 import { findEnabledZone } from "../delivery/schema.js";
 import { isVariantVisible } from "../products/variantVisibility.js";
@@ -18,6 +24,77 @@ function cleanText(value, maxLength) {
 function safeNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+const completedStatuses = new Set(["completed", "confirmed", "paid"]);
+const cancelledStatuses = new Set(["cancelled", "canceled", "refunded", "void", "voided"]);
+
+function normalizedStatus(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function productSubtotal(items) {
+  return items.reduce(
+    (sum, item) => sum + Math.max(0, safeNumber(item.lineTotal, item.price * item.quantity)),
+    0,
+  );
+}
+
+function redemptionForOrder(user, requestedPoints, subtotal) {
+  const requested = Math.max(0, Math.floor(safeNumber(requestedPoints)));
+  if (requested % 100 !== 0) {
+    const error = new Error("EB Points must be redeemed in increments of 100.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const available = Math.max(0, Math.floor(safeNumber(user?.ebPoints)));
+  const maxByBalance = Math.floor(available / 100) * 100;
+  const maxBySubtotal = Math.floor(Math.max(0, subtotal) / 5) * 100;
+  const maximum = Math.min(maxByBalance, maxBySubtotal);
+  if (requested > maximum) {
+    const error = new Error("The requested EB Points exceed the available balance or product subtotal.");
+    error.statusCode = 400;
+    throw error;
+  }
+  return {
+    points: requested,
+    discount: requested / 20,
+  };
+}
+
+function orderCustomer(companyId, order) {
+  if (!order.customerUserId) return null;
+  return userRepository.findByCompany(companyId, order.customerUserId);
+}
+
+function applyLoyaltyForStatus(companyId, order, nextStatus) {
+  const customer = orderCustomer(companyId, order);
+  if (!customer) return;
+  const status = normalizedStatus(nextStatus);
+  const now = new Date().toISOString();
+
+  if (completedStatuses.has(status) && !order.pointsAwardedAt) {
+    const earned = Math.max(0, Math.floor(safeNumber(order.pointsEarned)));
+    customer.ebPoints = Math.max(0, safeNumber(customer.ebPoints)) + earned;
+    customer.totalPointsEarned = Math.max(0, safeNumber(customer.totalPointsEarned)) + earned;
+    order.pointsAwardedAt = now;
+    order.pointsReversedAt = null;
+  }
+
+  if (cancelledStatuses.has(status)) {
+    if (order.pointsAwardedAt && !order.pointsReversedAt) {
+      const earned = Math.max(0, Math.floor(safeNumber(order.pointsEarned)));
+      customer.ebPoints = Math.max(0, safeNumber(customer.ebPoints) - earned);
+      customer.totalPointsEarned = Math.max(0, safeNumber(customer.totalPointsEarned) - earned);
+      order.pointsReversedAt = now;
+    }
+    if (order.pointsRedeemed > 0 && order.pointsRedemptionAppliedAt && !order.pointsRedemptionRestoredAt) {
+      const redeemed = Math.max(0, Math.floor(safeNumber(order.pointsRedeemed)));
+      customer.ebPoints = Math.max(0, safeNumber(customer.ebPoints)) + redeemed;
+      customer.totalPointsRedeemed = Math.max(0, safeNumber(customer.totalPointsRedeemed) - redeemed);
+      order.pointsRedemptionRestoredAt = now;
+    }
+  }
 }
 
 function guestOrderCustomer(input) {
@@ -130,16 +207,22 @@ router.post("/", optionalAuth, async (req, res) => {
     deliveryPrice = deliveryZone.delivery_price;
   }
 
-  const subtotal = Math.max(0, safeNumber(req.body.subtotal || req.body.total));
-  const orderTotal = subtotal + deliveryPrice;
+  const subtotal = productSubtotal(items);
   const isCustomer = user?.role === "customer";
   const isStaff = isStaffRole(user?.role);
   const isPortalOperator = user?.role === "admin" || user?.role === "manager";
-  const pointsRedeemed = isCustomer ? Math.max(0, safeNumber(req.body.pointsRedeemed)) : 0;
-  const discountFromPoints = isCustomer
-    ? Math.max(0, safeNumber(req.body.discountFromPoints))
-    : 0;
-  const pointsEarned = isCustomer ? Math.max(0, Math.floor(orderTotal)) : 0;
+  let redemption = { points: 0, discount: 0 };
+  try {
+    if (isCustomer) redemption = redemptionForOrder(user, req.body.pointsRedeemed, subtotal);
+  } catch (error) {
+    return res.status(error.statusCode || 400).json({ message: error.message });
+  }
+  const pointsRedeemed = redemption.points;
+  const discountFromPoints = redemption.discount;
+  const paidProductSubtotal = Math.max(0, subtotal - discountFromPoints);
+  const pointsEarned = isCustomer ? Math.floor(paidProductSubtotal) : 0;
+  const orderTotal = paidProductSubtotal + deliveryPrice;
+  const now = new Date().toISOString();
   const order = {
     id: `ORD-${Date.now()}`,
     customer,
@@ -154,6 +237,10 @@ router.post("/", optionalAuth, async (req, res) => {
     pointsEarned,
     pointsRedeemed,
     discountFromPoints,
+    pointsAwardedAt: null,
+    pointsReversedAt: null,
+    pointsRedemptionAppliedAt: pointsRedeemed > 0 ? now : null,
+    pointsRedemptionRestoredAt: null,
     delivery_city_key: deliveryZone ? deliveryZone.city_key : "",
     delivery_city_name: deliveryZone ? deliveryZone.city_name : "",
     delivery_region: deliveryZone ? deliveryZone.region : "",
@@ -169,13 +256,12 @@ router.post("/", optionalAuth, async (req, res) => {
       isStaff ? user.name : isPortalOperator ? cleanText(req.body.createdByEmployeeName, 120) : "",
     createdBy: publicUser(user),
     lastUpdatedBy: publicUser(user),
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
   };
 
   if (isCustomer) {
-    user.ebPoints = Math.max(0, Number(user.ebPoints || 0) - pointsRedeemed) + pointsEarned;
-    user.totalPointsEarned = Math.max(0, Number(user.totalPointsEarned || 0)) + pointsEarned;
+    user.ebPoints = Math.max(0, Number(user.ebPoints || 0) - pointsRedeemed);
     user.totalPointsRedeemed = Math.max(0, Number(user.totalPointsRedeemed || 0)) + pointsRedeemed;
   }
 
@@ -195,11 +281,16 @@ router.post("/", optionalAuth, async (req, res) => {
 });
 
 router.put("/:id/status", requireAuth, async (req, res) => {
+  if (!["admin", "company_admin"].includes(req.user.role) && !req.user.permissions?.includes("orders.updateStatus")) {
+    return res.status(403).json({ message: "Order status permission required." });
+  }
   const order = orderRepository.findByCompany(req.companyId, req.params.id);
   if (!order) return res.status(404).json({ message: "Order not found." });
 
   const prevStatus = order.status;
-  order.status = req.body.status || order.status;
+  const nextStatus = cleanText(req.body.status, 40) || order.status;
+  applyLoyaltyForStatus(req.companyId, order, nextStatus);
+  order.status = nextStatus;
   order.lastUpdatedBy = publicUser(req.user);
   order.updatedAt = new Date().toISOString();
   await persistCompanyStore(req.companyId);
@@ -230,6 +321,8 @@ router.put("/:id/assign-employee", requireAuth, async (req, res) => {
 });
 
 router.delete("/:id", requireAuth, async (req, res) => {
+  const existing = orderRepository.findByCompany(req.companyId, req.params.id);
+  if (existing) applyLoyaltyForStatus(req.companyId, existing, "Cancelled");
   const removed = orderRepository.deleteForCompany(req.companyId, req.params.id);
   if (!removed) return res.status(404).json({ message: "Order not found." });
 

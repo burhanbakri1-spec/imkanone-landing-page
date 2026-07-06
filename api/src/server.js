@@ -46,6 +46,18 @@ function parseAllowedOrigins(value = "") {
   return [...new Set(value.split(",").map(normalizeOrigin).filter(Boolean))];
 }
 
+function isLocalDevelopmentOrigin(origin) {
+  if (isProduction) return false;
+  try {
+    const url = new URL(origin);
+    return url.protocol === "http:"
+      && ["localhost", "127.0.0.1", "::1"].includes(url.hostname)
+      && Boolean(url.port);
+  } catch {
+    return false;
+  }
+}
+
 const configuredOrigins = parseAllowedOrigins(process.env.CORS_ALLOWED_ORIGINS);
 const fallbackFrontendOrigin = normalizeOrigin(process.env.FRONTEND_ORIGIN);
 const deploymentOrigins = configuredOrigins.length
@@ -69,7 +81,8 @@ app.use(
         return callback(null, true);
       }
 
-      return callback(null, allowedOrigins.has(normalizeOrigin(origin)));
+      const normalizedOrigin = normalizeOrigin(origin);
+      return callback(null, allowedOrigins.has(normalizedOrigin) || isLocalDevelopmentOrigin(normalizedOrigin));
     },
     credentials: true,
   }),
