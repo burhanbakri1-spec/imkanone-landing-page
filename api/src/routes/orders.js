@@ -289,43 +289,57 @@ router.post("/", optionalAuth, async (req, res) => {
 });
 
 router.put("/:id/status", requireAuth, async (req, res) => {
-  if (!["admin", "company_admin"].includes(req.user.role) && !req.user.permissions?.includes("orders.updateStatus")) {
-    return res.status(403).json({ message: "Order status permission required." });
-  }
-  const order = orderRepository.findByCompany(req.companyId, req.params.id);
-  if (!order) return res.status(404).json({ message: "Order not found." });
+  try {
+    if (!["admin", "company_admin"].includes(req.user.role) && !req.user.permissions?.includes("orders.updateStatus")) {
+      return res.status(403).json({ message: "Order status permission required." });
+    }
+    const order = orderRepository.findByCompany(req.companyId, req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found." });
 
-  const prevStatus = order.status;
-  const nextStatus = cleanText(req.body.status, 40) || order.status;
-  applyLoyaltyForStatus(req.companyId, order, nextStatus);
-  order.status = nextStatus;
-  order.lastUpdatedBy = publicUser(req.user);
-  order.updatedAt = new Date().toISOString();
-  await persistCompanyStore(req.companyId);
-  recordActivityLog({
-    req,
-    companyId: req.companyId,
-    action: "order.status_updated",
-    entityType: "order",
-    entityId: order.id,
-    entityLabel: order.id || "",
-    summary: `Order ${order.id} status changed from ${prevStatus} to ${order.status}`,
-    beforeData: { status: prevStatus },
-    afterData: { status: order.status },
-  });
-  return res.json(order);
+    const prevStatus = order.status;
+    const nextStatus = cleanText(req.body.status, 40) || order.status;
+    applyLoyaltyForStatus(req.companyId, order, nextStatus);
+    order.status = nextStatus;
+    order.lastUpdatedBy = publicUser(req.user);
+    order.updatedAt = new Date().toISOString();
+    await persistCompanyStore(req.companyId);
+    recordActivityLog({
+      req,
+      companyId: req.companyId,
+      action: "order.status_updated",
+      entityType: "order",
+      entityId: order.id,
+      entityLabel: order.id || "",
+      summary: `Order ${order.id} status changed from ${prevStatus} to ${order.status}`,
+      beforeData: { status: prevStatus },
+      afterData: { status: order.status },
+    });
+    return res.json(order);
+  } catch (error) {
+    console.error("Order status update failed:", error);
+    return res.status(error.statusCode || 500).json({
+      message: error.statusCode ? error.message : "Unable to update order status. Please try again.",
+    });
+  }
 });
 
 router.put("/:id/assign-employee", requireAuth, async (req, res) => {
-  const order = orderRepository.findByCompany(req.companyId, req.params.id);
-  if (!order) return res.status(404).json({ message: "Order not found." });
+  try {
+    const order = orderRepository.findByCompany(req.companyId, req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found." });
 
-  order.handledByEmployeeId = req.body.employeeId || "";
-  order.assignedToEmployeeId = req.body.employeeId || "";
-  order.lastUpdatedBy = publicUser(req.user);
-  order.updatedAt = new Date().toISOString();
-  await persistCompanyStore(req.companyId);
-  return res.json(order);
+    order.handledByEmployeeId = req.body.employeeId || "";
+    order.assignedToEmployeeId = req.body.employeeId || "";
+    order.lastUpdatedBy = publicUser(req.user);
+    order.updatedAt = new Date().toISOString();
+    await persistCompanyStore(req.companyId);
+    return res.json(order);
+  } catch (error) {
+    console.error("Order assign employee failed:", error);
+    return res.status(error.statusCode || 500).json({
+      message: error.statusCode ? error.message : "Unable to assign employee. Please try again.",
+    });
+  }
 });
 
 router.delete("/:id", requireAuth, async (req, res) => {
