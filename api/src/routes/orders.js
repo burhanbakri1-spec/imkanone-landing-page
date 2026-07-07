@@ -153,6 +153,57 @@ function hasUnavailableVariant(items, companyId) {
   });
 }
 
+function matchingVariantForItem(item, products) {
+  const product = products.find(
+    (candidate) => candidate.id === item.productId || candidate.slug === item.slug,
+  );
+  if (!product) return null;
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+  if (!variants.length) return null;
+  const match = item.variantId
+    ? variants.find((variant) => variant.id === item.variantId)
+    : variants.find((variant) => {
+        const sameSize = String(variant.size || "") === String(item.selectedSize || item.size || "");
+        const selectedColor = item.colorName || item.selectedColor || "";
+        const variantColor = variant.color_name || variant.colorName || "";
+        return sameSize && (!selectedColor || selectedColor === variantColor);
+      });
+  return match || null;
+}
+
+function enforceItemPrices(items, user, companyId) {
+  const isTrader = user?.accountType === "trader" || user?.accountType === "wholesale";
+  const products = productRepository.getByCompany(companyId);
+  return items.map((item) => {
+    const variant = matchingVariantForItem(item, products);
+    if (!variant) return item;
+    const correctPrice = isTrader && Number(variant.wholesalePrice || 0) > 0
+      ? Number(variant.wholesalePrice)
+      : Number(variant.price || 0);
+    return {
+      ...item,
+      price: correctPrice,
+      lineTotal: correctPrice * item.quantity,
+    };
+  });
+}
+
+async function safeRecordActivityLog(params) {
+  try {
+    await recordActivityLog(params);
+  } catch (error) {
+    console.error("Activity log failed (non-fatal):", error.message);
+  }
+}
+
+async function safePersist(companyId) {
+  try {
+    await persistCompanyStore(companyId);
+  } catch (error) {
+    console.error("Store persistence failed (non-fatal):", error.message);
+  }
+}
+
 router.get("/", requireAuth, (req, res) => {
   const orders = orderRepository.getByCompany(req.companyId);
   if (req.user.role === "admin" || req.user.permissions?.includes("orders.view")) {
@@ -183,7 +234,7 @@ router.post("/", optionalAuth, async (req, res) => {
   try {
     const user = req.user;
     const customer = guestOrderCustomer(req.body.customer);
-    const items = orderItems(req.body.items);
+    let items = orderItems(req.body.items);
     if (!customer.name || !customer.phone || !customer.city || !customer.address) {
       return res.status(400).json({ message: "Name, phone, city, and address are required." });
     }
@@ -193,6 +244,9 @@ router.post("/", optionalAuth, async (req, res) => {
     if (hasUnavailableVariant(items, req.companyId)) {
       return res.status(409).json({ message: "One or more selected product variants are unavailable." });
     }
+
+    // Enforce server-side pricing (wholesale for traders, retail for others)
+    items = enforceItemPrices(items, user, req.companyId);
 
     // Delivery zone lookup
     const allZones = deliveryZoneRepository.getByCompany(req.companyId).filter((z) => !z.deleted_at);
@@ -273,8 +327,12 @@ router.post("/", optionalAuth, async (req, res) => {
     }
 
     orderRepository.createForCompany(req.companyId, order, { prepend: true });
-    await persistCompanyStore(req.companyId);
-    recordActivityLog({
+
+    // Persist main data — non-fatal; order is already saved in memory
+    await safePersist(req.companyId);
+
+    // Fire activity log — never throws
+    safeRecordActivityLog({
       req,
       companyId: req.companyId,
       action: "order.created",
@@ -284,6 +342,7 @@ router.post("/", optionalAuth, async (req, res) => {
       summary: `Order ${order.id} created for ${customer.name}`,
       afterData: { customer_name: customer.name, total: orderTotal, item_count: items.length },
     });
+
     return res.status(201).json(order);
   } catch (error) {
     console.error("Order creation failed:", error);
@@ -307,8 +366,11 @@ router.put("/:id/status", requireAuth, async (req, res) => {
     order.status = nextStatus;
     order.lastUpdatedBy = publicUser(req.user);
     order.updatedAt = new Date().toISOString();
-    await persistCompanyStore(req.companyId);
-    recordActivityLog({
+
+    // Persist main data — non-fatal; update is already applied in memory
+    await safePersist(req.companyId);
+
+    safeRecordActivityLog({
       req,
       companyId: req.companyId,
       action: "order.status_updated",
@@ -337,7 +399,21 @@ router.put("/:id/assign-employee", requireAuth, async (req, res) => {
     order.assignedToEmployeeId = req.body.employeeId || "";
     order.lastUpdatedBy = publicUser(req.user);
     order.updatedAt = new Date().toISOString();
-    await persistCompanyStore(req.companyId);
+
+    // Persist main data — non-fatal; update is already applied in memory
+    await safePersist(req.companyId);
+
+    safeRecordActivityLog({
+      req,
+      companyId: req.companyId,
+      action: "order.employee_assigned",
+      entityType: "order",
+      entityId: order.id,
+      entityLabel: order.id || "",
+      summary: `Employee assigned to order ${order.id}`,
+      beforeData: { handledByEmployeeId: order.handledByEmployeeId },
+      afterData: { handledByEmployeeId: req.body.employeeId || "" },
+    });
     return res.json(order);
   } catch (error) {
     console.error("Order assign employee failed:", error);

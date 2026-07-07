@@ -164,6 +164,7 @@ function normalizeVariants(product) {
         color_value: variant.color_value || variant.colorValue || variant.colorHex || "",
         size: variant.size || "500ml",
         price: Number(variant.price || 0),
+        wholesalePrice: variant.wholesalePrice != null ? Number(variant.wholesalePrice) : undefined,
         stock: Math.max(0, Number(variant.stock ?? variant.stockQty ?? product.stockQty ?? 0)),
         image_url: variant.image_url || variant.imageUrl || variant.image || "",
         sort_order: Number(variant.sort_order ?? variant.sortOrder ?? index),
@@ -177,6 +178,7 @@ function normalizeVariants(product) {
     color_value: "",
     size: sizeOption.size || "500ml",
     price: Number(sizeOption.price || 0),
+    wholesalePrice: sizeOption.wholesalePrice != null ? Number(sizeOption.wholesalePrice) : undefined,
     stock: Math.max(0, Number(product.stockQty ?? 24)),
     image_url: product.image || "",
     sort_order: index,
@@ -222,11 +224,13 @@ function normalizeUser(user) {
   const ebPoints = Math.max(0, Number(user.ebPoints || 0));
   const totalPointsEarned = Math.max(0, Number(user.totalPointsEarned || 0));
   const totalPointsRedeemed = Math.max(0, Number(user.totalPointsRedeemed || 0));
+  const validAccountTypes = new Set(["retail", "trader", "wholesale"]);
   return {
     ...user,
     name,
     role: user.role || "customer",
     permissions: user.permissions || [],
+    accountType: validAccountTypes.has(user.accountType) ? user.accountType : "retail",
     ebPoints,
     totalPointsEarned,
     totalPointsRedeemed,

@@ -66,39 +66,43 @@ export async function recordActivityLog({
   afterData = null,
   metadata = null,
 } = {}) {
-  const { activityLogRepository, persistCompanyStore } = await import("../data/store.js");
-  const crypto = await import("node:crypto");
-
-  const id = crypto.default?.randomUUID?.() || crypto.randomUUID();
-  const userId = req?.user?.id || "";
-  const email = req?.user?.email || "";
-  const name = req?.user?.name || "";
-  const role = req?.user?.role || "";
-
-  const logEntry = {
-    id,
-    company_id: companyId,
-    actor_user_id: userId,
-    actor_email: email,
-    actor_name: name,
-    actor_role: role,
-    action,
-    entity_type: entityType,
-    entity_id: entityId,
-    entity_label: entityLabel,
-    summary,
-    before_data: sanitizeLogData(beforeData),
-    after_data: sanitizeLogData(afterData),
-    metadata: sanitizeLogData(metadata),
-    ip_address: req ? getClientIp(req).slice(0, 80) : "",
-    user_agent: req ? getUserAgent(req).slice(0, 500) : "",
-    created_at: new Date().toISOString(),
-  };
-
   try {
-    activityLogRepository.createForCompany(companyId, logEntry);
-    await persistCompanyStore(companyId);
+    const { activityLogRepository, persistCompanyStore } = await import("../data/store.js");
+    const crypto = await import("node:crypto");
+
+    const id = crypto.default?.randomUUID?.() || crypto.randomUUID();
+    const userId = req?.user?.id || "";
+    const email = req?.user?.email || "";
+    const name = req?.user?.name || "";
+    const role = req?.user?.role || "";
+
+    const logEntry = {
+      id,
+      company_id: companyId,
+      actor_user_id: userId,
+      actor_email: email,
+      actor_name: name,
+      actor_role: role,
+      action,
+      entity_type: entityType,
+      entity_id: entityId,
+      entity_label: entityLabel,
+      summary,
+      before_data: sanitizeLogData(beforeData),
+      after_data: sanitizeLogData(afterData),
+      metadata: sanitizeLogData(metadata),
+      ip_address: req ? getClientIp(req).slice(0, 80) : "",
+      user_agent: req ? getUserAgent(req).slice(0, 500) : "",
+      created_at: new Date().toISOString(),
+    };
+
+    try {
+      activityLogRepository.createForCompany(companyId, logEntry);
+      await persistCompanyStore(companyId);
+    } catch (error) {
+      console.error("Activity log write failed (non-fatal):", error.message);
+    }
   } catch (error) {
-    console.error("Activity log write failed (non-fatal):", error.message);
+    console.error("Activity log setup failed (non-fatal):", error.message);
   }
 }

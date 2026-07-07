@@ -65,6 +65,9 @@ router.post("/register", async (req, res) => {
     return res.status(409).json({ message: "Email already exists." });
   }
 
+  const validAccountTypes = new Set(["retail", "trader", "wholesale"]);
+  const accountType = validAccountTypes.has(req.body.accountType) ? req.body.accountType : "retail";
+
   const user = {
     id: `customer-${Date.now()}`,
     name,
@@ -73,6 +76,7 @@ router.post("/register", async (req, res) => {
     password: await hashPassword(password),
     role: "customer",
     permissions: [],
+    accountType,
     ebPoints: 0,
     totalPointsEarned: 0,
     totalPointsRedeemed: 0,
