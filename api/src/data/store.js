@@ -51,6 +51,7 @@ export const allPermissions = [
   "customers.view",
   "employees.view",
   "website_media.manage",
+  "website_texts.manage",
   "invoices.view",
   "delivery.view",
   "activity_log.view",

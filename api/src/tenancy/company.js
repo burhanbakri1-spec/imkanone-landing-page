@@ -10,6 +10,7 @@ export const ADMIN_MODULE_KEYS = Object.freeze([
   "customers",
   "employees",
   "website_media",
+  "website_texts",
   "homepage_content",
   "settings",
   "custom_modules",

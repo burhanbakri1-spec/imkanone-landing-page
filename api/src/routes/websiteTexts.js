@@ -5,7 +5,7 @@ import { requireAuth } from "../middleware/auth.js";
 export const publicWebsiteTextsRouter = Router();
 export const adminWebsiteTextsRouter = Router();
 const allowedRoles = new Set(["admin", "company_admin", "manager", "employee", "staff"]);
-const textsPermission = "website_media.manage";
+const textsPermissions = ["website_media.manage", "website_texts.manage"];
 
 function noStore(_req, res, next) {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -22,7 +22,7 @@ function requireTextsEditor(req, res, next) {
     return res.status(403).json({ message: "Admin or employee access required." });
   }
 
-  if (!["admin", "company_admin"].includes(req.user?.role) && !req.user?.permissions?.includes(textsPermission)) {
+  if (!["admin", "company_admin"].includes(req.user?.role) && !textsPermissions.some((p) => req.user?.permissions?.includes(p))) {
     return res.status(403).json({ message: "Website texts permission required." });
   }
 
