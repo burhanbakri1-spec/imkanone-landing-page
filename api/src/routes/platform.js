@@ -219,6 +219,13 @@ function validatePlatformUserUpdateBody(body) {
     if (typeof body.isActive !== "boolean") throw validationError("isActive must be a boolean.");
     changes.isActive = body.isActive;
   }
+  if (hasOwn(body, "accountType")) {
+    const allowedTypes = new Set(["retail", "trader"]);
+    if (!allowedTypes.has(body.accountType)) {
+      throw validationError("accountType must be retail or trader.");
+    }
+    changes.accountType = body.accountType;
+  }
   if (!Object.keys(changes).length) {
     throw validationError("No supported user fields were provided.");
   }
