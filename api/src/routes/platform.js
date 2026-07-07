@@ -251,11 +251,13 @@ function validatePlatformUserCreateBody(body) {
   if (!allowedRoles.has(role)) {
     throw validationError("role must be one of: admin, manager, company_admin, employee, staff, customer.");
   }
+  const allowedAccountTypes = new Set(["retail", "trader"]);
   return {
     name,
     email,
     password,
     role,
+    accountType: hasOwn(body, "accountType") && allowedAccountTypes.has(body.accountType) ? body.accountType : "retail",
     phone: hasOwn(body, "phone") ? String(body.phone || "").trim() : "",
     department: hasOwn(body, "department") ? String(body.department || "").trim() : "",
     isActive: hasOwn(body, "isActive") ? body.isActive === true : true,
@@ -263,11 +265,13 @@ function validatePlatformUserCreateBody(body) {
 }
 
 function createPlatformUserSummary(user) {
+  const allowedAccountTypes = new Set(["retail", "trader", "wholesale"]);
   return {
     id: String(user?.id || ""),
     name: String(user?.name || ""),
     email: String(user?.email || "").trim().toLowerCase(),
     role: String(user?.role || "customer"),
+    accountType: allowedAccountTypes.has(user?.accountType) ? user.accountType : "retail",
     phone: String(user?.phone || ""),
     department: String(user?.department || ""),
     isActive: user?.isActive !== false,
