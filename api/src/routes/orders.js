@@ -180,104 +180,112 @@ router.get("/my-orders", requireAuth, (req, res) => {
 });
 
 router.post("/", optionalAuth, async (req, res) => {
-  const user = req.user;
-  const customer = guestOrderCustomer(req.body.customer);
-  const items = orderItems(req.body.items);
-  if (!customer.name || !customer.phone || !customer.city || !customer.address) {
-    return res.status(400).json({ message: "Name, phone, city, and address are required." });
-  }
-  if (!items.length) {
-    return res.status(400).json({ message: "At least one order item is required." });
-  }
-  if (hasUnavailableVariant(items, req.companyId)) {
-    return res.status(409).json({ message: "One or more selected product variants are unavailable." });
-  }
-
-  // Delivery zone lookup
-  const allZones = deliveryZoneRepository.getByCompany(req.companyId).filter((z) => !z.deleted_at);
-  let deliveryPrice = 0;
-  let deliveryZone = null;
-  if (allZones.length > 0) {
-    const deliveryZoneId = cleanText(req.body.delivery_zone_id || req.body.deliveryZoneId, 160);
-    const cityKey = cleanText(req.body.delivery_city_key || req.body.deliveryCityKey, 120);
-    deliveryZone = findEnabledZone(allZones, deliveryZoneId, cityKey);
-    if (!deliveryZone) {
-      return res.status(400).json({ message: "Selected delivery city is not available." });
-    }
-    deliveryPrice = deliveryZone.delivery_price;
-  }
-
-  const subtotal = productSubtotal(items);
-  const isCustomer = user?.role === "customer";
-  const isStaff = isStaffRole(user?.role);
-  const isPortalOperator = user?.role === "admin" || user?.role === "manager";
-  let redemption = { points: 0, discount: 0 };
   try {
-    if (isCustomer) redemption = redemptionForOrder(user, req.body.pointsRedeemed, subtotal);
+    const user = req.user;
+    const customer = guestOrderCustomer(req.body.customer);
+    const items = orderItems(req.body.items);
+    if (!customer.name || !customer.phone || !customer.city || !customer.address) {
+      return res.status(400).json({ message: "Name, phone, city, and address are required." });
+    }
+    if (!items.length) {
+      return res.status(400).json({ message: "At least one order item is required." });
+    }
+    if (hasUnavailableVariant(items, req.companyId)) {
+      return res.status(409).json({ message: "One or more selected product variants are unavailable." });
+    }
+
+    // Delivery zone lookup
+    const allZones = deliveryZoneRepository.getByCompany(req.companyId).filter((z) => !z.deleted_at);
+    let deliveryPrice = 0;
+    let deliveryZone = null;
+    if (allZones.length > 0) {
+      const deliveryZoneId = cleanText(req.body.delivery_zone_id || req.body.deliveryZoneId, 160);
+      const cityKey = cleanText(req.body.delivery_city_key || req.body.deliveryCityKey, 120);
+      deliveryZone = findEnabledZone(allZones, deliveryZoneId, cityKey);
+      if (!deliveryZone) {
+        return res.status(400).json({ message: "Selected delivery city is not available." });
+      }
+      deliveryPrice = deliveryZone.delivery_price;
+    }
+
+    const subtotal = productSubtotal(items);
+    const isCustomer = user?.role === "customer";
+    const isStaff = isStaffRole(user?.role);
+    const isPortalOperator = user?.role === "admin" || user?.role === "manager";
+    let redemption = { points: 0, discount: 0 };
+    try {
+      if (isCustomer) redemption = redemptionForOrder(user, req.body.pointsRedeemed, subtotal);
+    } catch (error) {
+      console.warn("EB Points redemption skipped during order creation:", error.message);
+      redemption = { points: 0, discount: 0 };
+    }
+    const pointsRedeemed = redemption.points;
+    const discountFromPoints = redemption.discount;
+    const paidProductSubtotal = Math.max(0, subtotal - discountFromPoints);
+    const pointsEarned = isCustomer ? Math.floor(paidProductSubtotal) : 0;
+    const orderTotal = paidProductSubtotal + deliveryPrice;
+    const now = new Date().toISOString();
+    const order = {
+      id: `ORD-${Date.now()}`,
+      customer,
+      customerUserId: isCustomer
+        ? user.id
+        : isPortalOperator
+          ? cleanText(req.body.customerUserId, 160) || null
+          : null,
+      items,
+      subtotal,
+      total: orderTotal,
+      pointsEarned,
+      pointsRedeemed,
+      discountFromPoints,
+      pointsAwardedAt: null,
+      pointsReversedAt: null,
+      pointsRedemptionAppliedAt: pointsRedeemed > 0 ? now : null,
+      pointsRedemptionRestoredAt: null,
+      delivery_city_key: deliveryZone ? deliveryZone.city_key : "",
+      delivery_city_name: deliveryZone ? deliveryZone.city_name : "",
+      delivery_region: deliveryZone ? deliveryZone.region : "",
+      delivery_price: deliveryPrice,
+      delivery_currency: deliveryZone ? deliveryZone.currency : "",
+      paymentMethod: cleanText(req.body.paymentMethod, 80) || "Cash on delivery",
+      status: "Pending",
+      handledByEmployeeId: isStaff ? user.id : "",
+      assignedToEmployeeId: isStaff ? user.id : "",
+      createdByEmployeeId:
+        isStaff ? user.id : isPortalOperator ? cleanText(req.body.createdByEmployeeId, 160) : "",
+      createdByEmployeeName:
+        isStaff ? user.name : isPortalOperator ? cleanText(req.body.createdByEmployeeName, 120) : "",
+      createdBy: publicUser(user),
+      lastUpdatedBy: publicUser(user),
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    if (isCustomer && pointsRedeemed > 0) {
+      user.ebPoints = Math.max(0, Number(user.ebPoints || 0) - pointsRedeemed);
+      user.totalPointsRedeemed = Math.max(0, Number(user.totalPointsRedeemed || 0)) + pointsRedeemed;
+    }
+
+    orderRepository.createForCompany(req.companyId, order, { prepend: true });
+    await persistCompanyStore(req.companyId);
+    recordActivityLog({
+      req,
+      companyId: req.companyId,
+      action: "order.created",
+      entityType: "order",
+      entityId: order.id,
+      entityLabel: order.id || "",
+      summary: `Order ${order.id} created for ${customer.name}`,
+      afterData: { customer_name: customer.name, total: orderTotal, item_count: items.length },
+    });
+    return res.status(201).json(order);
   } catch (error) {
-    return res.status(error.statusCode || 400).json({ message: error.message });
+    console.error("Order creation failed:", error);
+    return res.status(error.statusCode || 500).json({
+      message: error.statusCode ? error.message : "Unable to create order. Please try again.",
+    });
   }
-  const pointsRedeemed = redemption.points;
-  const discountFromPoints = redemption.discount;
-  const paidProductSubtotal = Math.max(0, subtotal - discountFromPoints);
-  const pointsEarned = isCustomer ? Math.floor(paidProductSubtotal) : 0;
-  const orderTotal = paidProductSubtotal + deliveryPrice;
-  const now = new Date().toISOString();
-  const order = {
-    id: `ORD-${Date.now()}`,
-    customer,
-    customerUserId: isCustomer
-      ? user.id
-      : isPortalOperator
-        ? cleanText(req.body.customerUserId, 160) || null
-        : null,
-    items,
-    subtotal,
-    total: orderTotal,
-    pointsEarned,
-    pointsRedeemed,
-    discountFromPoints,
-    pointsAwardedAt: null,
-    pointsReversedAt: null,
-    pointsRedemptionAppliedAt: pointsRedeemed > 0 ? now : null,
-    pointsRedemptionRestoredAt: null,
-    delivery_city_key: deliveryZone ? deliveryZone.city_key : "",
-    delivery_city_name: deliveryZone ? deliveryZone.city_name : "",
-    delivery_region: deliveryZone ? deliveryZone.region : "",
-    delivery_price: deliveryPrice,
-    delivery_currency: deliveryZone ? deliveryZone.currency : "",
-    paymentMethod: cleanText(req.body.paymentMethod, 80) || "Cash on delivery",
-    status: "Pending",
-    handledByEmployeeId: isStaff ? user.id : "",
-    assignedToEmployeeId: isStaff ? user.id : "",
-    createdByEmployeeId:
-      isStaff ? user.id : isPortalOperator ? cleanText(req.body.createdByEmployeeId, 160) : "",
-    createdByEmployeeName:
-      isStaff ? user.name : isPortalOperator ? cleanText(req.body.createdByEmployeeName, 120) : "",
-    createdBy: publicUser(user),
-    lastUpdatedBy: publicUser(user),
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  if (isCustomer) {
-    user.ebPoints = Math.max(0, Number(user.ebPoints || 0) - pointsRedeemed);
-    user.totalPointsRedeemed = Math.max(0, Number(user.totalPointsRedeemed || 0)) + pointsRedeemed;
-  }
-
-  orderRepository.createForCompany(req.companyId, order, { prepend: true });
-  await persistCompanyStore(req.companyId);
-  recordActivityLog({
-    req,
-    companyId: req.companyId,
-    action: "order.created",
-    entityType: "order",
-    entityId: order.id,
-    entityLabel: order.id || "",
-    summary: `Order ${order.id} created for ${customer.name}`,
-    afterData: { customer_name: customer.name, total: orderTotal, item_count: items.length },
-  });
-  res.status(201).json(order);
 });
 
 router.put("/:id/status", requireAuth, async (req, res) => {

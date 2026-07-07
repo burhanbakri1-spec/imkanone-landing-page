@@ -8,6 +8,7 @@ import { Pool } from "pg";
 import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
 
 let pool;
+const tableColumnCache = new Map();
 
 function databaseUrl() {
   return process.env.DATABASE_URL || process.env.POSTGRES_URL || "";
@@ -176,9 +177,19 @@ async function selectAll(table, restQuery = "select=*") {
 async function upsertRowsSql(table, rows, conflictColumn = "id", ignoreDuplicates = false) {
   if (!rows.length) return;
 
-  const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+  const validColumns = await tableColumns(table);
+  const filteredRows = rows
+    .map((row) =>
+      Object.fromEntries(
+        Object.entries(row).filter(([column]) => validColumns.has(column)),
+      ),
+    )
+    .filter((row) => Object.prototype.hasOwnProperty.call(row, conflictColumn));
+  if (!filteredRows.length) return;
+
+  const columns = [...new Set(filteredRows.flatMap((row) => Object.keys(row)))];
   const values = [];
-  const tuples = rows.map((row) => {
+  const tuples = filteredRows.map((row) => {
     const placeholders = columns.map((column) => {
       values.push(toPgColumnValue(column, row[column]));
       return `$${values.length}`;
@@ -207,6 +218,20 @@ async function upsertRows(table, rows, conflictColumn = "id") {
 
 async function insertRowsIfMissing(table, rows, conflictColumn = "id") {
   await upsertRowsSql(table, rows, conflictColumn, true);
+}
+
+async function tableColumns(table) {
+  if (tableColumnCache.has(table)) return tableColumnCache.get(table);
+
+  const result = await query(
+    `select column_name
+     from information_schema.columns
+     where table_schema = 'public' and table_name = $1`,
+    [table],
+  );
+  const columns = new Set(result.rows.map((row) => row.column_name));
+  tableColumnCache.set(table, columns);
+  return columns;
 }
 
 async function deleteRows(table, restQuery = "") {
