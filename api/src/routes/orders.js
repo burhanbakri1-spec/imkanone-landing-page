@@ -209,6 +209,11 @@ router.post("/", optionalAuth, async (req, res) => {
     }
 
     const subtotal = productSubtotal(items);
+    const freeDeliveryThreshold = 500;
+    const isFreeDelivery = subtotal >= freeDeliveryThreshold;
+    if (isFreeDelivery) {
+      deliveryPrice = 0;
+    }
     const isCustomer = user?.role === "customer";
     const isStaff = isStaffRole(user?.role);
     const isPortalOperator = user?.role === "admin" || user?.role === "manager";
@@ -343,13 +348,20 @@ router.put("/:id/assign-employee", requireAuth, async (req, res) => {
 });
 
 router.delete("/:id", requireAuth, async (req, res) => {
-  const existing = orderRepository.findByCompany(req.companyId, req.params.id);
-  if (existing) applyLoyaltyForStatus(req.companyId, existing, "Cancelled");
-  const removed = orderRepository.deleteForCompany(req.companyId, req.params.id);
-  if (!removed) return res.status(404).json({ message: "Order not found." });
+  try {
+    const existing = orderRepository.findByCompany(req.companyId, req.params.id);
+    if (existing) applyLoyaltyForStatus(req.companyId, existing, "Cancelled");
+    const removed = orderRepository.deleteForCompany(req.companyId, req.params.id);
+    if (!removed) return res.status(404).json({ message: "Order not found." });
 
-  await persistCompanyStore(req.companyId, { pruneMissing: true });
-  return res.status(204).end();
+    await persistCompanyStore(req.companyId, { pruneMissing: true });
+    return res.status(204).end();
+  } catch (error) {
+    console.error("Order delete failed:", error);
+    return res.status(error.statusCode || 500).json({
+      message: error.statusCode ? error.message : "Unable to delete order. Please try again.",
+    });
+  }
 });
 
 export default router;
