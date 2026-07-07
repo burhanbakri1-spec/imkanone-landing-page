@@ -136,6 +136,33 @@ app.use((_req, res) => {
   res.status(404).json({ message: "API route not found." });
 });
 
+function setCorsOnError(err, req, res) {
+  const origin = req.headers?.origin || req.headers?.["Origin"] || "";
+  const normalizedOrigin = normalizeOrigin(String(origin));
+  if (normalizedOrigin && (allowedOrigins.has(normalizedOrigin) || isLocalDevelopmentOrigin(normalizedOrigin))) {
+    res.setHeader("Access-Control-Allow-Origin", normalizedOrigin);
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", "https://ebchemi.com");
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Company-Id, x-company-id");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+}
+
+app.use((err, req, res, _next) => {
+  console.error("Unhandled route error:", err?.message || err);
+  setCorsOnError(err, req, res);
+  res.status(500).json({ message: "Internal server error." });
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("Fatal uncaught exception:", err?.message || err);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection:", reason?.message || reason);
+});
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`EB Chemical API running on http://0.0.0.0:${port}`);
 });

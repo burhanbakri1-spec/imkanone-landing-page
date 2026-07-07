@@ -463,7 +463,11 @@ async function readInitialStore(companyId = DEFAULT_COMPANY_ID) {
   }
 
   try {
-    const result = await loadStoreFromSupabase(companyId);
+    const storePromise = loadStoreFromSupabase(companyId);
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Supabase load timed out after 5s")), 5000),
+    );
+    const result = await Promise.race([storePromise, timeout]);
     const localFallback = readPersistedStore();
     return {
       persisted: result.isEmpty
@@ -477,7 +481,13 @@ async function readInitialStore(companyId = DEFAULT_COMPANY_ID) {
   }
 }
 
-const initialStore = await readInitialStore();
+let initialStore;
+try {
+  initialStore = await readInitialStore();
+} catch (error) {
+  console.error("Store initialization failed, using empty in-memory store.", error?.message || error);
+  initialStore = { persisted: null, canPersistToSupabase: false };
+}
 const persisted = initialStore.persisted;
 let canPersistToSupabase = initialStore.canPersistToSupabase;
 
