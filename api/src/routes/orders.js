@@ -21,6 +21,14 @@ function cleanText(value, maxLength) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
 
+function normalizePhone(phone) {
+  if (!phone) return "";
+  const digits = String(phone).replace(/[^\d]/g, "");
+  if (digits.startsWith("970")) return digits.slice(3);
+  if (digits.startsWith("972")) return digits.slice(3);
+  return digits.replace(/^0+/, "") || digits;
+}
+
 function safeNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -68,9 +76,10 @@ function orderCustomer(companyId, order) {
 }
 
 function pointsUserForOrder(companyId, order) {
-  const phone = order?.customer?.phone;
-  if (!phone) return orderCustomer(companyId, order) || null;
-  return userRepository.findByCompany(companyId, (u) => u.phone === phone)
+  const rawPhone = order?.customer?.phone;
+  if (!rawPhone) return orderCustomer(companyId, order) || null;
+  const phone = normalizePhone(rawPhone);
+  return userRepository.findByCompany(companyId, (u) => normalizePhone(u.phone) === phone)
     || orderCustomer(companyId, order)
     || null;
 }
@@ -108,7 +117,7 @@ function applyLoyaltyForStatus(companyId, order, nextStatus) {
 function guestOrderCustomer(input) {
   return {
     name: cleanText(input?.name, 120),
-    phone: cleanText(input?.phone, 40),
+    phone: normalizePhone(cleanText(input?.phone, 40)),
     city: cleanText(input?.city, 120),
     address: cleanText(input?.address, 300),
     notes: cleanText(input?.notes, 1000),
@@ -183,11 +192,17 @@ function enforceItemPrices(items, user, companyId) {
   const isTrader = user?.accountType === "trader" || user?.accountType === "wholesale";
   const products = productRepository.getByCompany(companyId);
   return items.map((item) => {
+    const product = products.find(
+      (candidate) => candidate.id === item.productId || candidate.slug === item.slug,
+    );
     const variant = matchingVariantForItem(item, products);
-    if (!variant) return item;
-    const correctPrice = isTrader && Number(variant.wholesalePrice || 0) > 0
-      ? Number(variant.wholesalePrice)
-      : Number(variant.price || 0);
+    if (!isTrader) return item;
+    let correctPrice = Number(item.price || 0);
+    if (variant?.wholesalePrice != null && Number(variant.wholesalePrice) > 0) {
+      correctPrice = Number(variant.wholesalePrice);
+    } else if (product?.wholesalePrice != null && Number(product.wholesalePrice) > 0) {
+      correctPrice = Number(product.wholesalePrice);
+    }
     return {
       ...item,
       price: correctPrice,
@@ -232,10 +247,14 @@ router.get("/", requireAuth, (req, res) => {
 });
 
 router.get("/my-orders", requireAuth, (req, res) => {
+  const userPhone = normalizePhone(req.user.phone);
   res.json(
     orderRepository
       .getByCompany(req.companyId)
-      .filter((order) => order.customerUserId === req.user.id),
+      .filter((order) =>
+        order.customerUserId === req.user.id
+        || (userPhone && order.customer?.phone && normalizePhone(order.customer.phone) === userPhone)
+      ),
   );
 });
 
@@ -247,13 +266,13 @@ router.post("/", optionalAuth, async (req, res) => {
 
     // Look up or create a points user by phone number (points follow the phone, not the login)
     let pointsUser = customer.phone
-      ? userRepository.findByCompany(req.companyId, (u) => u.phone === customer.phone)
+      ? userRepository.findByCompany(req.companyId, (u) => normalizePhone(u.phone) === customer.phone)
       : null;
     if (!pointsUser && customer.phone) {
       pointsUser = {
         id: `points-${Date.now()}`,
         name: customer.name || `Customer ${customer.phone}`,
-        email: `points-${customer.phone.replace(/[^a-zA-Z0-9@.+_-]/g, "")}@ep-chemical.com`,
+        email: `points-${customer.phone}@ep-chemical.com`,
         phone: customer.phone,
         role: "customer",
         accountType: "retail",

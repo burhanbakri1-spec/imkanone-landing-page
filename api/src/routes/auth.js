@@ -7,6 +7,14 @@ import {
 import { hashPassword, verifyPassword } from "../auth/passwords.js";
 import { getSessionUser, publicUser, requireAuth, signToken } from "../middleware/auth.js";
 
+function normalizePhone(phone) {
+  if (!phone) return "";
+  const digits = String(phone).replace(/[^\d]/g, "");
+  if (digits.startsWith("970")) return digits.slice(3);
+  if (digits.startsWith("972")) return digits.slice(3);
+  return digits.replace(/^0+/, "") || digits;
+}
+
 const router = Router();
 
 function isStaffRole(role) {
@@ -57,8 +65,9 @@ router.post("/login", async (req, res) => {
 });
 
 router.post("/register", async (req, res) => {
-  const { name, email, phone, password } = req.body;
+  const { name, email, phone: rawPhone, password } = req.body;
   const normalizedEmail = String(email || "").trim().toLowerCase();
+  const phone = normalizePhone(rawPhone);
   if (userRepository.getByCompany(req.companyId).some(
     (user) => String(user.email || "").trim().toLowerCase() === normalizedEmail,
   )) {
@@ -73,7 +82,7 @@ router.post("/register", async (req, res) => {
   let existingEarned = 0;
   let existingRedeemed = 0;
   if (phone) {
-    const phoneUser = userRepository.findByCompany(req.companyId, (u) => u.phone === phone && u.id.startsWith("points-"));
+    const phoneUser = userRepository.findByCompany(req.companyId, (u) => normalizePhone(u.phone) === phone && u.id.startsWith("points-"));
     if (phoneUser) {
       existingPoints = Math.max(0, Number(phoneUser.ebPoints || 0));
       existingEarned = Math.max(0, Number(phoneUser.totalPointsEarned || 0));
@@ -104,9 +113,13 @@ router.post("/register", async (req, res) => {
 
 router.get("/me", requireAuth, (req, res) => {
   const user = { ...req.user };
-  // Merge points from phone-linked account so points follow the phone number
-  if (user.phone) {
-    const phoneUser = userRepository.findByCompany(req.companyId, (u) => u.phone === user.phone && u.id !== user.id);
+  const userPhone = normalizePhone(user.phone);
+  // Merge points from any other phone-linked account so points follow the phone number
+  if (userPhone) {
+    const phoneUser = userRepository.findByCompany(
+      req.companyId,
+      (u) => u.id !== user.id && normalizePhone(u.phone) === userPhone,
+    );
     if (phoneUser) {
       user.ebPoints = Math.max(0, Number(user.ebPoints || 0), Number(phoneUser.ebPoints || 0));
       user.totalPointsEarned = Math.max(0, Number(user.totalPointsEarned || 0), Number(phoneUser.totalPointsEarned || 0));
