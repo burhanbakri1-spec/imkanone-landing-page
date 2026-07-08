@@ -114,19 +114,34 @@ router.post("/register", async (req, res) => {
 router.get("/me", requireAuth, (req, res) => {
   const user = { ...req.user };
   const userPhone = normalizePhone(user.phone);
-  // Merge points from any other phone-linked account so points follow the phone number
   if (userPhone) {
     const phoneUser = userRepository.findByCompany(
       req.companyId,
       (u) => u.id !== user.id && normalizePhone(u.phone) === userPhone,
     );
     if (phoneUser) {
-      user.ebPoints = Math.max(0, Number(user.ebPoints || 0), Number(phoneUser.ebPoints || 0));
-      user.totalPointsEarned = Math.max(0, Number(user.totalPointsEarned || 0), Number(phoneUser.totalPointsEarned || 0));
-      user.totalPointsRedeemed = Math.max(0, Number(user.totalPointsRedeemed || 0), Number(phoneUser.totalPointsRedeemed || 0));
+      user.ebPoints = Math.max(0, Number(user.ebPoints || 0)) + Math.max(0, Number(phoneUser.ebPoints || 0));
+      user.totalPointsEarned = Math.max(0, Number(user.totalPointsEarned || 0)) + Math.max(0, Number(phoneUser.totalPointsEarned || 0));
+      user.totalPointsRedeemed = Math.max(0, Number(user.totalPointsRedeemed || 0)) + Math.max(0, Number(phoneUser.totalPointsRedeemed || 0));
     }
   }
   res.json(publicUser(user));
+});
+
+router.patch("/me", requireAuth, async (req, res) => {
+  const allowed = ["name", "email", "phone", "city", "address"];
+  const updates = {};
+  for (const key of allowed) {
+    if (req.body[key] !== undefined) updates[key] = req.body[key];
+  }
+  if (updates.phone) updates.phone = normalizePhone(updates.phone);
+  if (!updates.name && !updates.email && !updates.phone && !updates.city && !updates.address) {
+    return res.status(400).json({ message: "No valid fields to update." });
+  }
+  const updated = userRepository.updateForCompany(req.companyId, req.user.id, updates);
+  if (!updated) return res.status(404).json({ message: "User not found." });
+  await persistCompanyStore(req.companyId);
+  res.json(publicUser(updated));
 });
 
 router.post("/logout", async (req, res) => {
