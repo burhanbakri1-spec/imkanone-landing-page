@@ -348,7 +348,7 @@ router.post("/", optionalAuth, async (req, res) => {
       pointsEarned,
       pointsRedeemed,
       discountFromPoints,
-      pointsAwardedAt: null,
+      pointsAwardedAt: pointsEarned > 0 ? now : null,
       pointsReversedAt: null,
       pointsRedemptionAppliedAt: pointsRedeemed > 0 ? now : null,
       pointsRedemptionRestoredAt: null,
@@ -374,6 +374,11 @@ router.post("/", optionalAuth, async (req, res) => {
     if (isCustomer && pointsRedeemed > 0) {
       pointsUser.ebPoints = Math.max(0, Number(pointsUser.ebPoints || 0) - pointsRedeemed);
       pointsUser.totalPointsRedeemed = Math.max(0, Number(pointsUser.totalPointsRedeemed || 0)) + pointsRedeemed;
+    }
+
+    if (isCustomer && pointsEarned > 0) {
+      pointsUser.ebPoints = Math.max(0, Number(pointsUser.ebPoints || 0)) + pointsEarned;
+      pointsUser.totalPointsEarned = Math.max(0, Number(pointsUser.totalPointsEarned || 0)) + pointsEarned;
     }
 
     orderRepository.createForCompany(req.companyId, order, { prepend: true });

@@ -27,29 +27,35 @@ router.get("/all", requireAuth, (req, res) => {
 });
 
 router.post("/", requireAuth, async (req, res) => {
-  const orders = orderRepository.getByCompany(req.companyId);
-  const order = req.body.orderId
-    ? orders.find((entry) => entry.id === req.body.orderId)
-    : orders.find((entry) => entry.customerUserId === req.user.id);
+  const type = req.body.type || "website";
+  const allowedTypes = ["product", "website", "order", "employee"];
+  if (!allowedTypes.includes(type)) {
+    return res.status(400).json({ message: "Invalid review type." });
+  }
+
+  let order = null;
+  if (req.body.orderId) {
+    const orders = orderRepository.getByCompany(req.companyId);
+    order = orders.find((entry) => entry.id === req.body.orderId);
+  }
 
   if (
     req.user.role === "customer" &&
+    type !== "website" &&
     (!order || order.customerUserId !== req.user.id)
   ) {
     return res.status(403).json({ message: "A completed interaction is required before reviewing." });
   }
-
-  const type =
-    req.body.type === "employee" || req.body.employeeId ? "employee" : "store";
 
   const review = {
     ...req.body,
     id: req.body.id || `review-${Date.now()}`,
     type,
     customerName: req.body.customerName || req.user.name || "Customer",
-    employeeId: type === "employee" ? req.body.employeeId || order?.handledByEmployeeId || order?.assignedToEmployeeId || "" : "",
-    employeeName: req.body.employeeName || order?.createdByEmployeeName || "",
+    productId: type === "product" ? req.body.productId || "" : "",
     orderId: req.body.orderId || order?.id || "",
+    employeeId: type === "employee" ? req.body.employeeId || order?.handledByEmployeeId || order?.assignedToEmployeeId || "" : "",
+    employeeName: type === "employee" ? req.body.employeeName || order?.createdByEmployeeName || "" : "",
     createdAt: req.body.createdAt || new Date().toISOString(),
     status: req.user.role === "customer" ? "pending" : req.body.status || "approved",
     isApproved: req.user.role === "customer" ? false : req.body.status !== "rejected",
