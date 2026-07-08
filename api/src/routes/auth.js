@@ -68,6 +68,20 @@ router.post("/register", async (req, res) => {
   const validAccountTypes = new Set(["retail", "trader", "wholesale"]);
   const accountType = validAccountTypes.has(req.body.accountType) ? req.body.accountType : "retail";
 
+  // Check if a phone-linked points user already exists and inherit their balance
+  let existingPoints = 0;
+  let existingEarned = 0;
+  let existingRedeemed = 0;
+  if (phone) {
+    const phoneUser = userRepository.findByCompany(req.companyId, (u) => u.phone === phone && u.id.startsWith("points-"));
+    if (phoneUser) {
+      existingPoints = Math.max(0, Number(phoneUser.ebPoints || 0));
+      existingEarned = Math.max(0, Number(phoneUser.totalPointsEarned || 0));
+      existingRedeemed = Math.max(0, Number(phoneUser.totalPointsRedeemed || 0));
+      userRepository.deleteForCompany(req.companyId, phoneUser.id);
+    }
+  }
+
   const user = {
     id: `customer-${Date.now()}`,
     name,
@@ -77,9 +91,9 @@ router.post("/register", async (req, res) => {
     role: "customer",
     permissions: [],
     accountType,
-    ebPoints: 0,
-    totalPointsEarned: 0,
-    totalPointsRedeemed: 0,
+    ebPoints: existingPoints,
+    totalPointsEarned: existingEarned,
+    totalPointsRedeemed: existingRedeemed,
     isActive: true,
   };
   userRepository.createForCompany(req.companyId, user);
@@ -89,7 +103,17 @@ router.post("/register", async (req, res) => {
 });
 
 router.get("/me", requireAuth, (req, res) => {
-  res.json(publicUser(req.user));
+  const user = { ...req.user };
+  // Merge points from phone-linked account so points follow the phone number
+  if (user.phone) {
+    const phoneUser = userRepository.findByCompany(req.companyId, (u) => u.phone === user.phone && u.id !== user.id);
+    if (phoneUser) {
+      user.ebPoints = Math.max(0, Number(user.ebPoints || 0), Number(phoneUser.ebPoints || 0));
+      user.totalPointsEarned = Math.max(0, Number(user.totalPointsEarned || 0), Number(phoneUser.totalPointsEarned || 0));
+      user.totalPointsRedeemed = Math.max(0, Number(user.totalPointsRedeemed || 0), Number(phoneUser.totalPointsRedeemed || 0));
+    }
+  }
+  res.json(publicUser(user));
 });
 
 router.post("/logout", async (req, res) => {

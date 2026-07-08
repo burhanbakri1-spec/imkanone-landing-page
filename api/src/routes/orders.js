@@ -67,8 +67,16 @@ function orderCustomer(companyId, order) {
   return userRepository.findByCompany(companyId, order.customerUserId);
 }
 
+function pointsUserForOrder(companyId, order) {
+  const phone = order?.customer?.phone;
+  if (!phone) return orderCustomer(companyId, order) || null;
+  return userRepository.findByCompany(companyId, (u) => u.phone === phone)
+    || orderCustomer(companyId, order)
+    || null;
+}
+
 function applyLoyaltyForStatus(companyId, order, nextStatus) {
-  const customer = orderCustomer(companyId, order);
+  const customer = pointsUserForOrder(companyId, order) || orderCustomer(companyId, order);
   if (!customer) return;
   const status = normalizedStatus(nextStatus);
   const now = new Date().toISOString();
@@ -236,6 +244,28 @@ router.post("/", optionalAuth, async (req, res) => {
     const user = req.user;
     const customer = guestOrderCustomer(req.body.customer);
     let items = orderItems(req.body.items);
+
+    // Look up or create a points user by phone number (points follow the phone, not the login)
+    let pointsUser = customer.phone
+      ? userRepository.findByCompany(req.companyId, (u) => u.phone === customer.phone)
+      : null;
+    if (!pointsUser && customer.phone) {
+      pointsUser = {
+        id: `points-${Date.now()}`,
+        name: customer.name || `Customer ${customer.phone}`,
+        email: `points-${customer.phone.replace(/[^a-zA-Z0-9@.+_-]/g, "")}@ep-chemical.com`,
+        phone: customer.phone,
+        role: "customer",
+        accountType: "retail",
+        permissions: [],
+        ebPoints: 0,
+        totalPointsEarned: 0,
+        totalPointsRedeemed: 0,
+        isActive: true,
+      };
+      userRepository.createForCompany(req.companyId, pointsUser);
+    }
+
     if (!customer.name || !customer.phone || !customer.city || !customer.address) {
       return res.status(400).json({ message: "Name, phone, city, and address are required." });
     }
@@ -269,12 +299,12 @@ router.post("/", optionalAuth, async (req, res) => {
     if (isFreeDelivery) {
       deliveryPrice = 0;
     }
-    const isCustomer = user?.role === "customer";
+    const isCustomer = pointsUser?.role === "customer";
     const isStaff = isStaffRole(user?.role);
     const isPortalOperator = user?.role === "admin" || user?.role === "manager";
     let redemption = { points: 0, discount: 0 };
     try {
-      if (isCustomer) redemption = redemptionForOrder(user, req.body.pointsRedeemed, subtotal);
+      if (isCustomer) redemption = redemptionForOrder(pointsUser, req.body.pointsRedeemed, subtotal);
     } catch (error) {
       console.warn("EB Points redemption skipped during order creation:", error.message);
       redemption = { points: 0, discount: 0 };
@@ -288,7 +318,7 @@ router.post("/", optionalAuth, async (req, res) => {
     const order = {
       id: `ORD-${Date.now()}`,
       customer,
-      customerUserId: isCustomer
+      customerUserId: user?.role === "customer"
         ? user.id
         : isPortalOperator
           ? cleanText(req.body.customerUserId, 160) || null
@@ -323,8 +353,8 @@ router.post("/", optionalAuth, async (req, res) => {
     };
 
     if (isCustomer && pointsRedeemed > 0) {
-      user.ebPoints = Math.max(0, Number(user.ebPoints || 0) - pointsRedeemed);
-      user.totalPointsRedeemed = Math.max(0, Number(user.totalPointsRedeemed || 0)) + pointsRedeemed;
+      pointsUser.ebPoints = Math.max(0, Number(pointsUser.ebPoints || 0) - pointsRedeemed);
+      pointsUser.totalPointsRedeemed = Math.max(0, Number(pointsUser.totalPointsRedeemed || 0)) + pointsRedeemed;
     }
 
     orderRepository.createForCompany(req.companyId, order, { prepend: true });
