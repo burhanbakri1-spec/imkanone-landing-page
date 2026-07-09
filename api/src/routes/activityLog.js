@@ -23,7 +23,7 @@ router.get("/", (req, res) => {
       .filter((log) => !log.deleted_at)
       .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
 
-    const { action, entity_type, actor_email, date_from, date_to } = req.query;
+    const { action, entity_type, actor_email, actor_id, date_from, date_to } = req.query;
 
     if (action) {
       logs = logs.filter((log) => log.action === action);
@@ -33,6 +33,9 @@ router.get("/", (req, res) => {
     }
     if (actor_email) {
       logs = logs.filter((log) => log.actor_email?.toLowerCase().includes(actor_email.toLowerCase()));
+    }
+    if (actor_id) {
+      logs = logs.filter((log) => log.actor_id === actor_id || log.userId === actor_id || log.employeeId === actor_id);
     }
     if (date_from) {
       const from = parseDate(date_from);

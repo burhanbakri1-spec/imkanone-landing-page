@@ -51,6 +51,19 @@ router.post("/end", async (req, res) => {
   return res.json(session);
 });
 
+router.post("/heartbeat", async (req, res) => {
+  if (!isStaffRole(req.user.role)) {
+    return res.status(403).json({ message: "Only employees can send heartbeat." });
+  }
+
+  const session = findOpenSession(req.companyId, req.user);
+  if (!session) return res.status(404).json({ message: "No open work session." });
+
+  session.lastActivityAt = new Date().toISOString();
+  await persistCompanyStore(req.companyId);
+  return res.json({ ok: true });
+});
+
 router.get("/my-today", (req, res) => {
   if (!isStaffRole(req.user.role)) return res.json(null);
   return res.json(findOpenSession(req.companyId, req.user) || null);
