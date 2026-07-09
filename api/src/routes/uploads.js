@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { requireAuth } from "../middleware/auth.js";
 import { isSupabaseStorageConfigured, uploadImageToSupabaseStorage } from "../data/supabaseStore.js";
 import { companyStoragePath, companyStorageSegment } from "../tenancy/company.js";
+import { persistCompanyStore, userRepository } from "../data/store.js";
 
 const router = express.Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -187,6 +188,67 @@ router.post(
       ...savedFiles[0],
       files: savedFiles,
     });
+  },
+);
+
+router.post(
+  "/avatar",
+  requireAuth,
+  express.raw({
+    limit: "4mb",
+    type: (req) => req.headers["content-type"]?.startsWith("multipart/form-data"),
+  }),
+  async (req, res) => {
+    const boundary = getBoundary(req.headers["content-type"]);
+    const uploads = boundary ? parseMultipartImages(req.body, boundary) : [];
+
+    if (!uploads.length) {
+      return res.status(400).json({ message: "No image file was uploaded." });
+    }
+
+    const useSupabaseStorage = isSupabaseStorageConfigured();
+
+    if (!useSupabaseStorage && requiresPersistentStorage() && !hasLocalPersistentStorage()) {
+      return res.status(500).json({
+        message: "Persistent image storage is not configured.",
+      });
+    }
+
+    const companyUploadDir = path.join(uploadsDir, companyStorageSegment(req.companyId));
+    if (!useSupabaseStorage) fs.mkdirSync(companyUploadDir, { recursive: true });
+
+    const upload = uploads[0];
+    if (!imageTypes.has(upload.contentType)) {
+      return res.status(400).json({ message: "Only JPG, PNG, WEBP, and GIF images are allowed." });
+    }
+
+    const filename = `avatar-${req.user.id}-${Date.now()}${safeFilename(upload.filename, upload.contentType).slice(-10)}`;
+    if (!filename) {
+      return res.status(400).json({ message: "Unsupported image file type." });
+    }
+
+    let savedFile;
+    if (useSupabaseStorage) {
+      savedFile = await uploadImageToSupabaseStorage({
+        companyId: req.companyId,
+        filename,
+        contentType: upload.contentType,
+        data: upload.data,
+      });
+    } else {
+      const relativePath = companyStoragePath(req.companyId, filename);
+      fs.writeFileSync(path.join(companyUploadDir, filename), upload.data);
+      savedFile = {
+        path: `/uploads/${relativePath}`,
+        url: buildPublicUrl(req, relativePath),
+      };
+    }
+
+    const avatarUrl = savedFile.url || savedFile.path || "";
+    userRepository.updateForCompany(req.companyId, req.user.id, { avatarUrl });
+    await persistCompanyStore(req.companyId);
+
+    res.status(201).json({ url: avatarUrl });
   },
 );
 

@@ -129,7 +129,7 @@ router.get("/me", requireAuth, (req, res) => {
 });
 
 router.patch("/me", requireAuth, async (req, res) => {
-  const allowed = ["name", "email", "phone", "city", "address"];
+  const allowed = ["name", "email", "phone", "city", "address", "avatarUrl"];
   const updates = {};
   for (const key of allowed) {
     if (req.body[key] !== undefined) updates[key] = req.body[key];

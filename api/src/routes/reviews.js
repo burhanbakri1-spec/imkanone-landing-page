@@ -15,7 +15,24 @@ function visibleReviews(items) {
 }
 
 router.get("/", (req, res) => {
-  res.json(visibleReviews(reviewRepository.getByCompany(req.companyId)).filter((review) => review.type === "store"));
+  const typeFilter = req.query.type || "website";
+  res.json(visibleReviews(reviewRepository.getByCompany(req.companyId)).filter((review) => review.type === typeFilter));
+});
+
+router.get("/product/:productId", (req, res) => {
+  res.json(
+    visibleReviews(reviewRepository.getByCompany(req.companyId)).filter(
+      (review) => review.type === "product" && review.productId === req.params.productId,
+    ),
+  );
+});
+
+router.get("/employee/:employeeId", (req, res) => {
+  res.json(
+    visibleReviews(reviewRepository.getByCompany(req.companyId)).filter(
+      (review) => review.type === "employee" && review.employeeId === req.params.employeeId,
+    ),
+  );
 });
 
 router.get("/all", requireAuth, (req, res) => {
@@ -95,7 +112,7 @@ router.put("/:id", requireAuth, async (req, res) => {
     ...existing,
     ...req.body,
     id: req.params.id,
-    type: req.body.type === "employee" || req.body.employeeId ? "employee" : "store",
+    type: req.body.type === "employee" || req.body.employeeId ? "employee" : req.body.type || "website",
     status,
     isApproved: status === "approved",
   });

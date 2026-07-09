@@ -236,6 +236,7 @@ function normalizeUser(user) {
     totalPointsEarned,
     totalPointsRedeemed,
     isActive: user.isActive !== false,
+    avatarUrl: user.avatarUrl || "",
   };
 }
 
