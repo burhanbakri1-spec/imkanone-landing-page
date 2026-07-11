@@ -129,19 +129,45 @@ router.get("/me", requireAuth, (req, res) => {
 });
 
 router.patch("/me", requireAuth, async (req, res) => {
-  const allowed = ["name", "email", "phone", "city", "address", "avatarUrl"];
-  const updates = {};
-  for (const key of allowed) {
-    if (req.body[key] !== undefined) updates[key] = req.body[key];
+  try {
+    const allowed = ["name", "email", "phone", "city", "address", "avatarUrl"];
+    const updates = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+    if (updates.phone) updates.phone = normalizePhone(updates.phone);
+    if (
+      updates.name === undefined &&
+      updates.email === undefined &&
+      updates.phone === undefined &&
+      updates.city === undefined &&
+      updates.address === undefined &&
+      updates.avatarUrl === undefined
+    ) {
+      return res.status(400).json({ message: "No valid fields to update." });
+    }
+    const updated = userRepository.updateForCompany(req.companyId, req.user.id, updates);
+    if (!updated) return res.status(404).json({ message: "User not found." });
+
+    let persistTimer;
+    try {
+      await Promise.race([
+        persistCompanyStore(req.companyId),
+        new Promise((_, reject) => {
+          persistTimer = setTimeout(() => reject(new Error("Profile persistence timed out.")), 5000);
+        }),
+      ]);
+    } catch (persistError) {
+      console.error("Profile update persistence failed:", persistError);
+    } finally {
+      if (persistTimer) clearTimeout(persistTimer);
+    }
+
+    return res.json(publicUser(updated));
+  } catch (error) {
+    console.error("Profile update failed:", error);
+    return res.status(500).json({ message: "Unable to update profile. Please try again." });
   }
-  if (updates.phone) updates.phone = normalizePhone(updates.phone);
-  if (!updates.name && !updates.email && !updates.phone && !updates.city && !updates.address && !updates.avatarUrl) {
-    return res.status(400).json({ message: "No valid fields to update." });
-  }
-  const updated = userRepository.updateForCompany(req.companyId, req.user.id, updates);
-  if (!updated) return res.status(404).json({ message: "User not found." });
-  await persistCompanyStore(req.companyId);
-  res.json(publicUser(updated));
 });
 
 router.post("/logout", async (req, res) => {
