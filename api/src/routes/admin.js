@@ -59,6 +59,9 @@ router.patch("/users/:id/account-type", async (req, res) => {
   try {
     const user = userRepository.findByCompany(req.companyId, req.params.id);
     if (!user) return res.status(404).json({ message: "User not found." });
+    if (user.role !== "customer") {
+      return res.status(400).json({ message: "Only customer account type can be changed from this page." });
+    }
 
     const accountType = req.body.accountType;
     if (!accountType || !VALID_ACCOUNT_TYPES.has(accountType)) {
@@ -70,11 +73,34 @@ router.patch("/users/:id/account-type", async (req, res) => {
     user.accountType = accountType;
     user.updatedAt = new Date().toISOString();
 
-    await persistCompanyStore(req.companyId);
+    let persistTimer;
+    try {
+      await Promise.race([
+        persistCompanyStore(req.companyId),
+        new Promise((_, reject) => {
+          persistTimer = setTimeout(() => reject(new Error("Account type persistence timed out.")), 5000);
+        }),
+      ]);
+    } catch (persistError) {
+      console.error("Account type persistence failed:", persistError);
+    } finally {
+      if (persistTimer) clearTimeout(persistTimer);
+    }
+
+    const orderCount = orderRepository
+      .getByCompany(req.companyId)
+      .filter((order) => order.customerUserId === user.id).length;
 
     return res.json({
       id: user.id,
+      name: user.name || "",
+      email: user.email || "",
+      phone: user.phone || "",
       accountType: user.accountType,
+      isActive: user.isActive !== false,
+      orderCount,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
     });
   } catch (error) {
     console.error("Account type update failed:", error);
