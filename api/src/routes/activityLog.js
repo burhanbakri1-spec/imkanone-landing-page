@@ -35,7 +35,13 @@ router.get("/", (req, res) => {
       logs = logs.filter((log) => log.actor_email?.toLowerCase().includes(actor_email.toLowerCase()));
     }
     if (actor_id) {
-      logs = logs.filter((log) => log.actor_id === actor_id || log.userId === actor_id || log.employeeId === actor_id);
+      logs = logs.filter((log) =>
+        log.actor_id === actor_id ||
+        log.actor_user_id === actor_id ||
+        log.user_id === actor_id ||
+        log.userId === actor_id ||
+        log.employeeId === actor_id,
+      );
     }
     if (date_from) {
       const from = parseDate(date_from);

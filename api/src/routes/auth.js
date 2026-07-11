@@ -135,7 +135,7 @@ router.patch("/me", requireAuth, async (req, res) => {
     if (req.body[key] !== undefined) updates[key] = req.body[key];
   }
   if (updates.phone) updates.phone = normalizePhone(updates.phone);
-  if (!updates.name && !updates.email && !updates.phone && !updates.city && !updates.address) {
+  if (!updates.name && !updates.email && !updates.phone && !updates.city && !updates.address && !updates.avatarUrl) {
     return res.status(400).json({ message: "No valid fields to update." });
   }
   const updated = userRepository.updateForCompany(req.companyId, req.user.id, updates);
