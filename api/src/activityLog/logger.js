@@ -67,7 +67,7 @@ export async function recordActivityLog({
   metadata = null,
 } = {}) {
   try {
-    const { activityLogRepository, persistCompanyStore } = await import("../data/store.js");
+    const { activityLogRepository, persistActivityLogEntry } = await import("../data/store.js");
     const crypto = await import("node:crypto");
 
     const id = crypto.default?.randomUUID?.() || crypto.randomUUID();
@@ -98,7 +98,7 @@ export async function recordActivityLog({
 
     try {
       activityLogRepository.createForCompany(companyId, logEntry);
-      await persistCompanyStore(companyId);
+      await persistActivityLogEntry(companyId, logEntry);
     } catch (error) {
       console.error("Activity log write failed (non-fatal):", error.message);
     }

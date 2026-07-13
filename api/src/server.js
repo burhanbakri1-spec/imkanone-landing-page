@@ -8,6 +8,8 @@ import { sanitizeTenantRequestBody } from "./middleware/tenantInput.js";
 import adminRoutes from "./routes/admin.js";
 import authRoutes from "./routes/auth.js";
 import cartRoutes from "./routes/cart.js";
+import brandRoutes from "./routes/brands.js";
+import categoryRoutes from "./routes/categories.js";
 import companyRoutes from "./routes/company.js";
 import customModuleRoutes from "./routes/customModules.js";
 import employeeRoutes from "./routes/employee.js";
@@ -110,6 +112,8 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/company", companyRoutes);
+app.use("/api/categories", categoryRoutes);
+app.use("/api/brands", brandRoutes);
 app.use("/api/platform", platformRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/product-schema", publicProductSchemaRouter);

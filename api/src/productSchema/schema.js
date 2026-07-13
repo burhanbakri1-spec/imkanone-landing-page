@@ -8,7 +8,7 @@ export const PRODUCT_TAB_KEYS = Object.freeze([
 ]);
 
 export const PROTECTED_PRODUCT_FIELD_KEYS = Object.freeze([
-  "nameEn", "slug", "categoryId", "brand", "active", "featured", "newArrival", "bestseller",
+  "nameEn", "slug", "categoryId", "brandId", "brand", "active", "featured", "newArrival", "bestseller",
 ]);
 
 const types = new Set(PRODUCT_FIELD_TYPES);
@@ -19,7 +19,7 @@ const optionValuePattern = /^[A-Za-z0-9][A-Za-z0-9_. -]{0,79}$/;
 const unsafeTextPattern = /[<>\u0000-\u0008\u000b\u000c\u000e-\u001f]/;
 const sensitivePattern = /(password|passwd|token|secret|credential|authorization|api_?key|private_?key)/i;
 const builtInProductFieldKeys = new Set([
-  "nameEn", "nameAr", "slug", "sku", "categoryId", "brand", "shortDescription", "shortDescriptionAr",
+  "nameEn", "nameAr", "slug", "sku", "categoryId", "brandId", "brand", "shortDescription", "shortDescriptionAr",
   "fullDescription", "fullDescriptionAr", "howToUse", "ingredients", "benefits", "skinTypes", "concerns",
   "active", "featured", "newArrival", "bestseller", "label", "labelAr", "metaTitle", "metaDescription",
 ]);
@@ -51,7 +51,8 @@ const defaultFields = [
   field("slug", "basic", "Slug", "الرابط المختصر", "text", { protected: true, sortOrder: 30 }),
   field("sku", "basic", "SKU", "رمز المنتج", "text", { sortOrder: 40 }),
   field("categoryId", "basic", "Category", "الفئة", "select", { required: true, protected: true, sortOrder: 50 }),
-  field("brand", "basic", "Brand", "العلامة التجارية", "text", { protected: true, storefrontVisible: true, sortOrder: 60 }),
+  field("brandId", "basic", "Brand ID", "معرف العلامة التجارية", "select", { protected: true, sortOrder: 60 }),
+  field("brand", "basic", "Brand", "العلامة التجارية", "text", { protected: true, storefrontVisible: true, sortOrder: 65 }),
   field("shortDescription", "basic", "Short Description", "الوصف المختصر", "textarea", { storefrontVisible: true, sortOrder: 70 }),
   field("shortDescriptionAr", "basic", "Short Description Arabic", "الوصف المختصر بالعربية", "textarea", { enabled: false, storefrontVisible: true, sortOrder: 80 }),
   field("fullDescription", "basic", "Full Description", "الوصف الكامل", "textarea", { storefrontVisible: true, sortOrder: 90 }),
@@ -171,7 +172,7 @@ function schemaField(value, index, forcedTab = "") {
   const tab = forcedTab || String(value.tab || "custom_sections");
   if (!tabs.has(tab)) throw productSchemaError(`Unknown product tab: ${tab}.`);
   const options = ["select", "multi_select"].includes(type) ? optionList(value.options, fieldKey) : [];
-  if (["select", "multi_select"].includes(type) && fieldKey !== "categoryId" && !options.length) {
+  if (["select", "multi_select"].includes(type) && !["categoryId", "brandId"].includes(fieldKey) && !options.length) {
     throw productSchemaError(`${fieldKey} requires at least one option.`);
   }
   return {

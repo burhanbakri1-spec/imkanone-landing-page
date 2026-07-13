@@ -1,5 +1,10 @@
 import { Router } from "express";
-import { companyProductSchemaRepository, persistCompanyStore, productRepository } from "../data/store.js";
+import {
+  companyProductSchemaRepository,
+  deleteProductWithTenantCatalogLock,
+  productRepository,
+  saveProductWithTenantCatalogLock,
+} from "../data/store.js";
 import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
 import { recordActivityLog } from "../activityLog/logger.js";
 import { defaultProductSchema, sanitizeProductSchemaData } from "../productSchema/schema.js";
@@ -175,6 +180,34 @@ function mergeProductUpdate(existingProduct, incomingProduct) {
   return merged;
 }
 
+function normalizedReferenceValue(value, field) {
+  if (value === null || value === "") return null;
+  if (typeof value !== "string" || !value.trim()) {
+    const error = new Error(`${field} must be a non-empty string or null.`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return value.trim();
+}
+
+function canonicalNormalizedCatalogReferences(incoming) {
+  if (hasOwn(incoming, "category_id") || hasOwn(incoming, "brand_id")) {
+    const error = new Error("category_id and brand_id are not accepted; use categoryId and brandId.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const references = {};
+  const hasCategory = hasOwn(incoming, "categoryId");
+  const hasBrand = hasOwn(incoming, "brandId");
+  if (hasCategory) {
+    references.categoryId = normalizedReferenceValue(incoming.categoryId, "categoryId");
+  }
+  if (hasBrand) {
+    references.brandId = normalizedReferenceValue(incoming.brandId, "brandId");
+  }
+  return references;
+}
+
 router.get("/", optionalAuth, (_req, res) => {
   res.json(productRepository.getByCompany(_req.companyId).map(normalizeProduct));
 });
@@ -182,16 +215,17 @@ router.get("/", optionalAuth, (_req, res) => {
 router.post("/", requireAuth, requireProductPermission("products.create"), async (req, res) => {
   let product;
   try {
+    const normalizedReferences = canonicalNormalizedCatalogReferences(req.body);
     product = normalizeProduct(sanitizeProductSchemaData({
       ...req.body,
+      ...normalizedReferences,
       id: req.body.id || `product-${Date.now()}`,
       slug: req.body.slug || `product-${Date.now()}`,
     }, productSchemaForCompany(req.companyId)));
+    product = await saveProductWithTenantCatalogLock(req.companyId, product, { isCreate: true });
   } catch (error) {
     return res.status(error.statusCode || 400).json({ message: error.message });
   }
-  productRepository.createForCompany(req.companyId, product, { prepend: true });
-  await persistCompanyStore(req.companyId);
   recordActivityLog({
     req,
     companyId: req.companyId,
@@ -212,15 +246,17 @@ router.put("/:id", requireAuth, requireProductPermission("products.update"), asy
   }
   let normalizedUpdate;
   try {
+    const normalizedReferences = canonicalNormalizedCatalogReferences(req.body);
     normalizedUpdate = normalizeProduct(sanitizeProductSchemaData(mergeProductUpdate(existing, {
       ...req.body,
+      ...normalizedReferences,
       id: req.params.id,
     }), productSchemaForCompany(req.companyId)));
+    normalizedUpdate = await saveProductWithTenantCatalogLock(req.companyId, normalizedUpdate);
   } catch (error) {
     return res.status(error.statusCode || 400).json({ message: error.message });
   }
-  const updated = productRepository.updateForCompany(req.companyId, req.params.id, normalizedUpdate);
-  await persistCompanyStore(req.companyId);
+  const updated = normalizedUpdate;
   const updatedName = updated.name?.en || updated.slug || "";
   const wasVisible = existing.visible !== false;
   const nowVisible = updated.visible !== false;
@@ -242,23 +278,26 @@ router.put("/:id", requireAuth, requireProductPermission("products.update"), asy
 });
 
 router.delete("/:id", requireAuth, requireProductPermission("products.delete"), async (req, res) => {
-  const removed = productRepository.deleteForCompany(req.companyId, req.params.id);
-  if (!removed) {
-    return res.status(404).json({ message: "Product not found." });
+  try {
+    const removed = await deleteProductWithTenantCatalogLock(req.companyId, req.params.id);
+    if (!removed) return res.status(404).json({ message: "Product not found." });
+    const removedName = removed.name?.en || removed.slug || "";
+    recordActivityLog({
+      req,
+      companyId: req.companyId,
+      action: "product.deleted",
+      entityType: "product",
+      entityId: removed.id,
+      entityLabel: removedName,
+      summary: `Product "${removedName}" deleted`,
+      beforeData: { name: removedName, category: removed.categoryId },
+    });
+    return res.status(204).end();
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      message: error.statusCode ? error.message : "Product deletion failed.",
+    });
   }
-  await persistCompanyStore(req.companyId, { pruneMissing: true });
-  const removedName = removed.name?.en || removed.slug || "";
-  recordActivityLog({
-    req,
-    companyId: req.companyId,
-    action: "product.deleted",
-    entityType: "product",
-    entityId: removed.id,
-    entityLabel: removedName,
-    summary: `Product "${removedName}" deleted`,
-    beforeData: { name: removedName, category: removed.categoryId },
-  });
-  return res.status(204).end();
 });
 
 export default router;

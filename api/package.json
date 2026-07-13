@@ -7,6 +7,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test:auth": "node --test test/auth-membership.test.js",
+    "test:catalog": "node --test test/catalog-settings.test.js",
     "admin:create-super": "node scripts/create-super-admin.js",
     "admin:reset-password": "node scripts/reset-admin-password.js",
     "db:check-staging": "node scripts/check-staging-readiness.js",

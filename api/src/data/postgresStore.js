@@ -325,6 +325,37 @@ function rowDate(value) {
   return normalizePostgresTimestamp(value) || new Date().toISOString();
 }
 
+function categoryRow(category, companyId) {
+  return {
+    id: category.id,
+    company_id: normalizeCompanyId(companyId),
+    slug: category.slug,
+    name: category.name || {},
+    description: category.description || null,
+    parent_id: category.parentId || null,
+    image_url: category.imageUrl || null,
+    sort_order: Number(category.sortOrder || 0),
+    is_active: category.isActive !== false,
+    created_at: rowDate(category.createdAt),
+    updated_at: rowDate(category.updatedAt),
+  };
+}
+
+function brandRow(brand, companyId) {
+  return {
+    id: brand.id,
+    company_id: normalizeCompanyId(companyId),
+    slug: brand.slug,
+    name: brand.name,
+    logo_url: brand.logoUrl || null,
+    country: brand.country || null,
+    sort_order: Number(brand.sortOrder || 0),
+    is_active: brand.isActive !== false,
+    created_at: rowDate(brand.createdAt),
+    updated_at: rowDate(brand.updatedAt),
+  };
+}
+
 function uniqueRowId(baseId, usedIds) {
   let candidate = baseId;
   let suffix = 1;
@@ -372,7 +403,9 @@ function productRow(product, companyId) {
     name_ar: typeof product.name === "object" ? product.name?.ar || "" : product.nameAr || product.name_ar || "",
     category: typeof product.category === "object" ? product.category?.en || "" : product.category || "",
     category_ar: typeof product.category === "object" ? product.category?.ar || "" : product.categoryAr || product.category_ar || "",
-    brand: product.brand || "EB Chemical",
+    brand: product.brand || "",
+    category_id: product.categoryId ?? null,
+    brand_id: product.brandId ?? null,
     image_url: product.image || "",
     hover_image_url: product.hoverImage || product.secondaryImage || "",
     price: Number(firstVariant?.price || product.price || product.sizes?.[0]?.price || 0),
@@ -690,6 +723,8 @@ function mergeProduct(row, variants, galleryImages) {
     ...(row.data || {}),
     id: row.id,
     slug: row.slug,
+    categoryId: row.category_id || null,
+    brandId: row.brand_id || null,
     image: row.image_url || row.data?.image || "",
     hoverImage: row.hover_image_url || row.data?.hoverImage || "",
     variants: productVariants,
@@ -982,6 +1017,8 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
     carts,
     offers,
     categoryCards,
+    categories,
+    brands,
     reviews,
     workSessions,
     websiteMedia,
@@ -1010,6 +1047,8 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
     selectCompanyRows("carts", normalizedCompanyId),
     selectCompanyRows("homepage_offers", normalizedCompanyId),
     selectCompanyRows("homepage_category_cards", normalizedCompanyId),
+    selectCompanyRows("company_categories", normalizedCompanyId),
+    selectCompanyRows("company_brands", normalizedCompanyId),
     selectCompanyRows("reviews", normalizedCompanyId),
     selectCompanyRows("work_sessions", normalizedCompanyId),
     selectCompanyRows("website_media", normalizedCompanyId),
@@ -1043,6 +1082,8 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
     carts,
     offers,
     categoryCards,
+    categories,
+    brands,
     reviews,
     workSessions,
     websiteMedia,
@@ -1076,6 +1117,8 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
       carts: Object.fromEntries(carts.map((cart) => [cart.user_id, cart.items || []])),
       offers: offers.map((offer) => offer.data || offer),
       categoryCards: categoryCards.map((card) => card.data || card),
+      categories: categories.map(mergeCategory),
+      brands: brands.map(mergeBrand),
       reviews: reviews.map((review) => review.data || review),
       websiteMedia: websiteMedia.map(mergeWebsiteMedia),
       websiteMediaHiddenKeys: websiteMediaHiddenKeys.map(mergeWebsiteMediaHiddenKey),
@@ -1097,6 +1140,7 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
 export async function saveStoreToSupabase(store, options = {}) {
   const companyId = normalizeCompanyId(options.companyId);
   const pruneMissing = options.pruneMissing === true;
+  const includeProducts = options.includeProducts === true;
   const products = store.products || [];
   const orders = store.orders || [];
   const users = store.users || [];
@@ -1284,31 +1328,25 @@ export async function saveStoreToSupabase(store, options = {}) {
   // Runtime store saves may seed missing memberships, but must never overwrite
   // explicit cPanel membership roles/statuses managed by the platform API.
   await insertRowsIfMissing("company_memberships", membershipRows);
-  await upsertCompanyRows("products", productRows, companyId);
-  // Delete orphaned variant rows before re-inserting current set
-  const productVariantProductIds = [...new Set(productVariantRows.map((row) => row.product_id))];
-  for (const pid of productVariantProductIds) {
-    await supabaseFetch(
-      `/rest/v1/product_variants?product_id=eq.${encodeURIComponent(pid)}&${companyMutationFilter(companyId)}`,
-      {
-        method: "DELETE",
-        headers: { Prefer: "return=minimal" },
-      },
-    );
+  if (includeProducts) {
+    await upsertCompanyRows("products", productRows, companyId);
+    const productVariantProductIds = [...new Set(productVariantRows.map((row) => row.product_id))];
+    for (const pid of productVariantProductIds) {
+      await supabaseFetch(
+        `/rest/v1/product_variants?product_id=eq.${encodeURIComponent(pid)}&${companyMutationFilter(companyId)}`,
+        { method: "DELETE", headers: { Prefer: "return=minimal" } },
+      );
+    }
+    await upsertCompanyRows("product_variants", productVariantRows, companyId);
+    const productGalleryProductIds = [...new Set(productGalleryRows.map((row) => row.product_id))];
+    for (const pid of productGalleryProductIds) {
+      await supabaseFetch(
+        `/rest/v1/product_gallery_images?product_id=eq.${encodeURIComponent(pid)}&${companyMutationFilter(companyId)}`,
+        { method: "DELETE", headers: { Prefer: "return=minimal" } },
+      );
+    }
+    await upsertCompanyRows("product_gallery_images", productGalleryRows, companyId);
   }
-  await upsertCompanyRows("product_variants", productVariantRows, companyId);
-  // Delete orphaned gallery rows before re-inserting current set
-  const productGalleryProductIds = [...new Set(productGalleryRows.map((row) => row.product_id))];
-  for (const pid of productGalleryProductIds) {
-    await supabaseFetch(
-      `/rest/v1/product_gallery_images?product_id=eq.${encodeURIComponent(pid)}&${companyMutationFilter(companyId)}`,
-      {
-        method: "DELETE",
-        headers: { Prefer: "return=minimal" },
-      },
-    );
-  }
-  await upsertCompanyRows("product_gallery_images", productGalleryRows, companyId);
   await upsertCompanyRows("orders", orderRows, companyId);
   await upsertCompanyRows("order_items", itemRows, companyId);
   await upsertCompanyRows("carts", cartRows, companyId);
@@ -1327,9 +1365,11 @@ export async function saveStoreToSupabase(store, options = {}) {
   await upsertCompanyRows("company_activity_logs", activityLogRows, companyId);
 
   if (pruneMissing) {
-    await deleteMissingCompanyRows("products", productRows.map((row) => row.id), companyId);
-    await deleteMissingCompanyRows("product_variants", productVariantRows.map((row) => row.id), companyId);
-    await deleteMissingCompanyRows("product_gallery_images", productGalleryRows.map((row) => row.id), companyId);
+    if (includeProducts) {
+      await deleteMissingCompanyRows("products", productRows.map((row) => row.id), companyId);
+      await deleteMissingCompanyRows("product_variants", productVariantRows.map((row) => row.id), companyId);
+      await deleteMissingCompanyRows("product_gallery_images", productGalleryRows.map((row) => row.id), companyId);
+    }
     await deleteMissingCompanyRows("orders", orderRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("order_items", itemRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("carts", cartRows.map((row) => row.id), companyId);
@@ -1347,6 +1387,517 @@ export async function saveStoreToSupabase(store, options = {}) {
     await deleteMissingCompanyRows("company_delivery_zones", deliveryZoneRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("company_activity_logs", activityLogRows.map((row) => row.id), companyId);
   }
+}
+
+function mergeCategory(row) {
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name || {},
+    description: row.description || null,
+    parentId: row.parent_id || null,
+    imageUrl: row.image_url || null,
+    sortOrder: Number(row.sort_order || 0),
+    isActive: row.is_active !== false,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mergeBrand(row) {
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    logoUrl: row.logo_url || null,
+    country: row.country || null,
+    sortOrder: Number(row.sort_order || 0),
+    isActive: row.is_active !== false,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function catalogPatch(patch, mapping) {
+  return Object.entries(mapping)
+    .filter(([key]) => Object.prototype.hasOwnProperty.call(patch, key))
+    .map(([key, column]) => [column, patch[key]]);
+}
+
+async function updateCatalogRow(table, companyId, id, patch, mapping, mergeRow) {
+  const normalized = normalizeCompanyId(companyId);
+  const entries = catalogPatch(patch, mapping);
+  if (!entries.length) return null;
+  const values = [normalized, id];
+  const assignments = entries.map(([column, value]) => {
+    values.push(toPgColumnValue(column, value));
+    return `${quoteIdent(column)} = $${values.length}`;
+  });
+  const result = await query(
+    `update ${tableName(table)} set ${assignments.join(", ")}
+     where company_id = $1 and id = $2 returning *`,
+    values,
+  );
+  return result.rows[0] ? mergeRow(result.rows[0]) : null;
+}
+
+const categoryPatchColumns = Object.freeze({
+  slug: "slug",
+  name: "name",
+  description: "description",
+  parentId: "parent_id",
+  imageUrl: "image_url",
+  sortOrder: "sort_order",
+  isActive: "is_active",
+  updatedAt: "updated_at",
+});
+
+const brandPatchColumns = Object.freeze({
+  slug: "slug",
+  name: "name",
+  logoUrl: "logo_url",
+  country: "country",
+  sortOrder: "sort_order",
+  isActive: "is_active",
+  updatedAt: "updated_at",
+});
+
+export async function listCategoriesByCompanyFromSupabase(companyId) {
+  const rows = await selectCompanyRows("company_categories", normalizeCompanyId(companyId));
+  return rows.map(mergeCategory).sort((a, b) => a.sortOrder - b.sortOrder || a.slug.localeCompare(b.slug));
+}
+
+export async function findCategoryByCompanyFromSupabase(companyId, id) {
+  const result = await query(
+    `select * from public.company_categories where company_id = $1 and id = $2 limit 1`,
+    [normalizeCompanyId(companyId), id],
+  );
+  return result.rows[0] ? mergeCategory(result.rows[0]) : null;
+}
+
+export async function findCategoryBySlugFromSupabase(companyId, slug) {
+  const result = await query(
+    `select * from public.company_categories where company_id = $1 and slug = $2 limit 1`,
+    [normalizeCompanyId(companyId), slug],
+  );
+  return result.rows[0] ? mergeCategory(result.rows[0]) : null;
+}
+
+export async function createCategoryForCompanyInSupabase(companyId, data) {
+  const row = categoryRow(data, normalizeCompanyId(companyId));
+  const result = await query(
+    `insert into public.company_categories
+      (id, company_id, slug, name, description, parent_id, image_url, sort_order, is_active, created_at, updated_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
+    [row.id, row.company_id, row.slug, row.name, row.description, row.parent_id, row.image_url,
+      row.sort_order, row.is_active, row.created_at, row.updated_at].map(toPgValue),
+  );
+  return mergeCategory(result.rows[0]);
+}
+
+export function updateCategoryForCompanyInSupabase(companyId, id, patch) {
+  return updateCatalogRow("company_categories", companyId, id, patch, categoryPatchColumns, mergeCategory);
+}
+
+export function updateCategoryStatusForCompanyInSupabase(companyId, id, isActive) {
+  return updateCategoryForCompanyInSupabase(companyId, id, {
+    isActive,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function deleteCategoryForCompanyInSupabase(companyId, id) {
+  const result = await query(
+    `delete from public.company_categories where company_id = $1 and id = $2 returning *`,
+    [normalizeCompanyId(companyId), id],
+  );
+  return result.rows[0] ? mergeCategory(result.rows[0]) : null;
+}
+
+export async function countCategoryChildrenFromSupabase(companyId, id) {
+  const result = await query(
+    `select count(*)::integer as count from public.company_categories
+     where company_id = $1 and parent_id = $2`,
+    [normalizeCompanyId(companyId), id],
+  );
+  return Number(result.rows[0]?.count || 0);
+}
+
+export async function categoryParentWouldCycleInSupabase(companyId, categoryId, parentId) {
+  if (!parentId) return false;
+  const seen = new Set(categoryId ? [categoryId] : []);
+  let cursorId = parentId;
+  while (cursorId) {
+    if (seen.has(cursorId)) return true;
+    seen.add(cursorId);
+    const cursor = await findCategoryByCompanyFromSupabase(companyId, cursorId);
+    if (!cursor) return false;
+    cursorId = cursor.parentId;
+  }
+  return false;
+}
+
+function tenantCatalogError(message, statusCode = 400) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+export async function runTenantCatalogWriteTransaction(client, companyId, callback) {
+  const normalized = normalizeCompanyId(companyId);
+  try {
+    await client.query("begin");
+    const company = await client.query(
+      `select id from public.companies where id = $1 for update`,
+      [normalized],
+    );
+    if (!company.rows[0]) throw tenantCatalogError("Company not found.", 404);
+    const result = await callback(client, normalized);
+    await client.query("commit");
+    return result;
+  } catch (error) {
+    try {
+      await client.query("rollback");
+    } catch {
+      // Preserve the original transaction failure.
+    }
+    throw error;
+  }
+}
+
+export async function withTenantCatalogWriteLock(companyId, callback) {
+  const client = await getPool().connect();
+  try {
+    return await runTenantCatalogWriteTransaction(client, companyId, callback);
+  } finally {
+    client.release();
+  }
+}
+
+async function findCategoryWithClient(client, companyId, id) {
+  const result = await client.query(
+    `select * from public.company_categories where company_id = $1 and id = $2 limit 1`,
+    [companyId, id],
+  );
+  return result.rows[0] ? mergeCategory(result.rows[0]) : null;
+}
+
+async function validateCategoryParentWithClient(client, companyId, categoryId, parentId) {
+  if (!parentId) return;
+  const result = await client.query(
+    `with recursive ancestry as (
+       select id, parent_id, array[id]::text[] as visited, false as corrupt_cycle
+       from public.company_categories
+       where company_id = $1 and id = $2
+       union all
+       select parent.id, parent.parent_id, ancestry.visited || parent.id,
+              parent.id = any(ancestry.visited)
+       from ancestry
+       join public.company_categories parent
+         on parent.company_id = $1 and parent.id = ancestry.parent_id
+       where not ancestry.corrupt_cycle
+         and not parent.id = any(ancestry.visited)
+     )
+     select exists(select 1 from ancestry) as parent_exists,
+            exists(select 1 from ancestry where id = $3) as creates_cycle`,
+    [companyId, parentId, categoryId],
+  );
+  if (!result.rows[0]?.parent_exists) throw tenantCatalogError("Parent category not found.", 404);
+  if (parentId === categoryId || result.rows[0]?.creates_cycle) {
+    throw tenantCatalogError("Category parent would create a cycle.");
+  }
+}
+
+export function createCategoryWithTenantLockInSupabase(companyId, data) {
+  return withTenantCatalogWriteLock(companyId, async (client, normalized) => {
+    await validateCategoryParentWithClient(client, normalized, data.id, data.parentId || null);
+    const row = categoryRow(data, normalized);
+    const result = await client.query(
+      `insert into public.company_categories
+        (id, company_id, slug, name, description, parent_id, image_url, sort_order, is_active, created_at, updated_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
+      [row.id, row.company_id, row.slug, row.name, row.description, row.parent_id, row.image_url,
+        row.sort_order, row.is_active, row.created_at, row.updated_at].map(toPgValue),
+    );
+    return mergeCategory(result.rows[0]);
+  });
+}
+
+export function updateCategoryWithTenantLockInSupabase(companyId, id, patch) {
+  return withTenantCatalogWriteLock(companyId, async (client, normalized) => {
+    const current = await findCategoryWithClient(client, normalized, id);
+    if (!current) return null;
+    if (Object.prototype.hasOwnProperty.call(patch, "parentId")) {
+      await validateCategoryParentWithClient(client, normalized, id, patch.parentId);
+    }
+    const entries = catalogPatch(patch, categoryPatchColumns);
+    const values = [normalized, id];
+    const assignments = entries.map(([column, value]) => {
+      values.push(toPgColumnValue(column, value));
+      return `${quoteIdent(column)} = $${values.length}`;
+    });
+    const result = await client.query(
+      `update public.company_categories set ${assignments.join(", ")}
+       where company_id = $1 and id = $2 returning *`,
+      values,
+    );
+    return result.rows[0] ? mergeCategory(result.rows[0]) : null;
+  });
+}
+
+export function deleteCategoryWithTenantLockInSupabase(companyId, id) {
+  return withTenantCatalogWriteLock(companyId, async (client, normalized) => {
+    const category = await findCategoryWithClient(client, normalized, id);
+    if (!category) return null;
+    const children = await client.query(
+      `select count(*)::integer as count from public.company_categories
+       where company_id = $1 and parent_id = $2`,
+      [normalized, id],
+    );
+    if (Number(children.rows[0]?.count || 0)) {
+      throw tenantCatalogError("Category has child categories and cannot be deleted.", 409);
+    }
+    const legacyValues = [category.slug, category.name?.en, category.name?.ar]
+      .filter(Boolean).map((value) => String(value).trim().toLowerCase());
+    const references = await client.query(
+      `select count(*)::integer as count from public.products
+       where company_id = $1 and (
+         category_id = $2
+         or (category_id is null and lower(btrim(category)) = any($3::text[]))
+         or (category_id is null and lower(btrim(category_ar)) = any($3::text[]))
+       )`,
+      [normalized, id, legacyValues],
+    );
+    if (Number(references.rows[0]?.count || 0)) {
+      throw tenantCatalogError("Category is referenced by products and cannot be deleted.", 409);
+    }
+    const removed = await client.query(
+      `delete from public.company_categories where company_id = $1 and id = $2 returning *`,
+      [normalized, id],
+    );
+    return removed.rows[0] ? mergeCategory(removed.rows[0]) : null;
+  });
+}
+
+export function deleteBrandWithTenantLockInSupabase(companyId, id) {
+  return withTenantCatalogWriteLock(companyId, async (client, normalized) => {
+    const brandResult = await client.query(
+      `select * from public.company_brands where company_id = $1 and id = $2 limit 1`,
+      [normalized, id],
+    );
+    if (!brandResult.rows[0]) return null;
+    const brand = mergeBrand(brandResult.rows[0]);
+    const legacyValues = [brand.slug, brand.name]
+      .filter(Boolean).map((value) => String(value).trim().toLowerCase());
+    const references = await client.query(
+      `select count(*)::integer as count from public.products
+       where company_id = $1 and (
+         brand_id = $2 or (brand_id is null and lower(btrim(brand)) = any($3::text[]))
+       )`,
+      [normalized, id, legacyValues],
+    );
+    if (Number(references.rows[0]?.count || 0)) {
+      throw tenantCatalogError("Brand is referenced by products and cannot be deleted.", 409);
+    }
+    const removed = await client.query(
+      `delete from public.company_brands where company_id = $1 and id = $2 returning *`,
+      [normalized, id],
+    );
+    return removed.rows[0] ? mergeBrand(removed.rows[0]) : null;
+  });
+}
+
+async function insertTenantRowWithClient(client, table, row, { upsert = false } = {}) {
+  const columns = Object.keys(row);
+  const values = columns.map((column) => toPgColumnValue(column, row[column]));
+  const placeholders = columns.map((_, index) => `$${index + 1}`);
+  const updateColumns = columns.filter((column) => column !== "id" && column !== "company_id");
+  const conflict = upsert
+    ? `on conflict (id) do update set ${updateColumns.map((column) => `${quoteIdent(column)}=excluded.${quoteIdent(column)}`).join(", ")}
+       where ${quoteIdent(table)}.company_id = excluded.company_id returning *`
+    : "returning *";
+  return client.query(
+    `insert into ${tableName(table)} (${columns.map(quoteIdent).join(", ")})
+     values (${placeholders.join(", ")}) ${conflict}`,
+    values,
+  );
+}
+
+async function validateProductCatalogReferencesWithClient(client, companyId, product) {
+  for (const [field, table, label] of [
+    ["categoryId", "company_categories", "Category"],
+    ["brandId", "company_brands", "Brand"],
+  ]) {
+    const id = product[field];
+    if (!id) continue;
+    const result = await client.query(
+      `select id, is_active from ${tableName(table)} where company_id = $1 and id = $2 limit 1`,
+      [companyId, id],
+    );
+    if (!result.rows[0]) throw tenantCatalogError(`${label} not found.`, 404);
+    if (result.rows[0].is_active === false) throw tenantCatalogError(`${label} is inactive.`);
+  }
+}
+
+export function saveProductWithTenantCatalogLockInSupabase(companyId, product, { isCreate = false } = {}) {
+  return withTenantCatalogWriteLock(companyId, async (client, normalized) => {
+    await validateProductCatalogReferencesWithClient(client, normalized, product);
+    const row = productRow(product, normalized);
+    let persisted;
+    if (isCreate) {
+      persisted = await insertTenantRowWithClient(client, "products", row);
+    } else {
+      const columns = Object.keys(row).filter((column) => !["id", "company_id"].includes(column));
+      const values = [normalized, product.id];
+      const assignments = columns.map((column) => {
+        values.push(toPgColumnValue(column, row[column]));
+        return `${quoteIdent(column)}=$${values.length}`;
+      });
+      persisted = await client.query(
+        `update public.products set ${assignments.join(", ")}
+         where company_id = $1 and id = $2 returning *`,
+        values,
+      );
+    }
+    if (!persisted.rows[0]) throw tenantCatalogError("Product not found.", 404);
+    await client.query(
+      `delete from public.product_variants where company_id = $1 and product_id = $2`,
+      [normalized, product.id],
+    );
+    await client.query(
+      `delete from public.product_gallery_images where company_id = $1 and product_id = $2`,
+      [normalized, product.id],
+    );
+    for (const row of variantRows(product, normalized)) {
+      await insertTenantRowWithClient(client, "product_variants", row);
+    }
+    for (const row of galleryRows(product, normalized)) {
+      await insertTenantRowWithClient(client, "product_gallery_images", row);
+    }
+    return product;
+  });
+}
+
+export function deleteProductWithTenantCatalogLockInSupabase(companyId, id) {
+  return withTenantCatalogWriteLock(companyId, async (client, normalized) => {
+    const removed = await client.query(
+      `delete from public.products where company_id = $1 and id = $2 returning *`,
+      [normalized, id],
+    );
+    return removed.rows[0] ? mergeProduct(removed.rows[0], [], []) : null;
+  });
+}
+
+export async function saveActivityLogEntryToSupabase(companyId, log) {
+  const normalized = normalizeCompanyId(companyId);
+  await upsertCompanyRows("company_activity_logs", [{
+    id: log.id,
+    company_id: normalized,
+    actor_user_id: log.actor_user_id || "",
+    actor_email: log.actor_email || "",
+    actor_name: log.actor_name || "",
+    actor_role: log.actor_role || "",
+    action: log.action || "",
+    entity_type: log.entity_type || "",
+    entity_id: log.entity_id || "",
+    entity_label: log.entity_label || "",
+    summary: log.summary || "",
+    before_data: log.before_data || null,
+    after_data: log.after_data || null,
+    metadata: log.metadata || null,
+    ip_address: log.ip_address || "",
+    user_agent: log.user_agent || "",
+    created_at: rowDate(log.created_at),
+  }], normalized);
+}
+
+export async function listBrandsByCompanyFromSupabase(companyId) {
+  const rows = await selectCompanyRows("company_brands", normalizeCompanyId(companyId));
+  return rows.map(mergeBrand).sort((a, b) => a.sortOrder - b.sortOrder || a.slug.localeCompare(b.slug));
+}
+
+export async function findBrandByCompanyFromSupabase(companyId, id) {
+  const result = await query(
+    `select * from public.company_brands where company_id = $1 and id = $2 limit 1`,
+    [normalizeCompanyId(companyId), id],
+  );
+  return result.rows[0] ? mergeBrand(result.rows[0]) : null;
+}
+
+export async function findBrandBySlugFromSupabase(companyId, slug) {
+  const result = await query(
+    `select * from public.company_brands where company_id = $1 and slug = $2 limit 1`,
+    [normalizeCompanyId(companyId), slug],
+  );
+  return result.rows[0] ? mergeBrand(result.rows[0]) : null;
+}
+
+export async function createBrandForCompanyInSupabase(companyId, data) {
+  const row = brandRow(data, normalizeCompanyId(companyId));
+  const result = await query(
+    `insert into public.company_brands
+      (id, company_id, slug, name, logo_url, country, sort_order, is_active, created_at, updated_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *`,
+    [row.id, row.company_id, row.slug, row.name, row.logo_url, row.country, row.sort_order,
+      row.is_active, row.created_at, row.updated_at].map(toPgValue),
+  );
+  return mergeBrand(result.rows[0]);
+}
+
+export function updateBrandForCompanyInSupabase(companyId, id, patch) {
+  return updateCatalogRow("company_brands", companyId, id, patch, brandPatchColumns, mergeBrand);
+}
+
+export function updateBrandStatusForCompanyInSupabase(companyId, id, isActive) {
+  return updateBrandForCompanyInSupabase(companyId, id, {
+    isActive,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function deleteBrandForCompanyInSupabase(companyId, id) {
+  const result = await query(
+    `delete from public.company_brands where company_id = $1 and id = $2 returning *`,
+    [normalizeCompanyId(companyId), id],
+  );
+  return result.rows[0] ? mergeBrand(result.rows[0]) : null;
+}
+
+export async function countCategoryProductReferencesFromSupabase(companyId, category) {
+  const normalized = normalizeCompanyId(companyId);
+  const legacyValues = [category.slug, category.name?.en, category.name?.ar]
+    .filter(Boolean)
+    .map((value) => String(value).trim().toLowerCase());
+  const result = await query(
+    `select count(*)::integer as count
+     from public.products
+     where company_id = $1
+       and (
+         category_id = $2
+         or (category_id is null and lower(btrim(category)) = any($3::text[]))
+         or (category_id is null and lower(btrim(category_ar)) = any($3::text[]))
+       )`,
+    [normalized, category.id, legacyValues],
+  );
+  return Number(result.rows[0]?.count || 0);
+}
+
+export async function countBrandProductReferencesFromSupabase(companyId, brand) {
+  const normalized = normalizeCompanyId(companyId);
+  const legacyValues = [brand.slug, brand.name]
+    .filter(Boolean)
+    .map((value) => String(value).trim().toLowerCase());
+  const result = await query(
+    `select count(*)::integer as count
+     from public.products
+     where company_id = $1
+       and (
+         brand_id = $2
+         or (brand_id is null and lower(btrim(brand)) = any($3::text[]))
+       )`,
+    [normalized, brand.id, legacyValues],
+  );
+  return Number(result.rows[0]?.count || 0);
 }
 
 export async function listUserMembershipsFromSupabase(userId) {
@@ -1420,6 +1971,70 @@ export async function saveCompanyToSupabase(company) {
   }]);
 
   return { domainId };
+}
+
+export async function runCompanyBrandingSettingsTransaction(client, companyId, input = {}) {
+  const normalized = normalizeCompanyId(companyId);
+  const settingsPatch = input.settingsPatch && typeof input.settingsPatch === "object"
+    ? input.settingsPatch
+    : {};
+  try {
+    await client.query("begin");
+    const companyResult = await client.query(
+      `select id, name from public.companies where id = $1 for update`,
+      [normalized],
+    );
+    if (!companyResult.rows[0]) {
+      const error = new Error("Company not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+    const settingsResult = await client.query(
+      `select settings from public.company_settings where company_id = $1 for update`,
+      [normalized],
+    );
+    const currentSettings = settingsResult.rows[0]?.settings || {};
+    const settings = { ...currentSettings, ...settingsPatch };
+    if (settingsPatch.theme) {
+      settings.theme = { ...(currentSettings.theme || {}), ...settingsPatch.theme };
+    }
+    if (settingsPatch.socialLinks) {
+      settings.socialLinks = { ...(currentSettings.socialLinks || {}), ...settingsPatch.socialLinks };
+    }
+    const updatedAt = new Date().toISOString();
+    const name = input.name === undefined ? companyResult.rows[0].name : input.name;
+    if (input.name !== undefined) {
+      await client.query(
+        `update public.companies set name = $2, updated_at = $3 where id = $1`,
+        [normalized, name, updatedAt],
+      );
+    }
+    await client.query(
+      `insert into public.company_settings (company_id, settings, created_at, updated_at)
+       values ($1, $2, $3, $3)
+       on conflict (company_id) do update
+       set settings = excluded.settings, updated_at = excluded.updated_at`,
+      [normalized, JSON.stringify(settings), updatedAt],
+    );
+    await client.query("commit");
+    return { name, settings, updatedAt };
+  } catch (error) {
+    try {
+      await client.query("rollback");
+    } catch {
+      // Preserve the original persistence failure.
+    }
+    throw error;
+  }
+}
+
+export async function updateCompanyBrandingAndSettingsInSupabase(companyId, input) {
+  const client = await getPool().connect();
+  try {
+    return await runCompanyBrandingSettingsTransaction(client, companyId, input);
+  } finally {
+    client.release();
+  }
 }
 
 export async function saveSuperAdminUserToSupabase(

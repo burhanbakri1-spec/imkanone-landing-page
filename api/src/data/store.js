@@ -8,7 +8,22 @@ import { fileURLToPath } from "node:url";
 import {
   findUsersByEmailFromSupabase,
   findPlatformUserByIdFromSupabase,
+  categoryParentWouldCycleInSupabase,
+  countCategoryChildrenFromSupabase,
+  countBrandProductReferencesFromSupabase,
+  countCategoryProductReferencesFromSupabase,
+  createBrandForCompanyInSupabase,
+  createCategoryWithTenantLockInSupabase,
+  deleteBrandWithTenantLockInSupabase,
+  deleteCategoryWithTenantLockInSupabase,
+  deleteProductWithTenantCatalogLockInSupabase,
+  findBrandByCompanyFromSupabase,
+  findBrandBySlugFromSupabase,
+  findCategoryByCompanyFromSupabase,
+  findCategoryBySlugFromSupabase,
   isSupabaseConfigured,
+  listBrandsByCompanyFromSupabase,
+  listCategoriesByCompanyFromSupabase,
   listPlatformUsersFromSupabase,
   listCompanyMembershipsFromSupabase,
   listUserMembershipsFromSupabase,
@@ -18,6 +33,13 @@ import {
   savePlatformUserToSupabase,
   saveStoreToSupabase,
   saveSuperAdminUserToSupabase,
+  saveProductWithTenantCatalogLockInSupabase,
+  saveActivityLogEntryToSupabase,
+  updateBrandForCompanyInSupabase,
+  updateBrandStatusForCompanyInSupabase,
+  updateCategoryWithTenantLockInSupabase,
+  updateCategoryStatusForCompanyInSupabase,
+  updateCompanyBrandingAndSettingsInSupabase,
 } from "./postgresStore.js";
 import {
   COMPANY_STATUSES,
@@ -32,6 +54,14 @@ import {
 import { hashPassword, isPasswordHash } from "../auth/passwords.js";
 import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
 
+const catalogMemoryAllowed = process.env.NODE_ENV === "test"
+  || (process.env.NODE_ENV === "development" && process.env.ALLOW_LOCAL_CATALOG_STORAGE === "true");
+if (!isSupabaseConfigured() && !catalogMemoryAllowed) {
+  throw new Error(
+    "PostgreSQL catalog storage is required. Configure DATABASE_URL or POSTGRES_URL; isolated memory is test-only.",
+  );
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = process.env.DATA_STORE_DIR
   ? path.resolve(process.env.DATA_STORE_DIR)
@@ -45,6 +75,16 @@ export const allPermissions = [
   "products.update",
   "products.delete",
   "product_settings.manage",
+  "categories.view",
+  "categories.create",
+  "categories.update",
+  "categories.delete",
+  "brands.view",
+  "brands.create",
+  "brands.update",
+  "brands.delete",
+  "company_settings.view",
+  "company_settings.update",
   "orders.view",
   "orders.create",
   "orders.update",
@@ -529,6 +569,8 @@ export const categoryCards = normalizeTenantRecords(
   homepageCategoryCards,
   normalizeCategoryCard,
 );
+export const categories = normalizeTenantRecords(persisted?.categories, [], normalizeCategory);
+export const brands = normalizeTenantRecords(persisted?.brands, [], normalizeBrand);
 export const reviews = normalizeTenantRecords(persisted?.reviews, initialReviews, normalizeReview);
 const persistedWebsiteMedia = Array.isArray(persisted?.websiteMedia) ? persisted.websiteMedia : [];
 const websiteMediaBySection = new Map(
@@ -668,6 +710,41 @@ class TenantRepository {
   }
 }
 
+class CategoryRepository extends TenantRepository {
+  countChildReferences(companyId, categoryId) {
+    return this.getByCompany(companyId).filter((category) => category.parentId === categoryId).length;
+  }
+
+  countProductReferences(companyId, category) {
+    const legacyNames = new Set([
+      category.slug,
+      category.name?.en,
+      category.name?.ar,
+    ].filter(Boolean).map((value) => String(value).trim().toLowerCase()));
+    return productRepository.getByCompany(companyId).filter((product) => {
+      const referenceId = product.categoryId || product.category_id;
+      if (referenceId) return referenceId === category.id;
+      const legacy = typeof product.category === "object"
+        ? [product.category.en, product.category.ar]
+        : [product.category, product.categoryAr, product.category_ar];
+      return legacy.some((value) => legacyNames.has(String(value || "").trim().toLowerCase()));
+    }).length;
+  }
+}
+
+class BrandRepository extends TenantRepository {
+  countProductReferences(companyId, brand) {
+    const legacyNames = new Set([brand.slug, brand.name]
+      .filter(Boolean)
+      .map((value) => String(value).trim().toLowerCase()));
+    return productRepository.getByCompany(companyId).filter((product) => {
+      const referenceId = product.brandId || product.brand_id;
+      if (referenceId) return referenceId === brand.id;
+      return legacyNames.has(String(product.brand || "").trim().toLowerCase());
+    }).length;
+  }
+}
+
 function cartKey(companyId, userId) {
   return `${normalizeCompanyId(companyId)}:${userId}`;
 }
@@ -707,6 +784,8 @@ export const workSessionRepository = new TenantRepository(workSessions);
 export const productRepository = new TenantRepository(productCatalog);
 export const offerRepository = new TenantRepository(offers);
 export const categoryCardRepository = new TenantRepository(categoryCards, "key");
+export const categoryRepository = new CategoryRepository(categories);
+export const brandRepository = new BrandRepository(brands);
 export const reviewRepository = new TenantRepository(reviews);
 export const websiteMediaRepository = new TenantRepository(websiteMedia);
 export const websiteMediaHiddenKeysRepository = new TenantRepository(websiteMediaHiddenKeys);
@@ -718,10 +797,277 @@ export const invoiceRepository = new TenantRepository(invoices);
 export const deliveryZoneRepository = new TenantRepository(deliveryZones);
 export const activityLogRepository = new TenantRepository(activityLogs);
 
+async function persistInMemoryCatalog(companyId) {
+  await persistCompanyStore(normalizeCompanyId(companyId));
+}
+
+export const tenantCategoryRepository = {
+  async listByCompany(companyId) {
+    return isSupabaseConfigured()
+      ? listCategoriesByCompanyFromSupabase(companyId)
+      : categoryRepository.getByCompany(companyId)
+        .slice().sort((a, b) => a.sortOrder - b.sortOrder || a.slug.localeCompare(b.slug));
+  },
+  async findByCompany(companyId, id) {
+    return isSupabaseConfigured()
+      ? findCategoryByCompanyFromSupabase(companyId, id)
+      : categoryRepository.findByCompany(companyId, id);
+  },
+  async findBySlugForCompany(companyId, slug) {
+    return isSupabaseConfigured()
+      ? findCategoryBySlugFromSupabase(companyId, slug)
+      : categoryRepository.findByCompany(companyId, (entry) => entry.slug === slug);
+  },
+  async createForCompany(companyId, data) {
+    if (isSupabaseConfigured()) return createCategoryWithTenantLockInSupabase(companyId, data);
+    const created = categoryRepository.createForCompany(companyId, data);
+    try {
+      await persistInMemoryCatalog(companyId);
+    } catch (error) {
+      categoryRepository.deleteForCompany(companyId, created.id);
+      throw error;
+    }
+    return created;
+  },
+  async updateForCompany(companyId, id, patch) {
+    if (isSupabaseConfigured()) return updateCategoryWithTenantLockInSupabase(companyId, id, patch);
+    const previous = categoryRepository.findByCompany(companyId, id);
+    const updated = categoryRepository.updateForCompany(companyId, id, patch);
+    if (updated) {
+      try {
+        await persistInMemoryCatalog(companyId);
+      } catch (error) {
+        categoryRepository.updateForCompany(companyId, id, previous);
+        throw error;
+      }
+    }
+    return updated;
+  },
+  async updateStatusForCompany(companyId, id, isActive) {
+    if (isSupabaseConfigured()) return updateCategoryStatusForCompanyInSupabase(companyId, id, isActive);
+    return this.updateForCompany(companyId, id, { isActive, updatedAt: new Date().toISOString() });
+  },
+  async deleteForCompany(companyId, id) {
+    if (isSupabaseConfigured()) return deleteCategoryWithTenantLockInSupabase(companyId, id);
+    const removed = categoryRepository.deleteForCompany(companyId, id);
+    if (removed) {
+      try {
+        await persistInMemoryCatalog(companyId);
+      } catch (error) {
+        categoryRepository.createForCompany(companyId, removed);
+        throw error;
+      }
+    }
+    return removed;
+  },
+  async countChildrenForCompany(companyId, id) {
+    return isSupabaseConfigured()
+      ? countCategoryChildrenFromSupabase(companyId, id)
+      : categoryRepository.countChildReferences(companyId, id);
+  },
+  async countProductReferencesForCompany(companyId, id) {
+    const category = await this.findByCompany(companyId, id);
+    if (!category) return 0;
+    return isSupabaseConfigured()
+      ? countCategoryProductReferencesFromSupabase(companyId, category)
+      : categoryRepository.countProductReferences(companyId, category);
+  },
+  async validateParentForCompany(companyId, parentId) {
+    return parentId ? this.findByCompany(companyId, parentId) : null;
+  },
+  async parentWouldCycle(companyId, categoryId, parentId) {
+    if (isSupabaseConfigured()) {
+      return categoryParentWouldCycleInSupabase(companyId, categoryId, parentId);
+    }
+    const seen = new Set(categoryId ? [categoryId] : []);
+    let cursor = parentId ? categoryRepository.findByCompany(companyId, parentId) : null;
+    while (cursor) {
+      if (seen.has(cursor.id)) return true;
+      seen.add(cursor.id);
+      cursor = cursor.parentId ? categoryRepository.findByCompany(companyId, cursor.parentId) : null;
+    }
+    return false;
+  },
+};
+
+export const tenantBrandRepository = {
+  async listByCompany(companyId) {
+    return isSupabaseConfigured()
+      ? listBrandsByCompanyFromSupabase(companyId)
+      : brandRepository.getByCompany(companyId)
+        .slice().sort((a, b) => a.sortOrder - b.sortOrder || a.slug.localeCompare(b.slug));
+  },
+  async findByCompany(companyId, id) {
+    return isSupabaseConfigured()
+      ? findBrandByCompanyFromSupabase(companyId, id)
+      : brandRepository.findByCompany(companyId, id);
+  },
+  async findBySlugForCompany(companyId, slug) {
+    return isSupabaseConfigured()
+      ? findBrandBySlugFromSupabase(companyId, slug)
+      : brandRepository.findByCompany(companyId, (entry) => entry.slug === slug);
+  },
+  async createForCompany(companyId, data) {
+    if (isSupabaseConfigured()) return createBrandForCompanyInSupabase(companyId, data);
+    const created = brandRepository.createForCompany(companyId, data);
+    try {
+      await persistInMemoryCatalog(companyId);
+    } catch (error) {
+      brandRepository.deleteForCompany(companyId, created.id);
+      throw error;
+    }
+    return created;
+  },
+  async updateForCompany(companyId, id, patch) {
+    if (isSupabaseConfigured()) return updateBrandForCompanyInSupabase(companyId, id, patch);
+    const previous = brandRepository.findByCompany(companyId, id);
+    const updated = brandRepository.updateForCompany(companyId, id, patch);
+    if (updated) {
+      try {
+        await persistInMemoryCatalog(companyId);
+      } catch (error) {
+        brandRepository.updateForCompany(companyId, id, previous);
+        throw error;
+      }
+    }
+    return updated;
+  },
+  async updateStatusForCompany(companyId, id, isActive) {
+    if (isSupabaseConfigured()) return updateBrandStatusForCompanyInSupabase(companyId, id, isActive);
+    return this.updateForCompany(companyId, id, { isActive, updatedAt: new Date().toISOString() });
+  },
+  async deleteForCompany(companyId, id) {
+    if (isSupabaseConfigured()) return deleteBrandWithTenantLockInSupabase(companyId, id);
+    const removed = brandRepository.deleteForCompany(companyId, id);
+    if (removed) {
+      try {
+        await persistInMemoryCatalog(companyId);
+      } catch (error) {
+        brandRepository.createForCompany(companyId, removed);
+        throw error;
+      }
+    }
+    return removed;
+  },
+  async countProductReferencesForCompany(companyId, id) {
+    const brand = await this.findByCompany(companyId, id);
+    if (!brand) return 0;
+    return isSupabaseConfigured()
+      ? countBrandProductReferencesFromSupabase(companyId, brand)
+      : brandRepository.countProductReferences(companyId, brand);
+  },
+};
+
+export async function saveProductWithTenantCatalogLock(companyId, product, { isCreate = false } = {}) {
+  const normalized = normalizeCompanyId(companyId);
+  if (isSupabaseConfigured()) {
+    await saveProductWithTenantCatalogLockInSupabase(normalized, product, { isCreate });
+    return isCreate
+      ? productRepository.createForCompany(normalized, product, { prepend: true })
+      : productRepository.updateForCompany(normalized, product.id, product);
+  }
+  for (const [field, repository, label] of [
+    ["categoryId", categoryRepository, "Category"],
+    ["brandId", brandRepository, "Brand"],
+  ]) {
+    if (!product[field]) continue;
+    const reference = repository.findByCompany(normalized, product[field]);
+    if (!reference) throw companyRepositoryError(`${label} not found.`, 404);
+    if (reference.isActive === false) throw companyRepositoryError(`${label} is inactive.`);
+  }
+  const previous = productRepository.findByCompany(normalized, product.id);
+  const saved = isCreate
+    ? productRepository.createForCompany(normalized, product, { prepend: true })
+    : productRepository.updateForCompany(normalized, product.id, product);
+  try {
+    await persistCompanyStore(normalized);
+    return saved;
+  } catch (error) {
+    if (isCreate) productRepository.deleteForCompany(normalized, product.id);
+    else if (previous) productRepository.updateForCompany(normalized, product.id, previous);
+    throw error;
+  }
+}
+
+export async function deleteProductWithTenantCatalogLock(companyId, id) {
+  const normalized = normalizeCompanyId(companyId);
+  if (isSupabaseConfigured()) {
+    const removed = await deleteProductWithTenantCatalogLockInSupabase(normalized, id);
+    if (removed) productRepository.deleteForCompany(normalized, id);
+    return removed;
+  }
+  const removed = productRepository.deleteForCompany(normalized, id);
+  if (!removed) return null;
+  try {
+    await persistCompanyStore(normalized, { pruneMissing: true });
+    return removed;
+  } catch (error) {
+    productRepository.createForCompany(normalized, removed);
+    throw error;
+  }
+}
+
+export async function persistActivityLogEntry(companyId, log) {
+  if (isSupabaseConfigured()) return saveActivityLogEntryToSupabase(companyId, log);
+  return persistCompanyStore(companyId);
+}
+
 function platformDirectoryError(message, statusCode = 400) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
+}
+
+function normalizeCategory(category, index = 0) {
+  const now = new Date().toISOString();
+  const {
+    parent_id: _parentId,
+    image_url: _imageUrl,
+    sort_order: _sortOrder,
+    is_active: _isActive,
+    created_at: _createdAt,
+    updated_at: _updatedAt,
+    ...data
+  } = category;
+  return {
+    ...data,
+    id: String(category.id || `category-${index}-${Date.now()}`),
+    slug: String(category.slug || "").trim().toLowerCase(),
+    name: category.name && typeof category.name === "object" ? clone(category.name) : { en: "", ar: "" },
+    description: category.description && typeof category.description === "object"
+      ? clone(category.description)
+      : null,
+    parentId: category.parentId || category.parent_id || null,
+    imageUrl: category.imageUrl || category.image_url || null,
+    sortOrder: Number(category.sortOrder ?? category.sort_order ?? 0),
+    isActive: category.isActive !== false && category.is_active !== false,
+    createdAt: category.createdAt || category.created_at || now,
+    updatedAt: category.updatedAt || category.updated_at || now,
+  };
+}
+
+function normalizeBrand(brand, index = 0) {
+  const now = new Date().toISOString();
+  const {
+    logo_url: _logoUrl,
+    sort_order: _sortOrder,
+    is_active: _isActive,
+    created_at: _createdAt,
+    updated_at: _updatedAt,
+    ...data
+  } = brand;
+  return {
+    ...data,
+    id: String(brand.id || `brand-${index}-${Date.now()}`),
+    slug: String(brand.slug || "").trim().toLowerCase(),
+    name: String(brand.name || "").trim(),
+    logoUrl: brand.logoUrl || brand.logo_url || null,
+    country: brand.country || null,
+    sortOrder: Number(brand.sortOrder ?? brand.sort_order ?? 0),
+    isActive: brand.isActive !== false && brand.is_active !== false,
+    createdAt: brand.createdAt || brand.created_at || now,
+    updatedAt: brand.updatedAt || brand.updated_at || now,
+  };
 }
 
 function normalizeCustomAdminModule(module, index = 0) {
@@ -1000,6 +1346,35 @@ export const companyRepository = {
     }
 
     return serializeCompany(next);
+  },
+
+  async updateCompanyBrandingAndSettings(id, { name, settingsPatch = {} } = {}) {
+    const current = companyByIdInternal(id);
+    if (!current) throw companyRepositoryError("Company not found.", 404);
+    if (isSupabaseConfigured()) {
+      const persistedUpdate = await updateCompanyBrandingAndSettingsInSupabase(current.id, {
+        ...(name !== undefined ? { name } : {}),
+        settingsPatch,
+      });
+      const next = normalizeCompanyRecord({
+        ...current,
+        name: persistedUpdate.name,
+        settings: persistedUpdate.settings,
+        updatedAt: persistedUpdate.updatedAt,
+      });
+      companies[companies.indexOf(current)] = next;
+      return serializeCompany(next);
+    }
+    const currentSettings = current.settings || {};
+    const mergedSettings = { ...currentSettings, ...settingsPatch };
+    if (settingsPatch.theme) mergedSettings.theme = { ...(currentSettings.theme || {}), ...settingsPatch.theme };
+    if (settingsPatch.socialLinks) {
+      mergedSettings.socialLinks = { ...(currentSettings.socialLinks || {}), ...settingsPatch.socialLinks };
+    }
+    return this.updateCompanyDraft(current.id, {
+      ...(name !== undefined ? { name } : {}),
+      settings: mergedSettings,
+    });
   },
 
   async disableCompany(id) {
@@ -1478,6 +1853,8 @@ export function currentStoreSnapshot(companyId = DEFAULT_COMPANY_ID) {
     users: userRepository.getByCompany(normalized),
     orders: orderRepository.getByCompany(normalized),
     products: productRepository.getByCompany(normalized),
+    categories: categoryRepository.getByCompany(normalized),
+    brands: brandRepository.getByCompany(normalized),
     offers: offerRepository.getByCompany(normalized),
     categoryCards: categoryCardRepository.getByCompany(normalized),
     reviews: reviewRepository.getByCompany(normalized),
@@ -1554,6 +1931,8 @@ function persistLocalCompanyStore(companyId, store) {
     "users",
     "orders",
     "products",
+    "categories",
+    "brands",
     "offers",
     "categoryCards",
     "reviews",

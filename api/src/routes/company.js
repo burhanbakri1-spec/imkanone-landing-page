@@ -1,13 +1,179 @@
 import { Router } from "express";
 import { companyRepository } from "../data/store.js";
-import { optionalAuth } from "../middleware/auth.js";
-import { createPublicCompanyContext } from "../tenancy/company.js";
+import { optionalAuth, requireAuth } from "../middleware/auth.js";
+import {
+  THEME_TOKEN_KEYS,
+  createPublicCompanyContext,
+} from "../tenancy/company.js";
+import {
+  assertAllowedFields,
+  catalogError,
+  requireTenantPermission,
+  validateOptionalUrl,
+} from "./catalogValidation.js";
 
 const router = Router();
+const settingFields = new Set([
+  "name",
+  "logoUrl",
+  "faviconUrl",
+  "language",
+  "locale",
+  "direction",
+  "currency",
+  "supportEmail",
+  "supportPhone",
+  "socialLinks",
+  "theme",
+]);
+const socialLinkKeys = new Set([
+  "facebook", "instagram", "linkedin", "tiktok", "whatsapp", "x", "youtube",
+]);
+const themeTokenKeys = new Set(THEME_TOKEN_KEYS);
+const safeThemeValue = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+
+function validateNullableText(value, field, maxLength) {
+  if (value === null || value === "") return null;
+  if (typeof value !== "string" || value.trim().length > maxLength) {
+    throw catalogError(`${field} must be a string of ${maxLength} characters or fewer.`);
+  }
+  return value.trim();
+}
+
+function validateSettingsPatch(body) {
+  assertAllowedFields(body, settingFields);
+  if (!Object.keys(body).length) throw catalogError("At least one supported setting is required.");
+  const changes = {};
+
+  if (Object.hasOwn(body, "name")) {
+    const name = validateNullableText(body.name, "name", 120);
+    if (!name) throw catalogError("name cannot be empty.");
+    changes.name = name;
+  }
+  for (const field of ["logoUrl", "faviconUrl"]) {
+    if (Object.hasOwn(body, field)) changes[field] = validateOptionalUrl(body[field], field);
+  }
+  if (Object.hasOwn(body, "language")) {
+    const language = validateNullableText(body.language, "language", 20);
+    if (language && !/^[a-z]{2,3}(?:-[A-Z]{2})?$/.test(language)) {
+      throw catalogError("language must be a valid language tag.");
+    }
+    changes.language = language;
+  }
+  if (Object.hasOwn(body, "locale")) {
+    const locale = validateNullableText(body.locale, "locale", 35);
+    if (locale && !/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(locale)) {
+      throw catalogError("locale must be a valid locale tag.");
+    }
+    changes.locale = locale;
+  }
+  if (Object.hasOwn(body, "direction")) {
+    if (body.direction !== null && !["ltr", "rtl"].includes(body.direction)) {
+      throw catalogError("direction must be ltr or rtl.");
+    }
+    changes.direction = body.direction;
+  }
+  if (Object.hasOwn(body, "currency")) {
+    const currency = validateNullableText(body.currency, "currency", 3);
+    if (currency && !/^[A-Z]{3}$/.test(currency)) {
+      throw catalogError("currency must be a three-letter uppercase ISO code.");
+    }
+    changes.currency = currency;
+  }
+  if (Object.hasOwn(body, "supportEmail")) {
+    const email = validateNullableText(body.supportEmail, "supportEmail", 254);
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw catalogError("supportEmail must be a valid email address.");
+    }
+    changes.supportEmail = email;
+  }
+  if (Object.hasOwn(body, "supportPhone")) {
+    const phone = validateNullableText(body.supportPhone, "supportPhone", 40);
+    if (phone && !/^[+\d][\d\s().-]*$/.test(phone)) {
+      throw catalogError("supportPhone contains unsupported characters.");
+    }
+    changes.supportPhone = phone;
+  }
+  if (Object.hasOwn(body, "socialLinks")) {
+    if (!body.socialLinks || typeof body.socialLinks !== "object" || Array.isArray(body.socialLinks)) {
+      throw catalogError("socialLinks must be an object.");
+    }
+    const unknown = Object.keys(body.socialLinks).find((key) => !socialLinkKeys.has(key));
+    if (unknown) throw catalogError(`Unknown socialLinks field: ${unknown}.`);
+    changes.socialLinks = Object.fromEntries(
+      Object.entries(body.socialLinks).map(([key, value]) => [
+        key,
+        validateOptionalUrl(value, `socialLinks.${key}`, { allowRelative: false }),
+      ]),
+    );
+  }
+  if (Object.hasOwn(body, "theme")) {
+    if (!body.theme || typeof body.theme !== "object" || Array.isArray(body.theme)) {
+      throw catalogError("theme must be an object.");
+    }
+    const unknown = Object.keys(body.theme).find((key) => !themeTokenKeys.has(key));
+    if (unknown) throw catalogError(`Unknown theme token: ${unknown}.`);
+    changes.theme = Object.fromEntries(
+      Object.entries(body.theme).map(([key, value]) => {
+        if (value === null || value === "") return [key, null];
+        if (typeof value !== "string" || !safeThemeValue.test(value.trim())) {
+          throw catalogError(`theme.${key} must be a safe CSS color value.`);
+        }
+        return [key, value.trim()];
+      }),
+    );
+  }
+  return changes;
+}
+
+function authenticatedContext(req, company) {
+  return createPublicCompanyContext(company, {
+    host: req.user ? "" : req.companyHost,
+    includeBrandingDefaults: Boolean(req.user),
+  });
+}
 
 router.get("/context", optionalAuth, (req, res) => {
   const company = companyRepository.getCompanyById(req.companyId) || req.company;
-  res.json(createPublicCompanyContext(company, { host: req.companyHost }));
+  res.json(authenticatedContext(req, company));
 });
+
+router.get(
+  "/settings",
+  requireAuth,
+  requireTenantPermission("company_settings", "view"),
+  (req, res) => {
+    const company = companyRepository.getCompanyById(req.companyId);
+    if (!company) return res.status(404).json({ message: "Company not found." });
+    const context = createPublicCompanyContext(company, { includeBrandingDefaults: true });
+    return res.json({ name: context.name, ...context.settings });
+  },
+);
+
+router.patch(
+  "/settings",
+  requireAuth,
+  requireTenantPermission("company_settings", "update"),
+  async (req, res) => {
+    try {
+      const current = companyRepository.getCompanyById(req.companyId);
+      if (!current) throw catalogError("Company not found.", 404);
+      const changes = validateSettingsPatch(req.body);
+      const { name, ...settingChanges } = changes;
+      const updated = await companyRepository.updateCompanyBrandingAndSettings(current.id, {
+        ...(name ? { name } : {}),
+        settingsPatch: settingChanges,
+      });
+      const context = createPublicCompanyContext(updated, { includeBrandingDefaults: true });
+      return res.json({ name: context.name, ...context.settings });
+    } catch (error) {
+      const status = Number(error?.statusCode || 500);
+      if (status >= 500) console.error("Company settings update failed:", error?.message || error);
+      return res.status(status).json({
+        message: status >= 500 ? "Company settings update failed." : error.message,
+      });
+    }
+  },
+);
 
 export default router;
