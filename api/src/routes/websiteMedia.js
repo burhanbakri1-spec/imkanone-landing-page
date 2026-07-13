@@ -4,7 +4,7 @@ import {
   websiteMediaHiddenKeysRepository,
   websiteMediaRepository,
 } from "../data/store.js";
-import { requireAuth } from "../middleware/auth.js";
+import { optionalAuth, requireAuth } from "../middleware/auth.js";
 
 const router = Router();
 const allowedRoles = new Set(["admin", "company_admin", "manager", "employee", "staff"]);
@@ -99,7 +99,7 @@ function restoreSection(companyId, sectionKey) {
     : null;
 }
 
-router.get("/", (req, res) => {
+router.get("/", optionalAuth, (req, res) => {
   const hiddenMarkers = [...hiddenSectionKeys(req.companyId)].map((sectionKey) => ({
     sectionKey,
     isHidden: true,
@@ -130,7 +130,7 @@ router.post("/by-section/:sectionKey/restore", requireAuth, requireMediaEditor, 
   return res.json({ sectionKey });
 });
 
-router.get("/:sectionKey", (req, res) => {
+router.get("/:sectionKey", optionalAuth, (req, res) => {
   res.json(sortMedia(visibleCompanyMedia(req.companyId).filter(
     (item) => item.sectionKey === req.params.sectionKey,
   )));

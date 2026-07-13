@@ -1,6 +1,8 @@
 import cors from "cors";
 import "dotenv/config";
 import express from "express";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { resolveCompany } from "./middleware/company.js";
 import { sanitizeTenantRequestBody } from "./middleware/tenantInput.js";
 import adminRoutes from "./routes/admin.js";
@@ -155,14 +157,21 @@ app.use((err, req, res, _next) => {
   res.status(500).json({ message: "Internal server error." });
 });
 
-process.on("uncaughtException", (err) => {
-  console.error("Fatal uncaught exception:", err?.message || err);
-});
+export function startServer(listenPort = port) {
+  process.on("uncaughtException", (err) => {
+    console.error("Fatal uncaught exception:", err?.message || err);
+  });
+  process.on("unhandledRejection", (reason) => {
+    console.error("Unhandled promise rejection:", reason?.message || reason);
+  });
+  return app.listen(listenPort, "0.0.0.0", () => {
+    console.log(`EB Chemical API running on http://0.0.0.0:${listenPort}`);
+  });
+}
 
-process.on("unhandledRejection", (reason) => {
-  console.error("Unhandled promise rejection:", reason?.message || reason);
-});
+export { app };
 
-app.listen(port, "0.0.0.0", () => {
-  console.log(`EB Chemical API running on http://0.0.0.0:${port}`);
-});
+const entryPath = process.argv[1] ? path.resolve(process.argv[1]) : "";
+if (entryPath === path.resolve(fileURLToPath(import.meta.url))) {
+  startServer();
+}

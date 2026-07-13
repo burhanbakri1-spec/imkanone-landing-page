@@ -3,9 +3,22 @@ import { companyProductSchemaRepository, persistCompanyStore, productRepository 
 import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
 import { recordActivityLog } from "../activityLog/logger.js";
 import { defaultProductSchema, sanitizeProductSchemaData } from "../productSchema/schema.js";
+import { optionalAuth, requireAuth } from "../middleware/auth.js";
 
 const router = Router();
 const placeholderImage = "/images/products/product-placeholder.svg";
+
+function requireProductPermission(permission) {
+  return (req, res, next) => {
+    if (
+      ["admin", "company_admin"].includes(req.membershipRole)
+      || req.user?.permissions?.includes(permission)
+    ) {
+      return next();
+    }
+    return res.status(403).json({ message: "Product permission required." });
+  };
+}
 
 function isRealImageUrl(value) {
   return typeof value === "string" && value.trim() && value.trim() !== placeholderImage;
@@ -162,11 +175,11 @@ function mergeProductUpdate(existingProduct, incomingProduct) {
   return merged;
 }
 
-router.get("/", (_req, res) => {
+router.get("/", optionalAuth, (_req, res) => {
   res.json(productRepository.getByCompany(_req.companyId).map(normalizeProduct));
 });
 
-router.post("/", async (req, res) => {
+router.post("/", requireAuth, requireProductPermission("products.create"), async (req, res) => {
   let product;
   try {
     product = normalizeProduct(sanitizeProductSchemaData({
@@ -192,7 +205,7 @@ router.post("/", async (req, res) => {
   res.status(201).json(product);
 });
 
-router.put("/:id", async (req, res) => {
+router.put("/:id", requireAuth, requireProductPermission("products.update"), async (req, res) => {
   const existing = productRepository.findByCompany(req.companyId, req.params.id);
   if (!existing) {
     return res.status(404).json({ message: "Product not found." });
@@ -228,7 +241,7 @@ router.put("/:id", async (req, res) => {
   return res.json(updated);
 });
 
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", requireAuth, requireProductPermission("products.delete"), async (req, res) => {
   const removed = productRepository.deleteForCompany(req.companyId, req.params.id);
   if (!removed) {
     return res.status(404).json({ message: "Product not found." });

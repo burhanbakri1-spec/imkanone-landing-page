@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { Router } from "express";
 import { deliveryZoneRepository, persistCompanyStore } from "../data/store.js";
-import { requireAuth, requireAdmin } from "../middleware/auth.js";
+import { optionalAuth, requireAuth, requireAdmin } from "../middleware/auth.js";
 import { sanitizeCreateZone, sanitizeUpdateZone } from "../delivery/schema.js";
 import { recordActivityLog } from "../activityLog/logger.js";
 
@@ -35,7 +35,7 @@ function findZone(companyId, zoneId) {
 // --- Public route: enabled zones only ---
 const publicRouter = Router();
 
-publicRouter.get("/", (req, res) => {
+publicRouter.get("/", optionalAuth, (req, res) => {
   try {
     const zones = companyZones(req.companyId).filter((z) => z.enabled !== false);
     return res.json(zones);

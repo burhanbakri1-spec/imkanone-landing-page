@@ -816,6 +816,14 @@ export async function listPlatformUsersFromSupabase() {
   return rows.map(mergeUser);
 }
 
+export async function findPlatformUserByIdFromSupabase(userId) {
+  const rows = await selectAll(
+    "users",
+    `select=*&id=eq.${encodeURIComponent(String(userId || ""))}`,
+  );
+  return rows.length === 1 ? mergeUser(rows[0]) : null;
+}
+
 export async function savePlatformUserToSupabase(user) {
   await upsertRows("users", [userRow(user)]);
   return user;
@@ -1339,6 +1347,32 @@ export async function saveStoreToSupabase(store, options = {}) {
     await deleteMissingCompanyRows("company_delivery_zones", deliveryZoneRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("company_activity_logs", activityLogRows.map((row) => row.id), companyId);
   }
+}
+
+export async function listUserMembershipsFromSupabase(userId) {
+  const normalizedUserId = String(userId || "").trim();
+  const [memberships, matchingUsers] = await Promise.all([
+    selectAll(
+      "company_memberships",
+      `select=*&user_id=eq.${encodeURIComponent(normalizedUserId)}`,
+    ),
+    selectAll(
+      "users",
+      `select=*&id=eq.${encodeURIComponent(normalizedUserId)}`,
+    ),
+  ]);
+  const user = matchingUsers.length === 1 ? mergeUser(matchingUsers[0]) : null;
+  return memberships.map((membership) => ({
+    id: membership.id,
+    companyId: membership.company_id,
+    userId: membership.user_id,
+    role: membership.role,
+    status: membership.is_active === false ? "inactive" : "active",
+    _permissions: membership.permissions || [],
+    createdAt: membership.created_at,
+    updatedAt: membership.updated_at,
+    user,
+  }));
 }
 
 export async function saveCompanyToSupabase(company) {

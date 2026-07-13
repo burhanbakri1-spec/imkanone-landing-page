@@ -17,6 +17,18 @@ function isStaffRole(role) {
   return role === "employee" || role === "staff";
 }
 
+function requireOrderPermission(permission) {
+  return (req, res, next) => {
+    if (
+      ["admin", "company_admin"].includes(req.membershipRole)
+      || req.user?.permissions?.includes(permission)
+    ) {
+      return next();
+    }
+    return res.status(403).json({ message: "Order permission required." });
+  };
+}
+
 function cleanText(value, maxLength) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
@@ -445,13 +457,21 @@ router.put("/:id/status", requireAuth, async (req, res) => {
   }
 });
 
-router.put("/:id/assign-employee", requireAuth, async (req, res) => {
+router.put("/:id/assign-employee", requireAuth, requireOrderPermission("orders.update"), async (req, res) => {
   try {
     const order = orderRepository.findByCompany(req.companyId, req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found." });
 
-    order.handledByEmployeeId = req.body.employeeId || "";
-    order.assignedToEmployeeId = req.body.employeeId || "";
+    const employeeId = cleanText(req.body.employeeId, 160);
+    if (employeeId) {
+      const employee = userRepository.findByCompany(req.companyId, employeeId);
+      if (!employee || !isStaffRole(employee.role) || employee.isActive === false) {
+        return res.status(404).json({ message: "Employee not found." });
+      }
+    }
+
+    order.handledByEmployeeId = employeeId;
+    order.assignedToEmployeeId = employeeId;
     order.lastUpdatedBy = publicUser(req.user);
     order.updatedAt = new Date().toISOString();
 
@@ -478,7 +498,7 @@ router.put("/:id/assign-employee", requireAuth, async (req, res) => {
   }
 });
 
-router.delete("/:id", requireAuth, async (req, res) => {
+router.delete("/:id", requireAuth, requireOrderPermission("orders.delete"), async (req, res) => {
   try {
     const existing = orderRepository.findByCompany(req.companyId, req.params.id);
     if (existing) applyLoyaltyForStatus(req.companyId, existing, "Cancelled");

@@ -22,7 +22,7 @@ const imageTypes = new Map([
 const allowedExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
 
 function requireProductUploader(req, res, next) {
-  if (!["admin", "manager", "employee", "staff"].includes(req.user?.role)) {
+  if (!["admin", "company_admin", "manager", "employee", "staff"].includes(req.user?.role)) {
     return res.status(403).json({ message: "Admin or employee access required." });
   }
 

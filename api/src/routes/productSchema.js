@@ -4,7 +4,7 @@ import {
   companyRepository,
   persistCompanyStore,
 } from "../data/store.js";
-import { requireAdmin, requireAuth } from "../middleware/auth.js";
+import { optionalAuth, requireAdmin, requireAuth } from "../middleware/auth.js";
 import { isProductSettingsModuleEnabled } from "../tenancy/company.js";
 import {
   defaultProductSchema,
@@ -20,7 +20,7 @@ function schemaForCompany(companyId) {
   return record?.schema || defaultProductSchema();
 }
 
-publicProductSchemaRouter.get("/", (req, res) => {
+publicProductSchemaRouter.get("/", optionalAuth, (req, res) => {
   res.json(schemaForCompany(req.companyId));
 });
 

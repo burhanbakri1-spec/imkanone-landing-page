@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { persistCompanyStore, websiteTextsRepository } from "../data/store.js";
-import { requireAuth } from "../middleware/auth.js";
+import { optionalAuth, requireAuth } from "../middleware/auth.js";
 
 export const publicWebsiteTextsRouter = Router();
 export const adminWebsiteTextsRouter = Router();
@@ -14,7 +14,7 @@ function noStore(_req, res, next) {
   next();
 }
 
-publicWebsiteTextsRouter.use(noStore);
+publicWebsiteTextsRouter.use(noStore, optionalAuth);
 adminWebsiteTextsRouter.use(noStore, requireAuth, requireTextsEditor);
 
 function requireTextsEditor(req, res, next) {

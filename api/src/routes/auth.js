@@ -1,11 +1,19 @@
 import { Router } from "express";
 import {
+  companyMembershipRepository,
   persistCompanyStore,
+  platformUserRepository,
   userRepository,
   workSessionRepository,
 } from "../data/store.js";
 import { hashPassword, verifyPassword } from "../auth/passwords.js";
-import { getSessionUser, publicUser, requireAuth, signToken } from "../middleware/auth.js";
+import {
+  publicUser,
+  requireAuth,
+  signCompanySelectionChallenge,
+  signToken,
+  verifyToken,
+} from "../middleware/auth.js";
 
 function normalizePhone(phone) {
   if (!phone) return "";
@@ -16,6 +24,63 @@ function normalizePhone(phone) {
 }
 
 const router = Router();
+
+function asyncHandler(handler) {
+  return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
+}
+
+function publicCompany(company) {
+  if (!company) return null;
+  return {
+    id: company.id,
+    slug: company.slug,
+    name: company.name,
+    status: company.status,
+  };
+}
+
+function publicMembership(membership) {
+  if (!membership) return null;
+  return {
+    id: membership.id,
+    companyId: membership.companyId,
+    role: membership.role,
+    status: membership.status,
+    permissions: Array.isArray(membership._permissions) ? membership._permissions : [],
+    updatedAt: membership.updatedAt || null,
+  };
+}
+
+function sessionUser(user, membership) {
+  if (!membership) return { ...user, globalRole: user.role };
+  return {
+    ...user,
+    globalRole: user.role,
+    role: membership.role,
+    permissions: Array.isArray(membership._permissions) ? membership._permissions : [],
+  };
+}
+
+function availableCompanies(memberships) {
+  return memberships.map((membership) => ({
+    ...publicCompany(membership.company),
+    membership: publicMembership(membership),
+  }));
+}
+
+async function createSessionResponse(user, membership, memberships = []) {
+  const effectiveUser = sessionUser(user, membership);
+  return {
+    token: signToken(user, membership),
+    user: publicUser(effectiveUser),
+    activeCompany: publicCompany(membership?.company),
+    activeMembership: publicMembership(membership),
+    availableCompanies: availableCompanies(memberships),
+    workSession: membership
+      ? await startEmployeeSession(effectiveUser, membership.companyId)
+      : null,
+  };
+}
 
 function isStaffRole(role) {
   return role === "employee" || role === "staff";
@@ -43,28 +108,53 @@ async function startEmployeeSession(user, companyId) {
   return session;
 }
 
-router.post("/login", async (req, res) => {
+router.post("/login", asyncHandler(async (req, res) => {
   const { email, password } = req.body;
   const normalizedEmail = String(email || "").trim().toLowerCase();
-  const user = userRepository.findByCompany(
-    req.companyId,
-    (entry) => String(entry.email || "").trim().toLowerCase() === normalizedEmail
-      && entry.isActive !== false,
-  );
+  const user = await platformUserRepository.findByEmail(normalizedEmail);
 
-  if (!user || !(await verifyPassword(password, user.password))) {
+  if (!user || user.isActive === false || !(await verifyPassword(password, user.password))) {
     return res.status(401).json({ message: "Invalid email or password." });
   }
 
-  const token = signToken(user);
-  return res.json({
-    token,
-    user: publicUser(user),
-    workSession: await startEmployeeSession(user, req.companyId),
-  });
-});
+  if (user.role === "super_admin") {
+    return res.json(await createSessionResponse(user, null));
+  }
 
-router.post("/register", async (req, res) => {
+  const memberships = await companyMembershipRepository.listActiveMembershipsForUser(user.id);
+  if (!memberships.length) {
+    return res.status(403).json({ message: "No active company membership is available for this account." });
+  }
+  if (memberships.length > 1) {
+    return res.json({
+      companySelectionRequired: true,
+      selectionChallenge: signCompanySelectionChallenge(user),
+      availableCompanies: availableCompanies(memberships),
+    });
+  }
+  return res.json(await createSessionResponse(user, memberships[0], memberships));
+}));
+
+router.post("/select-company", asyncHandler(async (req, res) => {
+  const selectionChallenge = String(req.body?.selectionChallenge || "");
+  const companyId = String(req.body?.companyId || "").trim().toLowerCase();
+  const challenge = verifyToken(selectionChallenge);
+  if (!challenge || challenge.tokenType !== "company_selection" || !challenge.id) {
+    return res.status(401).json({ message: "Invalid or expired company selection challenge." });
+  }
+  const user = await platformUserRepository.getUserById(challenge.id);
+  if (!user || user.isActive === false || user.role !== challenge.role || user.role === "super_admin") {
+    return res.status(401).json({ message: "Invalid or expired company selection challenge." });
+  }
+  const memberships = await companyMembershipRepository.listActiveMembershipsForUser(user.id);
+  const membership = memberships.find((entry) => entry.companyId === companyId);
+  if (!membership) {
+    return res.status(403).json({ message: "Active membership for the selected company is required." });
+  }
+  return res.json(await createSessionResponse(user, membership, memberships));
+}));
+
+router.post("/register", asyncHandler(async (req, res) => {
   const { name, email, phone: rawPhone, password } = req.body;
   const normalizedEmail = String(email || "").trim().toLowerCase();
   const phone = normalizePhone(rawPhone);
@@ -107,14 +197,17 @@ router.post("/register", async (req, res) => {
   };
   userRepository.createForCompany(req.companyId, user);
   await persistCompanyStore(req.companyId);
-  const token = signToken(user);
-  return res.status(201).json({ token, user: publicUser(user) });
-});
+  const membership = await companyMembershipRepository.getMembershipByCompanyAndUser(
+    req.companyId,
+    user.id,
+  );
+  return res.status(201).json(await createSessionResponse(user, membership, membership ? [membership] : []));
+}));
 
-router.get("/me", requireAuth, (req, res) => {
+router.get("/me", requireAuth, asyncHandler(async (req, res) => {
   const user = { ...req.user };
   const userPhone = normalizePhone(user.phone);
-  if (userPhone) {
+  if (userPhone && user.globalRole !== "super_admin") {
     const phoneUser = userRepository.findByCompany(
       req.companyId,
       (u) => u.id !== user.id && normalizePhone(u.phone) === userPhone,
@@ -125,11 +218,24 @@ router.get("/me", requireAuth, (req, res) => {
       user.totalPointsRedeemed = Math.max(0, Number(user.totalPointsRedeemed || 0)) + Math.max(0, Number(phoneUser.totalPointsRedeemed || 0));
     }
   }
-  res.json(publicUser(user));
-});
+  const memberships = user.globalRole === "super_admin"
+    ? []
+    : await companyMembershipRepository.listActiveMembershipsForUser(user.id);
+  const safeUser = publicUser(user);
+  res.json({
+    ...safeUser,
+    user: safeUser,
+    activeCompany: publicCompany(req.company),
+    activeMembership: publicMembership(req.membership),
+    availableCompanies: availableCompanies(memberships),
+  });
+}));
 
-router.patch("/me", requireAuth, async (req, res) => {
+router.patch("/me", requireAuth, asyncHandler(async (req, res) => {
   try {
+    if (!req.companyId || !req.membership) {
+      return res.status(403).json({ message: "An active company membership is required." });
+    }
     const allowed = ["name", "email", "phone", "city", "address", "avatarUrl"];
     const updates = {};
     for (const key of allowed) {
@@ -168,10 +274,10 @@ router.patch("/me", requireAuth, async (req, res) => {
     console.error("Profile update failed:", error);
     return res.status(500).json({ message: "Unable to update profile. Please try again." });
   }
-});
+}));
 
-router.post("/logout", async (req, res) => {
-  const user = getSessionUser(req);
+router.post("/logout", requireAuth, asyncHandler(async (req, res) => {
+  const user = req.user;
 
   let workSession = null;
   if (isStaffRole(user?.role)) {
@@ -186,6 +292,6 @@ router.post("/logout", async (req, res) => {
   }
 
   res.json({ workSession });
-});
+}));
 
 export default router;

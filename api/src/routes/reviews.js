@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { orderRepository, persistCompanyStore, reviewRepository } from "../data/store.js";
-import { requireAuth } from "../middleware/auth.js";
+import { optionalAuth, requireAuth } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -30,12 +30,12 @@ async function persistReviewsSafely(companyId, options = {}) {
   }
 }
 
-router.get("/", (req, res) => {
+router.get("/", optionalAuth, (req, res) => {
   const typeFilter = req.query.type || "website";
   res.json(visibleReviews(reviewRepository.getByCompany(req.companyId)).filter((review) => review.type === typeFilter));
 });
 
-router.get("/product/:productId", (req, res) => {
+router.get("/product/:productId", optionalAuth, (req, res) => {
   res.json(
     visibleReviews(reviewRepository.getByCompany(req.companyId)).filter(
       (review) => review.type === "product" && review.productId === req.params.productId,
@@ -43,7 +43,7 @@ router.get("/product/:productId", (req, res) => {
   );
 });
 
-router.get("/employee/:employeeId", (req, res) => {
+router.get("/employee/:employeeId", optionalAuth, (req, res) => {
   res.json(
     visibleReviews(reviewRepository.getByCompany(req.companyId)).filter(
       (review) => review.type === "employee" && review.employeeId === req.params.employeeId,

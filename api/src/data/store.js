@@ -7,9 +7,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   findUsersByEmailFromSupabase,
+  findPlatformUserByIdFromSupabase,
   isSupabaseConfigured,
   listPlatformUsersFromSupabase,
   listCompanyMembershipsFromSupabase,
+  listUserMembershipsFromSupabase,
   loadStoreFromSupabase,
   saveCompanyToSupabase,
   saveCompanyMembershipToSupabase,
@@ -1161,6 +1163,27 @@ async function persistMembershipRecord(membership, user, createUser, previousMem
 }
 
 export const companyMembershipRepository = {
+  async listMembershipsForUser(userId) {
+    const normalizedUserId = String(userId || "").trim();
+    const memberships = isSupabaseConfigured()
+      ? await listUserMembershipsFromSupabase(normalizedUserId)
+      : companies
+          .flatMap((company) => localMembershipsForCompany(company.id))
+          .filter((membership) => membership.userId === normalizedUserId)
+          .map(clone);
+    return memberships.map((membership) => ({
+      ...membership,
+      company: companyRepository.getCompanyById(membership.companyId),
+    }));
+  },
+
+  async listActiveMembershipsForUser(userId) {
+    const memberships = await this.listMembershipsForUser(userId);
+    return memberships.filter(
+      (membership) => membership.status === "active" && membership.company?.status === "active",
+    );
+  },
+
   async listAllMemberships() {
     const allMemberships = await Promise.all(
       companies.map(async (company) => {
@@ -1180,9 +1203,11 @@ export const companyMembershipRepository = {
   },
 
   async getMembershipByCompanyAndUser(companyId, userId) {
-    assertMembershipCompany(companyId);
-    const memberships = await membershipsForCompany(companyId);
-    return memberships.find((membership) => membership.userId === userId) || null;
+    const company = assertMembershipCompany(companyId);
+    const memberships = await this.listMembershipsForUser(userId);
+    return memberships.find(
+      (membership) => membership.companyId === company.id && membership.userId === userId,
+    ) || null;
   },
 
   async createOrUpdateMembership(companyId, input) {
@@ -1325,6 +1350,30 @@ export const platformUserRepository = {
       return listPlatformUsersFromSupabase();
     }
     return users.map(clone);
+  },
+
+  async findByEmail(email) {
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    const matches = isSupabaseConfigured()
+      ? await findUsersByEmailFromSupabase(normalizedEmail)
+      : users.filter(
+          (user) => String(user.email || "").trim().toLowerCase() === normalizedEmail,
+        );
+    if (matches.length > 1) {
+      throw platformDirectoryError("Multiple users match this email.", 409);
+    }
+    return matches[0] ? clone(matches[0]) : null;
+  },
+
+  async getUserById(userId) {
+    if (isSupabaseConfigured()) {
+      if (!canPersistToSupabase) {
+        throw platformDirectoryError("Platform users are unavailable until PostgreSQL validation succeeds.", 503);
+      }
+      return findPlatformUserByIdFromSupabase(userId);
+    }
+    const user = users.find((entry) => entry.id === userId);
+    return user ? clone(user) : null;
   },
 
   async createUser(input) {
