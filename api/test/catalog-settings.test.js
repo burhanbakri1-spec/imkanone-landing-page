@@ -141,8 +141,13 @@ process.env.NODE_ENV = "test";
 const { app } = await import("../src/server.js");
 const { companyMembershipRepository } = await import("../src/data/store.js");
 const {
+  deleteCompanyMembershipWithClient,
+  loadPlatformStoreFromSupabase,
+  loadStoreFromSupabase,
   runCompanyBrandingSettingsTransaction,
   runTenantCatalogWriteTransaction,
+  setPlatformLoadDependenciesForTest,
+  startupHydrationTimeoutMs,
 } = await import("../src/data/postgresStore.js");
 const { sendCatalogError } = await import("../src/routes/catalogValidation.js");
 const server = app.listen(0, "127.0.0.1");
@@ -501,6 +506,349 @@ test("tenant catalog and company settings contracts", async (t) => {
       },
     ]) {
       assert.equal((await request("/products", { token: icare.token, body })).response.status, 400);
+    }
+  });
+
+  await t.test("tenant employee creation cannot claim an existing global identity", async () => {
+    const reusedId = await request("/employees", {
+      token: icare.token,
+      body: {
+        id: "eb-admin",
+        name: "Hostile ID reuse",
+        email: "hostile-id@test.local",
+      },
+    });
+    assert.equal(reusedId.response.status, 409);
+    assert.match(reusedId.body.message, /global user identity already exists/i);
+
+    const reusedEmail = await request("/employees", {
+      token: icare.token,
+      body: {
+        id: "new-client-id",
+        name: "Hostile email reuse",
+        email: " ADMIN@EB.TEST ",
+      },
+    });
+    assert.equal(reusedEmail.response.status, 409);
+    assert.match(reusedEmail.body.message, /email already belongs/i);
+  });
+
+  await t.test("fresh PostgreSQL startup hydrates isolated repositories with bounded queries", async () => {
+    const tableRows = {
+      companies: [
+        { id: "eb-chemical", slug: "eb-chemical", name: "EB Chemical", status: "active", is_default: true },
+        { id: "icare", slug: "icare", name: "iCare", status: "active", is_default: false },
+        { id: "empty-company", slug: "empty-company", name: "Empty", status: "active", is_default: false },
+      ],
+      company_domains: [],
+      company_settings: [],
+      users: [
+        { id: "icare-only", email: "icare-only@test.local", role: "customer", is_active: true },
+        { id: "shared-user", email: "shared@test.local", role: "employee", is_active: true },
+        { id: "shared-user", email: "shared@test.local", role: "employee", is_active: true },
+        { id: "inactive-user", email: "inactive@test.local", role: "employee", is_active: false },
+        { id: "inactive-member-user", email: "inactive-member@test.local", role: "employee", is_active: true },
+        { id: "platform-super", email: "super-platform@test.local", role: "super_admin", is_active: true },
+      ],
+      company_memberships: [
+        { id: "icare:icare-only", company_id: "icare", user_id: "icare-only", role: "customer", is_active: true },
+        { id: "eb:shared", company_id: "eb-chemical", user_id: "shared-user", role: "employee", permissions: ["orders.view"], is_active: true },
+        { id: "icare:shared", company_id: "icare", user_id: "shared-user", role: "customer", permissions: ["profile.view"], is_active: true },
+        { id: "icare:inactive-user", company_id: "icare", user_id: "inactive-user", role: "employee", is_active: true },
+        { id: "icare:inactive-member", company_id: "icare", user_id: "inactive-member-user", role: "employee", is_active: false },
+      ],
+      products: [
+        {
+          id: "shared-record",
+          company_id: null,
+          slug: "eb-product",
+          data: { name: "EB Product", company_id: "icare" },
+        },
+        { id: "shared-record", company_id: "icare", slug: "icare-product", data: { name: "iCare Product" } },
+      ],
+      product_variants: [
+        { id: "shared-variant", company_id: null, product_id: "shared-record", data: { marker: "eb" } },
+        { id: "shared-variant", company_id: "icare", product_id: "shared-record", data: { marker: "icare" } },
+      ],
+      product_gallery_images: [
+        { id: "shared-gallery", company_id: null, product_id: "shared-record", image_url: "/eb.png" },
+        { id: "shared-gallery", company_id: "icare", product_id: "shared-record", image_url: "/icare.png" },
+      ],
+      orders: [
+        { id: "shared-order", company_id: null, status: "EB", data: {} },
+        { id: "shared-order", company_id: "icare", status: "iCare", data: {} },
+      ],
+      order_items: [
+        { id: "shared-item", company_id: null, order_id: "shared-order", product_id: "shared-record", data: { marker: "eb" } },
+        { id: "shared-item", company_id: "icare", order_id: "shared-order", product_id: "shared-record", data: { marker: "icare" } },
+      ],
+      carts: [
+        { id: "eb-cart", company_id: null, user_id: "same-cart-user", items: [{ marker: "eb" }] },
+        { id: "icare-cart", company_id: "icare", user_id: "same-cart-user", items: [{ marker: "icare" }] },
+      ],
+      company_categories: [
+        { id: "shared-category", company_id: null, slug: "eb-category", name: { en: "EB" } },
+        { id: "shared-category", company_id: "icare", slug: "icare-category", name: { en: "iCare" } },
+      ],
+      company_brands: [
+        { id: "shared-brand", company_id: null, slug: "eb-brand", name: "EB" },
+        { id: "shared-brand", company_id: "icare", slug: "icare-brand", name: "iCare" },
+      ],
+    };
+    const calls = [];
+    const cloneRows = (rows) => JSON.parse(JSON.stringify(rows || []));
+    const selectAllRows = async (table, query = "select=*") => {
+      calls.push({ table, query });
+      let rows = cloneRows(tableRows[table]);
+      if (table === "company_memberships" && query.includes("company_id=eq.")) {
+        const companyId = decodeURIComponent(query.match(/company_id=eq\.([^&]+)/)?.[1] || "");
+        rows = rows.filter((row) => row.company_id === companyId);
+      }
+      return rows;
+    };
+    const selectTenantRows = async (table, companyId) => cloneRows(tableRows[table]).filter((row) =>
+      companyId === "eb-chemical"
+        ? row.company_id == null || row.company_id === companyId
+        : row.company_id === companyId);
+    const dependencies = { selectAllRows, selectTenantRows };
+
+    calls.length = 0;
+    await loadPlatformStoreFromSupabase(dependencies);
+    assert.equal(calls.length, 26);
+    assert.equal(new Set(calls.map((call) => call.table)).size, 26);
+    assert.equal(calls.every((call) => call.query === "select=*"), true);
+
+    const previousDatabaseUrl = process.env.DATABASE_URL;
+    process.env.DATABASE_URL = "postgresql://isolated.invalid/catalog-startup-test";
+    setPlatformLoadDependenciesForTest(dependencies);
+    let freshStore;
+    try {
+      freshStore = await import(`../src/data/store.js?startup=${Date.now()}`);
+    } finally {
+      setPlatformLoadDependenciesForTest(null);
+      process.env.DATABASE_URL = previousDatabaseUrl;
+    }
+
+    const ebProducts = freshStore.productRepository.getByCompany("eb-chemical");
+    const icareProducts = freshStore.productRepository.getByCompany("icare");
+    assert.equal(ebProducts.length, 1);
+    assert.equal(icareProducts.length, 1);
+    assert.equal(ebProducts[0].slug, "eb-product");
+    assert.equal(freshStore.getRecordCompanyId(ebProducts[0]), "eb-chemical");
+    assert.equal(icareProducts[0].slug, "icare-product");
+    assert.equal(ebProducts[0].variants[0].marker, "eb");
+    assert.equal(icareProducts[0].variants[0].marker, "icare");
+    assert.equal(ebProducts[0].gallery_images[0].image_url, "/eb.png");
+    assert.equal(icareProducts[0].gallery_images[0].image_url, "/icare.png");
+    assert.equal(freshStore.categoryRepository.getByCompany("eb-chemical")[0].slug, "eb-category");
+    assert.equal(freshStore.categoryRepository.getByCompany("icare")[0].slug, "icare-category");
+    assert.equal(freshStore.brandRepository.getByCompany("eb-chemical")[0].slug, "eb-brand");
+    assert.equal(freshStore.brandRepository.getByCompany("icare")[0].slug, "icare-brand");
+    assert.equal(freshStore.orderRepository.getByCompany("eb-chemical")[0].items[0].marker, "eb");
+    assert.equal(freshStore.orderRepository.getByCompany("icare")[0].items[0].marker, "icare");
+    assert.equal(freshStore.cartRepository.findByCompany("eb-chemical", "same-cart-user")[0].marker, "eb");
+    assert.equal(freshStore.cartRepository.findByCompany("icare", "same-cart-user")[0].marker, "icare");
+
+    assert.deepEqual(freshStore.userRepository.getByCompany("eb-chemical").map((user) => user.id), ["shared-user"]);
+    assert.deepEqual(
+      freshStore.userRepository.getByCompany("icare").map((user) => user.id).sort(),
+      ["icare-only", "shared-user"],
+    );
+    assert.deepEqual(freshStore.userRepository.getByCompany("empty-company"), []);
+    assert.equal(freshStore.userRepository.getByCompany("eb-chemical").some((user) => user.id === "icare-only"), false);
+    assert.equal(freshStore.userRepository.getByCompany("icare").some((user) => user.id === "platform-super"), false);
+    assert.equal(freshStore.userRepository.getByCompany("icare").some((user) => user.id === "inactive-user"), false);
+    assert.equal(freshStore.userRepository.getByCompany("icare").some((user) => user.id === "inactive-member-user"), false);
+    const ebShared = freshStore.userRepository.findByCompany("eb-chemical", "shared-user");
+    const icareShared = freshStore.userRepository.findByCompany("icare", "shared-user");
+    assert.notEqual(ebShared, icareShared);
+    assert.equal(ebShared.role, "employee");
+    assert.deepEqual(ebShared.permissions, ["orders.view"]);
+    assert.equal(ebShared.companyId, "eb-chemical");
+    assert.equal(icareShared.role, "customer");
+    assert.deepEqual(icareShared.permissions, ["profile.view"]);
+    assert.equal(icareShared.companyId, "icare");
+    assert.equal(ebShared.globalRole, "employee");
+    assert.equal(icareShared.globalRole, "employee");
+    const { signToken, verifyToken } = await import("../src/middleware/auth.js");
+    const sharedIdentity = freshStore.users.find((user) => user.id === "shared-user");
+    const ebMembership = freshStore.companyMemberships.find(
+      (membership) => membership.companyId === "eb-chemical" && membership.userId === "shared-user",
+    );
+    const icareMembership = freshStore.companyMemberships.find(
+      (membership) => membership.companyId === "icare" && membership.userId === "shared-user",
+    );
+    const ebPayload = verifyToken(signToken(sharedIdentity, ebMembership));
+    const icarePayload = verifyToken(signToken(sharedIdentity, icareMembership));
+    assert.equal(ebPayload.companyId, "eb-chemical");
+    assert.equal(ebPayload.membershipRole, "employee");
+    assert.equal(icarePayload.companyId, "icare");
+    assert.equal(icarePayload.membershipRole, "customer");
+    assert.equal((await freshStore.platformUserRepository.listUsers()).some((user) => user.id === "platform-super"), true);
+    assert.equal((await freshStore.platformUserRepository.listUsers()).filter((user) => user.id === "shared-user").length, 1);
+
+    assert.throws(
+      () => freshStore.userRepository.createForCompany("icare", {
+        id: "shared-user",
+        email: "attacker@test.local",
+        role: "employee",
+      }),
+      (error) => error.statusCode === 409 && /identity already exists/i.test(error.message),
+    );
+    assert.throws(
+      () => freshStore.userRepository.createForCompany("icare", {
+        id: "hostile-new-id",
+        email: " SHARED@test.local ",
+        role: "employee",
+      }),
+      (error) => error.statusCode === 409 && /email already belongs/i.test(error.message),
+    );
+    const newTenantUser = freshStore.userRepository.createForCompany("icare", {
+      id: "new-tenant-user",
+      email: "new-tenant@test.local",
+      role: "employee",
+      permissions: ["orders.view"],
+      isActive: true,
+    });
+    assert.equal(newTenantUser.id, "new-tenant-user");
+    assert.equal(newTenantUser.role, "employee");
+    assert.deepEqual(newTenantUser.permissions, ["orders.view"]);
+
+    const explicitIcare = await loadStoreFromSupabase("icare", dependencies);
+    assert.equal(explicitIcare.store.products.length, 1);
+    assert.equal(explicitIcare.store.products[0].slug, "icare-product");
+
+    const adapterCalls = [];
+    const deletedByAdapter = await deleteCompanyMembershipWithClient({
+      async query(sql, params) {
+        adapterCalls.push({ sql, params });
+        return { rows: [{ id: "icare:shared" }] };
+      },
+    }, "icare", "shared-user", "icare:shared");
+    assert.deepEqual(deletedByAdapter, [{ id: "icare:shared" }]);
+    assert.match(adapterCalls[0].sql, /delete from public\.company_memberships/i);
+    assert.deepEqual(adapterCalls[0].params, ["icare", "shared-user", "icare:shared"]);
+
+    process.env.DATABASE_URL = "postgresql://isolated.invalid/catalog-membership-delete";
+    await assert.rejects(
+      freshStore.deleteTenantUserMembership("icare", "shared-user", {
+        deleteRemote: async () => { throw new Error("simulated delete failure"); },
+      }),
+      /simulated delete failure/,
+    );
+    assert.equal(freshStore.userRepository.findByCompany("icare", "shared-user").role, "customer");
+    await freshStore.deleteTenantUserMembership("icare", "shared-user", {
+      deleteRemote: async (companyId, userId) => {
+        const index = tableRows.company_memberships.findIndex(
+          (membership) => membership.company_id === companyId && membership.user_id === userId,
+        );
+        if (index < 0) return [];
+        return [tableRows.company_memberships.splice(index, 1)[0]];
+      },
+    });
+    process.env.DATABASE_URL = previousDatabaseUrl;
+    assert.equal(freshStore.userRepository.findByCompany("icare", "shared-user"), null);
+    assert.equal(freshStore.userRepository.findByCompany("eb-chemical", "shared-user").role, "employee");
+    assert.equal((await freshStore.platformUserRepository.listUsers()).some((user) => user.id === "shared-user"), true);
+
+    process.env.DATABASE_URL = "postgresql://isolated.invalid/catalog-membership-restart";
+    setPlatformLoadDependenciesForTest(dependencies);
+    let restartedStore;
+    try {
+      restartedStore = await import(`../src/data/store.js?membership-restart=${Date.now()}`);
+    } finally {
+      setPlatformLoadDependenciesForTest(null);
+      process.env.DATABASE_URL = previousDatabaseUrl;
+    }
+    assert.equal(restartedStore.userRepository.findByCompany("icare", "shared-user"), null);
+    assert.equal(restartedStore.userRepository.findByCompany("eb-chemical", "shared-user").role, "employee");
+    assert.equal((await restartedStore.platformUserRepository.listUsers()).some((user) => user.id === "shared-user"), true);
+
+    assert.equal(startupHydrationTimeoutMs({ POSTGRES_STARTUP_HYDRATION_TIMEOUT_MS: "45000" }), 45000);
+    for (const value of ["not-a-number", "0", "-5", "1.5", "Infinity"]) {
+      assert.equal(startupHydrationTimeoutMs({ POSTGRES_STARTUP_HYDRATION_TIMEOUT_MS: value }), 30000);
+    }
+
+    const loadWithRows = (overrides) => loadPlatformStoreFromSupabase({
+      selectAllRows: async (table) => cloneRows(
+        Object.prototype.hasOwnProperty.call(overrides, table) ? overrides[table] : tableRows[table],
+      ),
+    });
+    await loadWithRows({
+      product_variants: [...tableRows.product_variants, cloneRows([tableRows.product_variants[0]])[0]],
+      product_gallery_images: [
+        ...tableRows.product_gallery_images,
+        cloneRows([tableRows.product_gallery_images[0]])[0],
+      ],
+      order_items: [...tableRows.order_items, cloneRows([tableRows.order_items[0]])[0]],
+      carts: [...tableRows.carts, cloneRows([tableRows.carts[0]])[0]],
+    });
+
+    for (const [table, changedField, changedValue] of [
+      ["product_variants", "data", { marker: "conflict" }],
+      ["product_gallery_images", "image_url", "/conflict.png"],
+      ["order_items", "data", { marker: "conflict" }],
+      ["carts", "items", [{ marker: "conflict" }]],
+    ]) {
+      const conflicting = { ...cloneRows([tableRows[table][0]])[0], [changedField]: changedValue };
+      await assert.rejects(
+        loadWithRows({ [table]: [...tableRows[table], conflicting] }),
+        new RegExp(`conflicting duplicate ${table}`),
+      );
+    }
+    await assert.rejects(
+      loadWithRows({
+        carts: [
+          ...tableRows.carts,
+          { ...tableRows.carts[0], id: "different-cart-id", items: [{ marker: "conflict" }] },
+        ],
+      }),
+      /conflicting duplicate carts row eb-chemical:same-cart-user/,
+    );
+    await assert.rejects(
+      loadWithRows({
+        product_variants: [
+          ...tableRows.product_variants,
+          { id: "orphan-variant", company_id: "icare", product_id: "eb-only-product" },
+        ],
+      }),
+      /missing cross-tenant-safe product parent/,
+    );
+    await assert.rejects(
+      loadWithRows({
+        order_items: [
+          ...tableRows.order_items,
+          { id: "orphan-item", company_id: "icare", order_id: "eb-only-order" },
+        ],
+      }),
+      /missing cross-tenant-safe order parent/,
+    );
+
+    await assert.rejects(
+      loadPlatformStoreFromSupabase({
+        selectAllRows: async (table, query) => table === "company_categories"
+          ? [{ id: "unknown-category", company_id: "unknown-company", slug: "unknown" }]
+          : selectAllRows(table, query),
+      }),
+      /unknown or unsafe company/,
+    );
+
+    process.env.DATABASE_URL = "postgresql://isolated.invalid/catalog-startup-failure";
+    setPlatformLoadDependenciesForTest({
+      selectAllRows: async (table) => {
+        if (table === "products") throw new Error("simulated platform hydration failure");
+        return cloneRows(tableRows[table]);
+      },
+    });
+    try {
+      const failedStore = await import(`../src/data/store.js?startup-failure=${Date.now()}`);
+      await assert.rejects(
+        failedStore.persistCompanyStore("icare"),
+        /persistence is configured but unavailable/i,
+      );
+    } finally {
+      setPlatformLoadDependenciesForTest(null);
+      process.env.DATABASE_URL = previousDatabaseUrl;
     }
   });
 

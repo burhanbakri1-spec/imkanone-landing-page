@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   companyMembershipRepository,
+  deleteTenantUserMembership,
   persistCompanyStore,
   platformUserRepository,
   userRepository,
@@ -26,7 +27,10 @@ function normalizePhone(phone) {
 const router = Router();
 
 function asyncHandler(handler) {
-  return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
+  return (req, res, next) => Promise.resolve(handler(req, res, next)).catch((error) => {
+    if (error?.statusCode) return res.status(error.statusCode).json({ message: error.message });
+    return next(error);
+  });
 }
 
 function publicCompany(company) {
@@ -158,9 +162,7 @@ router.post("/register", asyncHandler(async (req, res) => {
   const { name, email, phone: rawPhone, password } = req.body;
   const normalizedEmail = String(email || "").trim().toLowerCase();
   const phone = normalizePhone(rawPhone);
-  if (userRepository.getByCompany(req.companyId).some(
-    (user) => String(user.email || "").trim().toLowerCase() === normalizedEmail,
-  )) {
+  if (await platformUserRepository.findByEmail(normalizedEmail)) {
     return res.status(409).json({ message: "Email already exists." });
   }
 
@@ -177,7 +179,7 @@ router.post("/register", asyncHandler(async (req, res) => {
       existingPoints = Math.max(0, Number(phoneUser.ebPoints || 0));
       existingEarned = Math.max(0, Number(phoneUser.totalPointsEarned || 0));
       existingRedeemed = Math.max(0, Number(phoneUser.totalPointsRedeemed || 0));
-      userRepository.deleteForCompany(req.companyId, phoneUser.id);
+      await deleteTenantUserMembership(req.companyId, phoneUser.id);
     }
   }
 
@@ -195,13 +197,15 @@ router.post("/register", asyncHandler(async (req, res) => {
     totalPointsRedeemed: existingRedeemed,
     isActive: true,
   };
-  userRepository.createForCompany(req.companyId, user);
+  const createdUser = userRepository.createForCompany(req.companyId, user);
   await persistCompanyStore(req.companyId);
   const membership = await companyMembershipRepository.getMembershipByCompanyAndUser(
     req.companyId,
-    user.id,
+    createdUser.id,
   );
-  return res.status(201).json(await createSessionResponse(user, membership, membership ? [membership] : []));
+  return res.status(201).json(await createSessionResponse(
+    createdUser, membership, membership ? [membership] : [],
+  ));
 }));
 
 router.get("/me", requireAuth, asyncHandler(async (req, res) => {

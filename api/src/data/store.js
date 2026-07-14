@@ -14,6 +14,7 @@ import {
   countCategoryProductReferencesFromSupabase,
   createBrandForCompanyInSupabase,
   createCategoryWithTenantLockInSupabase,
+  deleteCompanyMembershipFromSupabase,
   deleteBrandWithTenantLockInSupabase,
   deleteCategoryWithTenantLockInSupabase,
   deleteProductWithTenantCatalogLockInSupabase,
@@ -27,7 +28,7 @@ import {
   listPlatformUsersFromSupabase,
   listCompanyMembershipsFromSupabase,
   listUserMembershipsFromSupabase,
-  loadStoreFromSupabase,
+  loadPlatformStoreFromSupabase,
   saveCompanyToSupabase,
   saveCompanyMembershipToSupabase,
   savePlatformUserToSupabase,
@@ -226,6 +227,15 @@ function normalizeVariants(product) {
     image_url: product.image || "",
     sort_order: index,
   }));
+}
+
+function normalizeGlobalUsers(source, fallback) {
+  const byId = new Map();
+  ensureArray(source, fallback).forEach((record, index) => {
+    const user = normalizeUser(withoutCompanyFields(record), index);
+    if (!byId.has(user.id)) byId.set(user.id, user);
+  });
+  return [...byId.values()];
 }
 
 function sizesFromVariants(variants, fallbackSizes = []) {
@@ -500,17 +510,13 @@ function serializeCompany(company) {
   return clone(record);
 }
 
-async function readInitialStore(companyId = DEFAULT_COMPANY_ID) {
+async function readInitialStore() {
   if (!isSupabaseConfigured()) {
     return { persisted: readPersistedStore(), canPersistToSupabase: false };
   }
 
   try {
-    const storePromise = loadStoreFromSupabase(companyId);
-    const timeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Supabase load timed out after 5s")), 5000),
-    );
-    const result = await Promise.race([storePromise, timeout]);
+    const result = await loadPlatformStoreFromSupabase();
     const localFallback = readPersistedStore();
     return {
       persisted: result.isEmpty
@@ -535,7 +541,7 @@ const persisted = initialStore.persisted;
 let canPersistToSupabase = initialStore.canPersistToSupabase;
 
 export const companies = initializeCompanies(persisted?.companies);
-export const users = normalizeTenantRecords(persisted?.users, seedUsers, normalizeUser);
+export const users = normalizeGlobalUsers(persisted?.users, seedUsers);
 const membershipSource = Array.isArray(persisted?.memberships)
   ? persisted.memberships
   : users.map((user) => ({
@@ -710,6 +716,151 @@ class TenantRepository {
   }
 }
 
+class MembershipBackedUserRepository extends TenantRepository {
+  activeMembershipsForCompany(companyId) {
+    const normalized = normalizeCompanyId(companyId);
+    return companyMemberships.filter(
+      (membership) => membership.companyId === normalized && membership.status === "active",
+    );
+  }
+
+  getByCompany(companyId) {
+    const usersById = new Map(this.collection.map((user) => [user.id, user]));
+    return this.activeMembershipsForCompany(companyId)
+      .map((membership) => {
+        const user = usersById.get(membership.userId);
+        if (!user || user.isActive === false || user.role === "super_admin") return null;
+        return this.projectTenantUser(user, membership);
+      })
+      .filter(Boolean);
+  }
+
+  projectTenantUser(user, membership) {
+    return {
+      ...clone(user),
+      globalRole: user.role,
+      globalPermissions: clone(user.permissions || []),
+      role: membership.role,
+      permissions: clone(membership._permissions || []),
+      companyId: membership.companyId,
+      membershipId: membership.id,
+      membershipRole: membership.role,
+      isActive: user.isActive !== false && membership.status === "active",
+    };
+  }
+
+  createForCompany(companyId, record, options = {}) {
+    const normalized = normalizeCompanyId(companyId);
+    const requestedId = String(options.requestedId || record?.id || "").trim();
+    const normalizedEmail = String(record?.email || "").trim().toLowerCase();
+    if (requestedId && this.collection.some((entry) => entry.id === requestedId)) {
+      throw membershipRepositoryError(
+        "This global user identity already exists; use the platform membership workflow.",
+        409,
+      );
+    }
+    if (normalizedEmail && this.collection.some(
+      (entry) => String(entry.email || "").trim().toLowerCase() === normalizedEmail,
+    )) {
+      throw membershipRepositoryError(
+        "This email already belongs to a global user; use the platform membership workflow.",
+        409,
+      );
+    }
+    const user = normalizeUser(withoutCompanyFields({
+      ...record,
+      id: String(record?.id || "").trim() || `user-${crypto.randomUUID()}`,
+      email: normalizedEmail,
+    }));
+    this.collection.push(user);
+    const membershipId = `${normalized}:${user.id}`;
+    const membership = normalizeMembership({
+      id: membershipId,
+      companyId: normalized,
+      userId: user.id,
+      role: membershipRoleForUser(user),
+      _permissions: clone(record.permissions || []),
+      status: "active",
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    });
+    companyMemberships.push(membership);
+    return this.projectTenantUser(user, membership);
+  }
+
+  updateForCompany(companyId, id, update) {
+    const current = this.findByCompany(companyId, id);
+    if (!current) return null;
+    const normalized = normalizeCompanyId(companyId);
+    const index = this.collection.findIndex((user) => user.id === id);
+    const membershipIndex = companyMemberships.findIndex(
+      (membership) => membership.companyId === normalized && membership.userId === id,
+    );
+    if (membershipIndex < 0) return null;
+    const next = typeof update === "function" ? update(current) : { ...current, ...update };
+    const nextEmail = String(next.email || "").trim().toLowerCase();
+    if (nextEmail && this.collection.some(
+      (user) => user.id !== id && String(user.email || "").trim().toLowerCase() === nextEmail,
+    )) {
+      throw membershipRepositoryError("This email already belongs to another global user.", 409);
+    }
+    const {
+      role: _tenantRole,
+      permissions: _tenantPermissions,
+      globalRole: _globalRole,
+      globalPermissions: _globalPermissions,
+      membershipId: _membershipId,
+      membershipRole: _membershipRole,
+      isActive: _tenantActive,
+      ...identityFields
+    } = withoutCompanyFields(next);
+    const globalUser = normalizeUser({
+      ...this.collection[index],
+      ...identityFields,
+      email: nextEmail,
+      role: this.collection[index].role,
+      permissions: this.collection[index].permissions,
+      isActive: this.collection[index].isActive,
+    });
+    const membership = normalizeMembership({
+      ...companyMemberships[membershipIndex],
+      role: next.role || companyMemberships[membershipIndex].role,
+      _permissions: clone(next.permissions || []),
+      status: next.isActive === false ? "inactive" : "active",
+      updatedAt: new Date().toISOString(),
+    });
+    this.collection[index] = globalUser;
+    companyMemberships[membershipIndex] = membership;
+    return this.projectTenantUser(globalUser, membership);
+  }
+
+  deleteForCompany(companyId, id) {
+    const normalized = normalizeCompanyId(companyId);
+    const current = this.findByCompany(normalized, id);
+    if (!current) return null;
+    for (let index = companyMemberships.length - 1; index >= 0; index -= 1) {
+      const membership = companyMemberships[index];
+      if (membership.companyId === normalized && membership.userId === id) {
+        companyMemberships.splice(index, 1);
+      }
+    }
+    return current;
+  }
+
+  deleteGlobal(id) {
+    const index = this.collection.findIndex((user) => user.id === id);
+    return index >= 0 ? this.collection.splice(index, 1)[0] : null;
+  }
+
+  createGlobal(record) {
+    const existing = this.collection.find((user) => user.id === record.id);
+    if (existing) return existing;
+    const user = normalizeUser(withoutCompanyFields(record));
+    this.collection.push(user);
+    return user;
+  }
+}
+
 class CategoryRepository extends TenantRepository {
   countChildReferences(companyId, categoryId) {
     return this.getByCompany(companyId).filter((category) => category.parentId === categoryId).length;
@@ -749,10 +900,13 @@ function cartKey(companyId, userId) {
   return `${normalizeCompanyId(companyId)}:${userId}`;
 }
 
-const initialCarts =
-  persisted?.companyCarts?.[DEFAULT_COMPANY_ID] || persisted?.carts || {};
-Object.entries(initialCarts).forEach(([userId, items]) => {
-  carts.set(cartKey(DEFAULT_COMPANY_ID, userId), items);
+const initialCompanyCarts = persisted?.companyCarts || {
+  [DEFAULT_COMPANY_ID]: persisted?.carts || {},
+};
+Object.entries(initialCompanyCarts).forEach(([companyId, companyCart]) => {
+  Object.entries(companyCart || {}).forEach(([userId, items]) => {
+    carts.set(cartKey(companyId, userId), items);
+  });
 });
 
 export const cartRepository = {
@@ -778,7 +932,47 @@ export const cartRepository = {
   },
 };
 
-export const userRepository = new TenantRepository(users);
+export const userRepository = new MembershipBackedUserRepository(users);
+
+export async function deleteTenantUserMembership(companyId, userId, dependencies = {}) {
+  const normalized = normalizeCompanyId(companyId);
+  const membershipIndex = companyMemberships.findIndex(
+    (membership) => membership.companyId === normalized && membership.userId === userId,
+  );
+  if (membershipIndex < 0) return null;
+  const membership = companyMemberships[membershipIndex];
+  const user = users.find((entry) => entry.id === userId) || null;
+  if (!user || user.role === "super_admin" || membership.role === "super_admin") {
+    throw membershipRepositoryError("Tenant membership cannot be deleted.", 403);
+  }
+  const projection = userRepository.projectTenantUser(user, membership);
+
+  if (isSupabaseConfigured()) {
+    if (!canPersistToSupabase) {
+      throw membershipRepositoryError(
+        "Supabase persistence is configured but unavailable. Refusing membership deletion.",
+        503,
+      );
+    }
+    const deleteRemote = dependencies.deleteRemote || deleteCompanyMembershipFromSupabase;
+    const deletedRows = await deleteRemote(normalized, userId, membership.id);
+    if (!Array.isArray(deletedRows) || deletedRows.length !== 1) {
+      throw membershipRepositoryError("Tenant membership was not deleted.", 409);
+    }
+    companyMemberships.splice(membershipIndex, 1);
+    return projection;
+  }
+
+  companyMemberships.splice(membershipIndex, 1);
+  try {
+    persistLocalMembershipDirectory();
+    return projection;
+  } catch (error) {
+    companyMemberships.splice(membershipIndex, 0, membership);
+    throw error;
+  }
+}
+
 export const orderRepository = new TenantRepository(orders);
 export const workSessionRepository = new TenantRepository(workSessions);
 export const productRepository = new TenantRepository(productCatalog);
@@ -1155,8 +1349,7 @@ export async function provisionSuperAdmin({
   }
 
   let candidates = new Map(
-    userRepository
-      .getByCompany(DEFAULT_COMPANY_ID)
+    users
       .filter((user) => String(user.email || "").trim().toLowerCase() === normalizedEmail)
       .map((user) => [user.id, user]),
   );
@@ -1200,16 +1393,17 @@ export async function provisionSuperAdmin({
     updatedAt: now,
   });
 
-  const repositoryCurrent = userRepository.findByCompany(DEFAULT_COMPANY_ID, id);
+  const repositoryIndex = users.findIndex((user) => user.id === id);
+  const repositoryCurrent = repositoryIndex >= 0 ? users[repositoryIndex] : null;
   const previous = repositoryCurrent ? clone(repositoryCurrent) : null;
-  if (repositoryCurrent) userRepository.updateForCompany(DEFAULT_COMPANY_ID, id, next);
-  else userRepository.createForCompany(DEFAULT_COMPANY_ID, next);
+  if (repositoryIndex >= 0) users[repositoryIndex] = next;
+  else userRepository.createGlobal(next);
 
   try {
     await persistSuperAdminUser(next, existing);
   } catch (error) {
-    if (previous) userRepository.updateForCompany(DEFAULT_COMPANY_ID, id, previous);
-    else userRepository.deleteForCompany(DEFAULT_COMPANY_ID, id);
+    if (previous) users[repositoryIndex] = previous;
+    else userRepository.deleteGlobal(id);
     throw error;
   }
 
@@ -1499,7 +1693,7 @@ function globalUsersByEmail(email) {
 
 function createInactiveUserShell(email, name, companyId) {
   const id = `user-${crypto.randomUUID()}`;
-  return tagRecord(normalizeUser({
+  return normalizeUser({
     id,
     name: String(name || "").trim() || email.split("@")[0],
     email,
@@ -1510,7 +1704,7 @@ function createInactiveUserShell(email, name, companyId) {
     isActive: false,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-  }), companyId);
+  });
 }
 
 async function persistMembershipRecord(membership, user, createUser, previousMembership = null) {
@@ -1520,7 +1714,7 @@ async function persistMembershipRecord(membership, user, createUser, previousMem
   }
 
   const currentIndex = companyMemberships.findIndex((entry) => entry.id === membership.id);
-  const addedUser = createUser ? userRepository.createForCompany(membership.companyId, user) : null;
+  const addedUser = createUser ? userRepository.createGlobal(user) : null;
   if (currentIndex === -1) companyMemberships.push(membership);
   else companyMemberships[currentIndex] = membership;
 
@@ -1532,7 +1726,7 @@ async function persistMembershipRecord(membership, user, createUser, previousMem
     } else {
       companyMemberships[currentIndex] = previousMembership;
     }
-    if (addedUser) userRepository.deleteForCompany(membership.companyId, addedUser.id);
+    if (addedUser) userRepository.deleteGlobal(addedUser.id);
     throw error;
   }
 }
@@ -1647,6 +1841,9 @@ export const companyMembershipRepository = {
       companyId: company.id,
       role,
       status,
+      _permissions: changes?.permissions !== undefined
+        ? clone(Array.isArray(changes.permissions) ? changes.permissions : [])
+        : current._permissions,
       updatedAt: new Date().toISOString(),
     });
     assertLastEbAdmin(company.id, current, membership, memberships);
@@ -1769,7 +1966,6 @@ export const platformUserRepository = {
       createdAt: now,
       updatedAt: now,
     });
-    tagRecord(user, DEFAULT_COMPANY_ID);
     users.push(user);
     try {
       if (isSupabaseConfigured()) {
@@ -1828,14 +2024,13 @@ export const platformUserRepository = {
     }
 
     const index = users.findIndex((user) => user.id === id);
-    const previousCompanyId = getRecordCompanyId(users[index]);
     const previous = clone(users[index]);
-    users[index] = tagRecord(next, previousCompanyId);
+    users[index] = next;
     try {
       persistLocalMembershipDirectory();
       return clone(users[index]);
     } catch (error) {
-      users[index] = tagRecord(previous, previousCompanyId);
+      users[index] = previous;
       throw error;
     }
   },
@@ -1888,20 +2083,13 @@ function serializeTenantRecords(records, companyId) {
   return records.map((record) => ({ ...record, company_id: normalizeCompanyId(companyId) }));
 }
 
-function serializeAllTenantRecords(records) {
-  return records.map((record) => ({
-    ...record,
-    company_id: getRecordCompanyId(record),
-  }));
-}
-
 function persistLocalMembershipDirectory() {
   const existing = readPersistedStore() || {};
   return persistLocalStore({
     ...existing,
     version: Math.max(2, Number(existing.version || 1)),
     savedAt: new Date().toISOString(),
-    users: serializeAllTenantRecords(users),
+    users: users.map((user) => clone(withoutCompanyFields(user))),
     memberships: companyMemberships.map((membership) => ({
       ...membership,
       company_id: membership.companyId,
@@ -1928,7 +2116,6 @@ function persistLocalCompanyStore(companyId, store) {
   };
 
   for (const key of [
-    "users",
     "orders",
     "products",
     "categories",
@@ -1949,6 +2136,7 @@ function persistLocalCompanyStore(companyId, store) {
   ]) {
     merged[key] = mergeLocalTenantRecords(existing[key], store[key], normalized);
   }
+  merged.users = users.map((user) => clone(withoutCompanyFields(user)));
 
   merged.companyCarts = {
     ...(existing.companyCarts || {}),
@@ -1996,11 +2184,7 @@ async function persistSuperAdminUser(user, previousUser = null) {
     ...existing,
     version: Math.max(2, Number(existing.version || 1)),
     savedAt: new Date().toISOString(),
-    users: mergeLocalTenantRecords(
-      existing.users,
-      userRepository.getByCompany(DEFAULT_COMPANY_ID),
-      DEFAULT_COMPANY_ID,
-    ),
+    users: users.map((entry) => clone(withoutCompanyFields(entry))),
   });
 }
 

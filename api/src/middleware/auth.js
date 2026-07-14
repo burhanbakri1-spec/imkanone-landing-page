@@ -204,6 +204,6 @@ export function requireSuperAdmin(req, res, next) {
 
 export function publicUser(user) {
   if (!user) return null;
-  const { password, ...safeUser } = user;
+  const { password, globalPermissions, ...safeUser } = user;
   return safeUser;
 }

@@ -1,6 +1,7 @@
 import {
   DEFAULT_COMPANY_ID,
   companyStoragePath,
+  isSafeCompanySlug,
   normalizeCompanyId,
   selectPreferredCompanyDomains,
 } from "../tenancy/company.js";
@@ -168,10 +169,22 @@ function whereFromParams(params) {
 }
 
 async function selectAll(table, restQuery = "select=*") {
+  return selectAllWithQuery(query, table, restQuery);
+}
+
+async function selectAllWithQuery(queryRunner, table, restQuery = "select=*") {
   const params = new URLSearchParams(restQuery);
   const where = whereFromParams(params);
-  const result = await query(`select * from ${tableName(table)}${where.clause}`, where.values);
+  const result = await queryRunner(
+    `select * from ${tableName(table)}${where.clause}`,
+    where.values,
+  );
   return result.rows;
+}
+
+export function startupHydrationTimeoutMs(environment = process.env) {
+  const parsed = Number(environment.POSTGRES_STARTUP_HYDRATION_TIMEOUT_MS);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 30000;
 }
 
 async function upsertRowsSql(table, rows, conflictColumn = "id", ignoreDuplicates = false) {
@@ -464,21 +477,32 @@ function galleryRows(product, companyId) {
 }
 
 function userRow(user) {
+  const globalRole = user.globalRole || user.role || "customer";
+  const globalPermissions = user.globalPermissions || user.permissions || [];
+  const {
+    companyId: _companyId,
+    company_id: _companyIdSnake,
+    globalRole: _globalRole,
+    globalPermissions: _globalPermissions,
+    membershipId: _membershipId,
+    membershipRole: _membershipRole,
+    ...globalUser
+  } = user;
   return {
     id: user.id,
     name: user.name || "",
     email: user.email || "",
     phone: user.phone || "",
     password: user.password || "",
-    role: user.role || "customer",
+    role: globalRole,
     department: user.department || "",
-    permissions: user.permissions || [],
+    permissions: globalPermissions,
     account_type: user.accountType || "retail",
     eb_points: Number(user.ebPoints || 0),
     total_points_earned: Number(user.totalPointsEarned || 0),
     total_points_redeemed: Number(user.totalPointsRedeemed || 0),
     is_active: user.isActive !== false,
-    data: user,
+    data: { ...globalUser, role: globalRole, permissions: globalPermissions },
     created_at: rowDate(user.createdAt),
     updated_at: rowDate(user.updatedAt),
   };
@@ -1004,8 +1028,98 @@ function mergeCompanyInvoice(row) {
   };
 }
 
-export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
+const LOADED_TENANT_COLLECTIONS = [
+  "memberships",
+  "products",
+  "orders",
+  "offers",
+  "categoryCards",
+  "categories",
+  "brands",
+  "reviews",
+  "workSessions",
+  "websiteMedia",
+  "websiteMediaHiddenKeys",
+  "websiteTexts",
+  "customAdminModules",
+  "customAdminModuleEntries",
+  "companyProductSchemas",
+  "invoices",
+  "deliveryZones",
+  "activityLogs",
+];
+
+function tagLoadedRecord(record, companyId) {
+  if (!record || typeof record !== "object") return record;
+  const {
+    company_id: _companyId,
+    companyId: _camelCompanyId,
+    ...data
+  } = record;
+  return {
+    ...data,
+    company_id: normalizeCompanyId(companyId || _companyId || _camelCompanyId),
+  };
+}
+
+export async function deleteCompanyMembershipWithClient(client, companyId, userId, membershipId = null) {
   const normalizedCompanyId = normalizeCompanyId(companyId);
+  const normalizedUserId = String(userId || "").trim();
+  if (!normalizedUserId) throw new Error("A user ID is required to delete a company membership.");
+  const normalizedMembershipId = String(membershipId || "").trim();
+  const result = await client.query(
+    `delete from public.company_memberships
+     where company_id = $1 and user_id = $2${normalizedMembershipId ? " and id = $3" : ""}
+     returning id`,
+    normalizedMembershipId
+      ? [normalizedCompanyId, normalizedUserId, normalizedMembershipId]
+      : [normalizedCompanyId, normalizedUserId],
+  );
+  return result.rows || [];
+}
+
+export async function deleteCompanyMembershipFromSupabase(companyId, userId, membershipId = null) {
+  if (!isSupabaseConfigured()) {
+    throw new Error("PostgreSQL DATABASE_URL is not configured.");
+  }
+  return deleteCompanyMembershipWithClient(getPool(), companyId, userId, membershipId);
+}
+
+function tagLoadedTenantStore(store, companyId) {
+  const normalizedCompanyId = normalizeCompanyId(companyId);
+  const tagged = { ...store };
+
+  for (const key of LOADED_TENANT_COLLECTIONS) {
+    tagged[key] = (store[key] || []).map((record) => tagLoadedRecord(record, normalizedCompanyId));
+  }
+
+  tagged.products = tagged.products.map((product) => ({
+    ...product,
+    variants: (product.variants || []).map((variant) => tagLoadedRecord(variant, normalizedCompanyId)),
+    gallery_images: (product.gallery_images || []).map((entry) => tagLoadedRecord(entry, normalizedCompanyId)),
+    galleryImages: product.galleryImages || [],
+  }));
+  tagged.orders = tagged.orders.map((order) => ({
+    ...order,
+    items: (order.items || []).map((item) => tagLoadedRecord(item, normalizedCompanyId)),
+  }));
+  tagged.companyCarts = { [normalizedCompanyId]: store.carts || {} };
+  return tagged;
+}
+
+function uniqueRecords(records, identity) {
+  const byIdentity = new Map();
+  records.forEach((record, index) => {
+    const key = identity(record, index);
+    if (!byIdentity.has(key)) byIdentity.set(key, record);
+  });
+  return [...byIdentity.values()];
+}
+
+export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID, dependencies = {}) {
+  const normalizedCompanyId = normalizeCompanyId(companyId);
+  const selectAllRows = dependencies.selectAllRows || selectAll;
+  const selectTenantRows = dependencies.selectTenantRows || selectCompanyRows;
   const [
     allUsers,
     memberships,
@@ -1034,35 +1148,35 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
     companyDomains,
     companySettings,
   ] = await Promise.all([
-    selectAll("users", "select=*"),
-    selectAll(
+    selectAllRows("users", "select=*"),
+    selectAllRows(
       "company_memberships",
       `select=*&company_id=eq.${encodeURIComponent(normalizedCompanyId)}`,
     ),
-    selectCompanyRows("products", normalizedCompanyId),
-    selectCompanyRows("product_variants", normalizedCompanyId),
-    selectCompanyRows("product_gallery_images", normalizedCompanyId),
-    selectCompanyRows("orders", normalizedCompanyId),
-    selectCompanyRows("order_items", normalizedCompanyId),
-    selectCompanyRows("carts", normalizedCompanyId),
-    selectCompanyRows("homepage_offers", normalizedCompanyId),
-    selectCompanyRows("homepage_category_cards", normalizedCompanyId),
-    selectCompanyRows("company_categories", normalizedCompanyId),
-    selectCompanyRows("company_brands", normalizedCompanyId),
-    selectCompanyRows("reviews", normalizedCompanyId),
-    selectCompanyRows("work_sessions", normalizedCompanyId),
-    selectCompanyRows("website_media", normalizedCompanyId),
-    selectCompanyRows("company_website_media_hidden_keys", normalizedCompanyId),
-    selectCompanyRows("company_website_texts", normalizedCompanyId),
-    selectCompanyRows("custom_admin_modules", normalizedCompanyId),
-    selectCompanyRows("custom_admin_module_entries", normalizedCompanyId),
-    selectCompanyRows("company_product_schemas", normalizedCompanyId),
-    selectCompanyRows("company_invoices", normalizedCompanyId),
-    selectCompanyRows("company_delivery_zones", normalizedCompanyId),
-    selectCompanyRows("company_activity_logs", normalizedCompanyId),
-    selectAll("companies", "select=*"),
-    selectAll("company_domains", "select=*"),
-    selectAll("company_settings", "select=*"),
+    selectTenantRows("products", normalizedCompanyId),
+    selectTenantRows("product_variants", normalizedCompanyId),
+    selectTenantRows("product_gallery_images", normalizedCompanyId),
+    selectTenantRows("orders", normalizedCompanyId),
+    selectTenantRows("order_items", normalizedCompanyId),
+    selectTenantRows("carts", normalizedCompanyId),
+    selectTenantRows("homepage_offers", normalizedCompanyId),
+    selectTenantRows("homepage_category_cards", normalizedCompanyId),
+    selectTenantRows("company_categories", normalizedCompanyId),
+    selectTenantRows("company_brands", normalizedCompanyId),
+    selectTenantRows("reviews", normalizedCompanyId),
+    selectTenantRows("work_sessions", normalizedCompanyId),
+    selectTenantRows("website_media", normalizedCompanyId),
+    selectTenantRows("company_website_media_hidden_keys", normalizedCompanyId),
+    selectTenantRows("company_website_texts", normalizedCompanyId),
+    selectTenantRows("custom_admin_modules", normalizedCompanyId),
+    selectTenantRows("custom_admin_module_entries", normalizedCompanyId),
+    selectTenantRows("company_product_schemas", normalizedCompanyId),
+    selectTenantRows("company_invoices", normalizedCompanyId),
+    selectTenantRows("company_delivery_zones", normalizedCompanyId),
+    selectTenantRows("company_activity_logs", normalizedCompanyId),
+    selectAllRows("companies", "select=*"),
+    selectAllRows("company_domains", "select=*"),
+    selectAllRows("company_settings", "select=*"),
   ]);
 
   const memberUserIds = new Set(memberships.map((membership) => membership.user_id));
@@ -1097,44 +1211,318 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID) {
     activityLogRows,
   ].some((rows) => rows.length);
 
+  const store = tagLoadedTenantStore(rewriteStorageUrls({
+    version: 1,
+    savedAt: new Date().toISOString(),
+    users: users.map(mergeUser),
+    memberships: memberships.map((membership) => ({
+      id: membership.id,
+      companyId: membership.company_id,
+      userId: membership.user_id,
+      role: membership.role,
+      status: membership.is_active === false ? "inactive" : "active",
+      _permissions: Array.isArray(membership.permissions) ? membership.permissions : [],
+      createdAt: membership.created_at,
+      updatedAt: membership.updated_at,
+    })),
+    products: products.map((product) => mergeProduct(product, variants, galleryImages)),
+    orders: orders.map((order) => mergeOrder(order, orderItems)),
+    carts: Object.fromEntries(carts.map((cart) => [cart.user_id, cart.items || []])),
+    offers: offers.map((offer) => offer.data || offer),
+    categoryCards: categoryCards.map((card) => card.data || card),
+    categories: categories.map(mergeCategory),
+    brands: brands.map(mergeBrand),
+    reviews: reviews.map((review) => review.data || review),
+    websiteMedia: websiteMedia.map(mergeWebsiteMedia),
+    websiteMediaHiddenKeys: websiteMediaHiddenKeys.map(mergeWebsiteMediaHiddenKey),
+    websiteTexts: websiteTexts.map(mergeWebsiteText),
+    workSessions: workSessions.map((session) => session.data || session),
+    customAdminModules: customAdminModules.map(mergeCustomAdminModule),
+    customAdminModuleEntries: customAdminModuleEntries.map(mergeCustomAdminModuleEntry),
+    companyProductSchemas: companyProductSchemas.map(mergeCompanyProductSchema),
+    invoices: companyInvoices.map(mergeCompanyInvoice),
+    deliveryZones: deliveryZoneRows.map(mergeDeliveryZone),
+    activityLogs: activityLogRows.map(mergeActivityLog),
+    companies: companies.map((company) =>
+      mergeCompany(company, companyDomains, companySettings),
+    ),
+  }), normalizedCompanyId);
+
   return {
     isEmpty: !hasRows,
-    store: rewriteStorageUrls({
-      version: 1,
-      savedAt: new Date().toISOString(),
-      users: users.map(mergeUser),
-      memberships: memberships.map((membership) => ({
-        id: membership.id,
-        companyId: membership.company_id,
-        userId: membership.user_id,
-        role: membership.role,
-        status: membership.is_active === false ? "inactive" : "active",
-        createdAt: membership.created_at,
-        updatedAt: membership.updated_at,
-      })),
-      products: products.map((product) => mergeProduct(product, variants, galleryImages)),
-      orders: orders.map((order) => mergeOrder(order, orderItems)),
-      carts: Object.fromEntries(carts.map((cart) => [cart.user_id, cart.items || []])),
-      offers: offers.map((offer) => offer.data || offer),
-      categoryCards: categoryCards.map((card) => card.data || card),
-      categories: categories.map(mergeCategory),
-      brands: brands.map(mergeBrand),
-      reviews: reviews.map((review) => review.data || review),
-      websiteMedia: websiteMedia.map(mergeWebsiteMedia),
-      websiteMediaHiddenKeys: websiteMediaHiddenKeys.map(mergeWebsiteMediaHiddenKey),
-      websiteTexts: websiteTexts.map(mergeWebsiteText),
-      workSessions: workSessions.map((session) => session.data || session),
-      customAdminModules: customAdminModules.map(mergeCustomAdminModule),
-      customAdminModuleEntries: customAdminModuleEntries.map(mergeCustomAdminModuleEntry),
-      companyProductSchemas: companyProductSchemas.map(mergeCompanyProductSchema),
-      invoices: companyInvoices.map(mergeCompanyInvoice),
-      deliveryZones: deliveryZoneRows.map(mergeDeliveryZone),
-      activityLogs: activityLogRows.map(mergeActivityLog),
-      companies: companies.map((company) =>
-        mergeCompany(company, companyDomains, companySettings),
-      ),
-    }),
+    store,
   };
+}
+
+const PLATFORM_TENANT_TABLES = [
+  "company_memberships",
+  "products",
+  "product_variants",
+  "product_gallery_images",
+  "orders",
+  "order_items",
+  "carts",
+  "homepage_offers",
+  "homepage_category_cards",
+  "company_categories",
+  "company_brands",
+  "reviews",
+  "work_sessions",
+  "website_media",
+  "company_website_media_hidden_keys",
+  "company_website_texts",
+  "custom_admin_modules",
+  "custom_admin_module_entries",
+  "company_product_schemas",
+  "company_invoices",
+  "company_delivery_zones",
+  "company_activity_logs",
+];
+
+let platformLoadDependenciesForTest = null;
+
+export function setPlatformLoadDependenciesForTest(dependencies = null) {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("Platform load dependency injection is test-only.");
+  }
+  platformLoadDependenciesForTest = dependencies;
+}
+
+function knownPlatformCompanies(companyRows) {
+  const known = new Set([DEFAULT_COMPANY_ID]);
+  for (const company of companyRows) {
+    if (!isSafeCompanySlug(company?.id)) {
+      throw new Error("Platform startup found an unsafe company identifier.");
+    }
+    known.add(company.id);
+  }
+  return known;
+}
+
+function validatePlatformCompanyRows(table, rows, knownCompanies) {
+  return rows.map((row) => {
+    const supplied = row?.company_id ?? row?.companyId;
+    const companyId = supplied == null || String(supplied).trim() === ""
+      ? DEFAULT_COMPANY_ID
+      : String(supplied).trim();
+    if (!isSafeCompanySlug(companyId) || !knownCompanies.has(companyId)) {
+      throw new Error(`Platform startup rejected ${table} row with an unknown or unsafe company.`);
+    }
+    return { ...row, company_id: companyId };
+  });
+}
+
+function tenantRecordIdentity(record, index) {
+  const companyId = record.company_id || record.companyId;
+  const recordId = record.id || record.key || record.sectionKey || record.userId;
+  return `${companyId}:${recordId || `row-${index}`}`;
+}
+
+function deduplicateEquivalentTenantRows(table, rows, identity = tenantRecordIdentity) {
+  const byIdentity = new Map();
+  rows.forEach((row, index) => {
+    const key = identity(row, index);
+    const existing = byIdentity.get(key);
+    if (!existing) {
+      byIdentity.set(key, row);
+      return;
+    }
+    if (JSON.stringify(existing) !== JSON.stringify(row)) {
+      throw new Error(`Platform startup rejected conflicting duplicate ${table} row ${key}.`);
+    }
+  });
+  return [...byIdentity.values()];
+}
+
+function assertTenantParents(table, rows, parentTable, parents, parentColumn) {
+  const parentKeys = new Set(parents.map((parent, index) => tenantRecordIdentity(parent, index)));
+  for (const row of rows) {
+    const parentId = String(row?.[parentColumn] || "").trim();
+    if (!parentId || !parentKeys.has(`${row.company_id}:${parentId}`)) {
+      throw new Error(`Platform startup rejected ${table} row with a missing cross-tenant-safe ${parentTable} parent.`);
+    }
+  }
+}
+
+function mergeGlobalUser(row) {
+  const {
+    company_id: _companyId,
+    companyId: _camelCompanyId,
+    ...user
+  } = mergeUser(row);
+  return user;
+}
+
+function tagPlatformProduct(row, variants, galleryImages) {
+  const companyVariants = variants.filter((variant) => variant.company_id === row.company_id);
+  const companyGallery = galleryImages.filter((entry) => entry.company_id === row.company_id);
+  const product = tagLoadedRecord(mergeProduct(row, companyVariants, companyGallery), row.company_id);
+  return {
+    ...product,
+    variants: product.variants.map((variant) => tagLoadedRecord(variant, row.company_id)),
+    gallery_images: product.gallery_images.map((entry) => tagLoadedRecord(entry, row.company_id)),
+  };
+}
+
+function tagPlatformOrder(row, orderItems) {
+  const companyItems = orderItems.filter((item) => item.company_id === row.company_id);
+  const order = tagLoadedRecord(mergeOrder(row, companyItems), row.company_id);
+  return {
+    ...order,
+    items: order.items.map((item) => tagLoadedRecord(item, row.company_id)),
+  };
+}
+
+export async function loadPlatformStoreFromSupabase(dependencies = null) {
+  const resolvedDependencies = dependencies || platformLoadDependenciesForTest || {};
+  const tableNames = [
+    "users",
+    "companies",
+    "company_domains",
+    "company_settings",
+    ...PLATFORM_TENANT_TABLES,
+  ];
+  let queryResults;
+  if (resolvedDependencies.selectAllRows) {
+    queryResults = [];
+    for (const table of tableNames) {
+      queryResults.push(await resolvedDependencies.selectAllRows(table, "select=*"));
+    }
+  } else {
+    const client = await getPool().connect();
+    let transactionStarted = false;
+    try {
+      await client.query("begin isolation level repeatable read read only");
+      transactionStarted = true;
+      const timeoutMs = startupHydrationTimeoutMs();
+      await client.query(`set local statement_timeout = '${timeoutMs}ms'`);
+      queryResults = [];
+      for (const table of tableNames) {
+        queryResults.push(await selectAllWithQuery(
+          client.query.bind(client), table, "select=*",
+        ));
+      }
+      await client.query("commit");
+      transactionStarted = false;
+    } catch (error) {
+      if (transactionStarted) {
+        try { await client.query("rollback"); } catch {}
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+  const rowsByTable = Object.fromEntries(
+    tableNames.map((table, index) => [table, queryResults[index]]),
+  );
+  const companyRows = rowsByTable.companies || [];
+  const knownCompanies = knownPlatformCompanies(companyRows);
+  const companyDomains = validatePlatformCompanyRows(
+    "company_domains", rowsByTable.company_domains || [], knownCompanies,
+  );
+  const companySettings = validatePlatformCompanyRows(
+    "company_settings", rowsByTable.company_settings || [], knownCompanies,
+  );
+  for (const table of PLATFORM_TENANT_TABLES) {
+    rowsByTable[table] = validatePlatformCompanyRows(
+      table, rowsByTable[table] || [], knownCompanies,
+    );
+  }
+
+  const productRows = deduplicateEquivalentTenantRows("products", rowsByTable.products);
+  const orderRows = deduplicateEquivalentTenantRows("orders", rowsByTable.orders);
+  const variants = deduplicateEquivalentTenantRows(
+    "product_variants", rowsByTable.product_variants,
+  );
+  const galleryImages = deduplicateEquivalentTenantRows(
+    "product_gallery_images", rowsByTable.product_gallery_images,
+  );
+  const orderItems = deduplicateEquivalentTenantRows("order_items", rowsByTable.order_items);
+  const carts = deduplicateEquivalentTenantRows("carts", rowsByTable.carts);
+  assertTenantParents("product_variants", variants, "product", productRows, "product_id");
+  assertTenantParents("product_gallery_images", galleryImages, "product", productRows, "product_id");
+  assertTenantParents("order_items", orderItems, "order", orderRows, "order_id");
+  const companyCarts = Object.fromEntries([...knownCompanies].map((companyId) => [companyId, {}]));
+  const cartsByTenantUser = new Map();
+  for (const cart of carts) {
+    const logicalKey = `${cart.company_id}:${cart.user_id}`;
+    const existing = cartsByTenantUser.get(logicalKey);
+    if (existing && JSON.stringify(existing) !== JSON.stringify(cart)) {
+      throw new Error(`Platform startup rejected conflicting duplicate carts row ${logicalKey}.`);
+    }
+    cartsByTenantUser.set(logicalKey, cart);
+  }
+  for (const cart of cartsByTenantUser.values()) {
+    companyCarts[cart.company_id][cart.user_id] = cart.items || [];
+  }
+
+  const tenantRows = (table, mergeRow) => uniqueRecords(
+    rowsByTable[table].map((row, index) =>
+      tagLoadedRecord(mergeRow ? mergeRow(row, index) : row, row.company_id)),
+    tenantRecordIdentity,
+  );
+  const users = uniqueRecords(
+    (rowsByTable.users || []).map(mergeGlobalUser),
+    (user) => user.id,
+  );
+  const memberships = uniqueRecords(
+    rowsByTable.company_memberships.map((membership) => ({
+      id: membership.id,
+      companyId: membership.company_id,
+      userId: membership.user_id,
+      role: membership.role,
+      status: membership.is_active === false ? "inactive" : "active",
+      _permissions: Array.isArray(membership.permissions) ? membership.permissions : [],
+      createdAt: membership.created_at,
+      updatedAt: membership.updated_at,
+    })),
+    (membership) => membership.id || `${membership.companyId}:${membership.userId}`,
+  );
+  const store = rewriteStorageUrls({
+    version: 1,
+    savedAt: new Date().toISOString(),
+    users,
+    memberships,
+    products: uniqueRecords(
+      productRows.map((row) => tagPlatformProduct(row, variants, galleryImages)),
+      tenantRecordIdentity,
+    ),
+    orders: uniqueRecords(
+      orderRows.map((row) => tagPlatformOrder(row, orderItems)),
+      tenantRecordIdentity,
+    ),
+    companyCarts,
+    carts: companyCarts[DEFAULT_COMPANY_ID] || {},
+    offers: tenantRows("homepage_offers", (row) => row.data || row),
+    categoryCards: tenantRows("homepage_category_cards", (row) => row.data || row),
+    categories: tenantRows("company_categories", mergeCategory),
+    brands: tenantRows("company_brands", mergeBrand),
+    reviews: tenantRows("reviews", (row) => row.data || row),
+    workSessions: tenantRows("work_sessions", (row) => row.data || row),
+    websiteMedia: tenantRows("website_media", mergeWebsiteMedia),
+    websiteMediaHiddenKeys: tenantRows(
+      "company_website_media_hidden_keys", mergeWebsiteMediaHiddenKey,
+    ),
+    websiteTexts: tenantRows("company_website_texts", mergeWebsiteText),
+    customAdminModules: tenantRows("custom_admin_modules", mergeCustomAdminModule),
+    customAdminModuleEntries: tenantRows(
+      "custom_admin_module_entries", mergeCustomAdminModuleEntry,
+    ),
+    companyProductSchemas: tenantRows("company_product_schemas", mergeCompanyProductSchema),
+    invoices: tenantRows("company_invoices", mergeCompanyInvoice),
+    deliveryZones: tenantRows("company_delivery_zones", mergeDeliveryZone),
+    activityLogs: tenantRows("company_activity_logs", mergeActivityLog),
+    companies: companyRows.map((company) =>
+      mergeCompany(company, companyDomains, companySettings)),
+  });
+  const hasRows = users.length > 0
+    || memberships.length > 0
+    || LOADED_TENANT_COLLECTIONS
+      .filter((key) => key !== "memberships")
+      .some((key) => Array.isArray(store[key]) && store[key].length > 0);
+
+  return { isEmpty: !hasRows, store };
 }
 
 export async function saveStoreToSupabase(store, options = {}) {
