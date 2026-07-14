@@ -10,6 +10,14 @@ import { isVariantVisible, withVariantVisibility } from "../products/variantVisi
 
 let pool;
 const tableColumnCache = new Map();
+let companyPersistenceDependenciesForTest = null;
+
+export function setCompanyPersistenceDependenciesForTest(dependencies = null) {
+  if (dependencies && process.env.NODE_ENV !== "test") {
+    throw new Error("Company persistence dependencies can only be overridden in tests.");
+  }
+  companyPersistenceDependenciesForTest = dependencies;
+}
 
 function databaseUrl() {
   return process.env.DATABASE_URL || process.env.POSTGRES_URL || "";
@@ -2315,11 +2323,19 @@ export async function listUserMembershipsFromSupabase(userId) {
 }
 
 export async function saveCompanyToSupabase(company) {
+  const persistenceDependencies = companyPersistenceDependenciesForTest || {};
+  const persistRows = persistenceDependencies.upsertRows || upsertRows;
+  const deleteCompanyDomain = persistenceDependencies.deleteCompanyDomain || (async (domainId) => {
+    await supabaseFetch(
+      `/rest/v1/company_domains?id=eq.${encodeURIComponent(domainId)}`,
+      { method: "DELETE", headers: { Prefer: "return=minimal" } },
+    );
+  });
   const companyId = normalizeCompanyId(company.id);
   const createdAt = rowDate(company.createdAt);
   const updatedAt = rowDate(company.updatedAt);
 
-  await upsertRows("companies", [{
+  await persistRows("companies", [{
     id: companyId,
     slug: company.slug,
     name: company.name,
@@ -2329,7 +2345,7 @@ export async function saveCompanyToSupabase(company) {
     updated_at: updatedAt,
   }]);
 
-  await upsertRows("company_settings", [{
+  await persistRows("company_settings", [{
     company_id: companyId,
     settings: company.settings || {},
     created_at: createdAt,
@@ -2338,16 +2354,13 @@ export async function saveCompanyToSupabase(company) {
 
   if (!company.domain) {
     if (company._domainId) {
-      await supabaseFetch(
-        `/rest/v1/company_domains?id=eq.${encodeURIComponent(company._domainId)}`,
-        { method: "DELETE", headers: { Prefer: "return=minimal" } },
-      );
+      await deleteCompanyDomain(company._domainId);
     }
     return { domainId: "" };
   }
 
   const domainId = company._domainId || `company-domain-${companyId}`;
-  await upsertRows("company_domains", [{
+  await persistRows("company_domains", [{
     id: domainId,
     company_id: companyId,
     domain: company.domain,

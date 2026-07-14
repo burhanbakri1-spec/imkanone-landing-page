@@ -127,6 +127,27 @@ export function normalizeCompanyHost(value) {
     .replace(/^www\./, "");
 }
 
+export function normalizeCompanyStorefrontUrl(value) {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value !== "string" || value.length > 2048) return "";
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== "https:" || url.username || url.password || !url.hostname) return "";
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
+export function normalizeCompanyStorefrontPath(value) {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value !== "string" || value.length > 2048) return "";
+  const path = value.trim();
+  if (!/^\/(?!\/)(?:[A-Za-z0-9._~-]+\/?)*$/.test(path)) return "";
+  if (path.split("/").some((segment) => segment === "." || segment === "..")) return "";
+  return path;
+}
+
 export function isProductSettingsModuleEnabled(company) {
   const configured = company?.settings?.adminModules?.product_settings;
   if (typeof configured === "boolean") return configured;
@@ -296,11 +317,19 @@ export function createPlatformCompanySummary(company = defaultCompany) {
     ...(Array.isArray(source.domains) ? source.domains : []),
     source.domain,
   ]);
+  const storefrontUrl = normalizeCompanyStorefrontUrl(
+    source.storefrontUrl ?? source.settings?.storefrontUrl,
+  );
+  const storefrontPath = normalizeCompanyStorefrontPath(
+    source.storefrontPath ?? source.settings?.storefrontPath,
+  );
   return {
     ...context,
     isDefault: source.id === DEFAULT_COMPANY_ID || source.isDefault === true,
     domain: preferredDomains[0]?.domain || normalizeCompanyHost(source.domain),
     domains: preferredDomains.map((entry) => entry.domain),
+    storefrontUrl,
+    storefrontPath,
     settings: publicSettingsFor(source),
     createdAt: source.createdAt || null,
     updatedAt: source.updatedAt || null,

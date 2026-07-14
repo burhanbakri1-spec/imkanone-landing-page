@@ -146,6 +146,7 @@ const {
   loadStoreFromSupabase,
   runCompanyBrandingSettingsTransaction,
   runTenantCatalogWriteTransaction,
+  setCompanyPersistenceDependenciesForTest,
   setPlatformLoadDependenciesForTest,
   startupHydrationTimeoutMs,
 } = await import("../src/data/postgresStore.js");
@@ -531,6 +532,180 @@ test("tenant catalog and company settings contracts", async (t) => {
     });
     assert.equal(reusedEmail.response.status, 409);
     assert.match(reusedEmail.body.message, /email already belongs/i);
+  });
+
+  await t.test("platform company endpoints validate and expose storefront metadata", async () => {
+    const before = await request("/platform/companies/icare", { token: superAdmin.token });
+    assert.equal(before.response.status, 200);
+
+    const updated = await request("/platform/companies/icare", {
+      token: superAdmin.token,
+      method: "PATCH",
+      body: {
+        domain: "",
+        storefrontUrl: "https://igroup.website/icare",
+        storefrontPath: "/icare",
+        settings: { ...before.body.settings, currency: "ILS", language: "ar" },
+      },
+    });
+    assert.equal(updated.response.status, 200);
+    assert.equal(updated.body.id, "icare");
+    assert.equal(updated.body.slug, "icare");
+    assert.equal(updated.body.domain, "");
+    assert.deepEqual(updated.body.domains, []);
+    assert.equal(updated.body.storefrontUrl, "https://igroup.website/icare");
+    assert.equal(updated.body.storefrontPath, "/icare");
+    assert.equal(updated.body.settings.currency, "ILS");
+    assert.equal(updated.body.settings.language, "ar");
+
+    const detail = await request("/platform/companies/icare", { token: superAdmin.token });
+    assert.equal(detail.response.status, 200);
+    assert.equal(detail.body.storefrontUrl, "https://igroup.website/icare");
+    assert.equal(detail.body.storefrontPath, "/icare");
+    const listed = await request("/platform/companies", { token: superAdmin.token });
+    assert.equal(listed.response.status, 200);
+    const listedIcare = listed.body.find((company) => company.id === "icare");
+    assert.equal(listedIcare.storefrontUrl, "https://igroup.website/icare");
+    assert.equal(listedIcare.storefrontPath, "/icare");
+
+    const created = await request("/platform/companies", {
+      token: superAdmin.token,
+      body: {
+        name: "Shared Path Company",
+        slug: "shared-path-company",
+        status: "draft",
+        domain: "",
+        storefrontUrl: "https://igroup.website/shared-path-company",
+        storefrontPath: "/shared-path-company",
+      },
+    });
+    assert.equal(created.response.status, 201);
+    assert.equal(created.body.domain, "");
+    assert.deepEqual(created.body.domains, []);
+    assert.equal(created.body.storefrontUrl, "https://igroup.website/shared-path-company");
+    assert.equal(created.body.storefrontPath, "/shared-path-company");
+
+    for (const body of [
+      { storefrontUrl: "http://igroup.website/icare" },
+      { storefrontUrl: "https://user:secret@igroup.website/icare" },
+      { storefrontPath: "icare" },
+      { storefrontPath: "/../icare" },
+    ]) {
+      const rejected = await request("/platform/companies/icare", {
+        token: superAdmin.token,
+        method: "PATCH",
+        body,
+      });
+      assert.equal(rejected.response.status, 400);
+    }
+  });
+
+  await t.test("clearing a non-default company domain deletes it and survives hydration", async () => {
+    const tableRows = {
+      companies: [
+        { id: "eb-chemical", slug: "eb-chemical", name: "EB Chemical", status: "active", is_default: true },
+      ],
+      company_domains: [],
+      company_settings: [],
+    };
+    const cloneRows = (rows) => JSON.parse(JSON.stringify(rows || []));
+    const loadDependencies = {
+      selectAllRows: async (table) => cloneRows(tableRows[table]),
+    };
+    const previousDatabaseUrl = process.env.DATABASE_URL;
+    process.env.DATABASE_URL = "postgresql://isolated.invalid/domain-clear-test";
+    setPlatformLoadDependenciesForTest(loadDependencies);
+    setCompanyPersistenceDependenciesForTest({
+      upsertRows: async (table, rows, conflictColumn = "id") => {
+        tableRows[table] ||= [];
+        for (const row of cloneRows(rows)) {
+          const index = tableRows[table].findIndex(
+            (current) => current[conflictColumn] === row[conflictColumn],
+          );
+          if (index >= 0) tableRows[table][index] = { ...tableRows[table][index], ...row };
+          else tableRows[table].push(row);
+        }
+      },
+      deleteCompanyDomain: async (domainId) => {
+        const index = tableRows.company_domains.findIndex((row) => row.id === domainId);
+        if (index >= 0) tableRows.company_domains.splice(index, 1);
+      },
+    });
+
+    try {
+      const domainStore = await import(`../src/data/store.js?domain-clear=${Date.now()}`);
+      const created = await domainStore.companyRepository.createCompanyDraft({
+        slug: "icare",
+        name: "iCare",
+        status: "active",
+        domain: "legacy-icare.example",
+        storefrontUrl: "https://igroup.website/icare",
+        storefrontPath: "/icare",
+        settings: { currency: "ILS", language: "ar" },
+      });
+      assert.equal(created.domain, "legacy-icare.example");
+      assert.deepEqual(created.domains, ["legacy-icare.example"]);
+      assert.equal(created.storefrontUrl, "https://igroup.website/icare");
+      assert.equal(created.storefrontPath, "/icare");
+      assert.equal(created.settings.currency, "ILS");
+      assert.equal(created.settings.language, "ar");
+      assert.equal(tableRows.company_domains[0].domain, "legacy-icare.example");
+
+      const replaced = await domainStore.companyRepository.updateCompanyDraft("icare", {
+        domain: "care.example",
+      });
+      assert.equal(replaced.domain, "care.example");
+      assert.deepEqual(replaced.domains, ["care.example"]);
+      assert.equal(tableRows.company_domains.length, 1);
+      assert.equal(tableRows.company_domains[0].domain, "care.example");
+
+      const updated = await domainStore.companyRepository.updateCompanyDraft("icare", { domain: "" });
+      assert.equal(updated.id, "icare");
+      assert.equal(updated.slug, "icare");
+      assert.equal(updated.domain, "");
+      assert.deepEqual(updated.domains, []);
+      assert.deepEqual(tableRows.company_domains, []);
+      assert.equal(updated.storefrontUrl, "https://igroup.website/icare");
+      assert.equal(updated.storefrontPath, "/icare");
+      const persistedIcareSettings = tableRows.company_settings.find((row) => row.company_id === "icare");
+      assert.equal(persistedIcareSettings.settings.storefrontUrl, "https://igroup.website/icare");
+      assert.equal(persistedIcareSettings.settings.storefrontPath, "/icare");
+
+      const secondCompany = await domainStore.companyRepository.createCompanyDraft({
+        slug: "ifit",
+        name: "iFit",
+        status: "active",
+        domain: "",
+        storefrontUrl: "https://igroup.website/ifit",
+        storefrontPath: "/ifit",
+      });
+      assert.equal(secondCompany.domain, "");
+      assert.deepEqual(secondCompany.domains, []);
+      assert.equal(secondCompany.storefrontUrl, "https://igroup.website/ifit");
+      assert.equal(secondCompany.storefrontPath, "/ifit");
+      assert.equal(tableRows.company_domains.some((row) => ["icare", "ifit"].includes(row.company_id)), false);
+
+      setPlatformLoadDependenciesForTest(loadDependencies);
+      const restartedStore = await import(`../src/data/store.js?domain-clear-restart=${Date.now()}`);
+      const rehydrated = restartedStore.companyRepository.getCompanyById("icare");
+      assert.equal(rehydrated.id, "icare");
+      assert.equal(rehydrated.slug, "icare");
+      assert.equal(rehydrated.domain, "");
+      assert.deepEqual(rehydrated.domains, []);
+      assert.equal(rehydrated.storefrontUrl, "https://igroup.website/icare");
+      assert.equal(rehydrated.storefrontPath, "/icare");
+      assert.equal(rehydrated.settings.currency, "ILS");
+      assert.equal(rehydrated.settings.language, "ar");
+      const rehydratedSecond = restartedStore.companyRepository.getCompanyById("ifit");
+      assert.equal(rehydratedSecond.domain, "");
+      assert.deepEqual(rehydratedSecond.domains, []);
+      assert.equal(rehydratedSecond.storefrontUrl, "https://igroup.website/ifit");
+      assert.equal(rehydratedSecond.storefrontPath, "/ifit");
+    } finally {
+      setCompanyPersistenceDependenciesForTest(null);
+      setPlatformLoadDependenciesForTest(null);
+      process.env.DATABASE_URL = previousDatabaseUrl;
+    }
   });
 
   await t.test("fresh PostgreSQL startup hydrates isolated repositories with bounded queries", async () => {

@@ -14,6 +14,8 @@ import {
   isSafeCompanySlug,
   normalizeCompanyHost,
   normalizeCompanySlug,
+  normalizeCompanyStorefrontPath,
+  normalizeCompanyStorefrontUrl,
   sanitizePublicCompanySettings,
 } from "../tenancy/company.js";
 
@@ -77,6 +79,22 @@ function validateDomain(value) {
   return normalized;
 }
 
+function validateStorefrontUrl(value) {
+  if (value === null || value === "") return "";
+  if (typeof value !== "string") throw validationError("storefrontUrl must be a string.");
+  const normalized = normalizeCompanyStorefrontUrl(value);
+  if (!normalized) throw validationError("storefrontUrl must be a valid HTTPS URL.");
+  return normalized;
+}
+
+function validateStorefrontPath(value) {
+  if (value === null || value === "") return "";
+  if (typeof value !== "string") throw validationError("storefrontPath must be a string.");
+  const normalized = normalizeCompanyStorefrontPath(value);
+  if (!normalized) throw validationError("storefrontPath must be a safe path beginning with /.");
+  return normalized;
+}
+
 function validateStatus(value) {
   if (!allowedStatuses.has(value)) {
     throw validationError(`status must be one of: ${COMPANY_STATUSES.join(", ")}.`);
@@ -111,6 +129,8 @@ function validateCreateBody(body) {
     slug,
     status: hasOwn(body, "status") ? validateStatus(body.status) : "draft",
     domain: hasOwn(body, "domain") ? validateDomain(body.domain) : "",
+    storefrontUrl: hasOwn(body, "storefrontUrl") ? validateStorefrontUrl(body.storefrontUrl) : "",
+    storefrontPath: hasOwn(body, "storefrontPath") ? validateStorefrontPath(body.storefrontPath) : "",
     settings: hasOwn(body, "settings") ? validateSettings(body.settings) : {},
   };
 }
@@ -140,6 +160,8 @@ function validateUpdateBody(body) {
   }
   if (hasOwn(body, "status")) changes.status = validateStatus(body.status);
   if (hasOwn(body, "domain")) changes.domain = validateDomain(body.domain);
+  if (hasOwn(body, "storefrontUrl")) changes.storefrontUrl = validateStorefrontUrl(body.storefrontUrl);
+  if (hasOwn(body, "storefrontPath")) changes.storefrontPath = validateStorefrontPath(body.storefrontPath);
   if (hasOwn(body, "settings")) changes.settings = validateSettings(body.settings);
 
   if (!Object.keys(changes).length) {

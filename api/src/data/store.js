@@ -50,6 +50,8 @@ import {
   isSafeCompanySlug,
   normalizeCompanyHost,
   normalizeCompanyId,
+  normalizeCompanyStorefrontPath,
+  normalizeCompanyStorefrontUrl,
   selectPreferredCompanyDomains,
 } from "../tenancy/company.js";
 import { hashPassword, isPasswordHash } from "../auth/passwords.js";
@@ -428,6 +430,21 @@ function normalizeCompanyRecord(company = {}, index = 0) {
     : company.publicSettings && typeof company.publicSettings === "object"
       ? clone(company.publicSettings)
       : {};
+  const storefrontUrl = normalizeCompanyStorefrontUrl(
+    Object.prototype.hasOwnProperty.call(company, "storefrontUrl")
+      ? company.storefrontUrl
+      : settings.storefrontUrl,
+  );
+  const storefrontPath = normalizeCompanyStorefrontPath(
+    Object.prototype.hasOwnProperty.call(company, "storefrontPath")
+      ? company.storefrontPath
+      : settings.storefrontPath,
+  );
+  const persistedSettings = { ...settings };
+  if (storefrontUrl) persistedSettings.storefrontUrl = storefrontUrl;
+  else delete persistedSettings.storefrontUrl;
+  if (storefrontPath) persistedSettings.storefrontPath = storefrontPath;
+  else delete persistedSettings.storefrontPath;
   const preferredDomains = selectPreferredCompanyDomains([
     ...(Array.isArray(company.domains) ? company.domains : []),
     company.domain,
@@ -445,7 +462,9 @@ function normalizeCompanyRecord(company = {}, index = 0) {
     isDefault,
     domain: preferredDomains[0]?.domain || (isDefault ? DEFAULT_COMPANY_DOMAIN : ""),
     domains: preferredDomains.map((entry) => entry.domain),
-    settings,
+    storefrontUrl,
+    storefrontPath,
+    settings: persistedSettings,
     createdAt: company.createdAt || company.created_at || now,
     updatedAt: company.updatedAt || company.updated_at || company.createdAt || now,
     _domainId: company._domainId || "",
@@ -1476,6 +1495,8 @@ export const companyRepository = {
       status,
       isDefault: false,
       domain: normalizeCompanyHost(input?.domain),
+      storefrontUrl: input?.storefrontUrl,
+      storefrontPath: input?.storefrontPath,
       settings: input?.settings || {},
       createdAt: now,
       updatedAt: now,
@@ -1518,9 +1539,11 @@ export const companyRepository = {
       }
     }
 
+    const replacesDomains = Object.prototype.hasOwnProperty.call(changes || {}, "domain");
     const next = normalizeCompanyRecord({
       ...current,
       ...changes,
+      ...(replacesDomains ? { domains: [] } : {}),
       id: current.id,
       isDefault: current.id === DEFAULT_COMPANY_ID,
       updatedAt: new Date().toISOString(),

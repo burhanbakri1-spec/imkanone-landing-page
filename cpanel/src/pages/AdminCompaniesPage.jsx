@@ -13,6 +13,8 @@ const emptyForm = {
   name: "",
   slug: "",
   domain: "",
+  storefrontUrl: "",
+  storefrontPath: "",
   status: "draft",
   settings: {
     currency: "",
@@ -29,6 +31,8 @@ function cloneForm(company = emptyForm) {
     name: company.name || "",
     slug: company.slug || "",
     domain: company.domain || "",
+    storefrontUrl: company.storefrontUrl || "",
+    storefrontPath: company.storefrontPath || "",
     status: company.status || "draft",
     settings: {
       currency: company.settings?.currency || "",
@@ -47,6 +51,20 @@ function validateCompany(form) {
   if (!["draft", "inactive", "active"].includes(form.status)) {
     return "Select a valid company status.";
   }
+  if (form.storefrontUrl) {
+    try {
+      if (new URL(form.storefrontUrl).protocol !== "https:") {
+        return "Storefront URL must use HTTPS.";
+      }
+    } catch {
+      return "Storefront URL must be a valid HTTPS URL.";
+    }
+  }
+  if (form.storefrontPath) {
+    const isSafePath = /^\/(?!\/)(?:[A-Za-z0-9._~-]+\/?)*$/.test(form.storefrontPath)
+      && !form.storefrontPath.split("/").some((segment) => segment === "." || segment === "..");
+    if (!isSafePath) return "Storefront path must be a safe path beginning with /.";
+  }
   return "";
 }
 
@@ -58,7 +76,7 @@ function CompanyForm({ company, form, isSaving, onCancel, onChange, onSubmit }) 
       <div className="admin-section-head">
         <div>
           <h2>{isEditing ? `Edit ${company.name}` : "Create company draft"}</h2>
-          <p>New companies are not connected to a public storefront or domain resolver.</p>
+          <p>Storefront metadata does not assign DNS ownership or change tenant routing.</p>
         </div>
       </div>
       <form className="admin-form company-form" onSubmit={onSubmit}>
@@ -91,6 +109,27 @@ function CompanyForm({ company, form, isSaving, onCancel, onChange, onSubmit }) 
             onChange={onChange}
             placeholder="company.example.com"
             value={form.domain}
+          />
+        </label>
+        <label>
+          Storefront URL
+          <input
+            autoCapitalize="none"
+            name="storefrontUrl"
+            onChange={onChange}
+            placeholder="https://example.com/company"
+            type="url"
+            value={form.storefrontUrl}
+          />
+        </label>
+        <label>
+          Storefront path
+          <input
+            autoCapitalize="none"
+            name="storefrontPath"
+            onChange={onChange}
+            placeholder="/company"
+            value={form.storefrontPath}
           />
         </label>
         <label>
@@ -271,6 +310,8 @@ function AdminCompaniesPage({
       name: form.name.trim(),
       slug: form.slug.trim(),
       domain: form.domain.trim(),
+      storefrontUrl: form.storefrontUrl.trim(),
+      storefrontPath: form.storefrontPath.trim(),
       status: form.status,
       settings: Object.fromEntries(
         Object.entries(form.settings).filter(([, value]) => String(value).trim()),
@@ -382,6 +423,7 @@ function AdminCompaniesPage({
                     <th>Slug</th>
                     <th>Status</th>
                     <th>Domain</th>
+                    <th>Storefront</th>
                     <th>Default</th>
                     <th>Actions</th>
                   </tr>
@@ -404,6 +446,15 @@ function AdminCompaniesPage({
                         </span>
                       </td>
                       <td>{company.domain || "Not assigned"}</td>
+                      <td>
+                        {company.storefrontUrl ? (
+                          <a href={company.storefrontUrl} rel="noreferrer" target="_blank">
+                            {company.storefrontPath || company.storefrontUrl}
+                          </a>
+                        ) : (
+                          "Not assigned"
+                        )}
+                      </td>
                       <td>
                         {company.isDefault ? (
                           <span className="admin-status-pill active">Default</span>
