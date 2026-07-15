@@ -157,6 +157,13 @@ export async function getSessionUser(req) {
   try {
     const context = await authenticatedContext(req);
     if (!context) return null;
+    if (
+      req.requestedCompanyId
+      && context.company?.id !== req.requestedCompanyId
+      && !isSuperAdmin(context.user)
+    ) {
+      return null;
+    }
     applyContext(req, context);
     return context.user;
   } catch {

@@ -47,11 +47,14 @@ import {
   DEFAULT_COMPANY_DOMAIN,
   DEFAULT_COMPANY_ID,
   defaultCompany,
+  hasResolvableStorefront,
   isSafeCompanySlug,
+  isSharedStorefrontHost,
   normalizeCompanyHost,
   normalizeCompanyId,
   normalizeCompanyStorefrontPath,
   normalizeCompanyStorefrontUrl,
+  resolveStorefrontCompany,
   selectPreferredCompanyDomains,
 } from "../tenancy/company.js";
 import { hashPassword, isPasswordHash } from "../auth/passwords.js";
@@ -611,11 +614,17 @@ persistedWebsiteMedia
   websiteMediaBySection.set(sectionKey, preferWebsiteMediaItem(websiteMediaBySection.get(sectionKey), item));
 });
 const deletedWebsiteMediaKeys = Array.isArray(persisted?.deletedWebsiteMediaKeys) ? persisted.deletedWebsiteMediaKeys : [];
-export const websiteMedia = [...websiteMediaBySection.values()]
+const defaultCompanyWebsiteMedia = [...websiteMediaBySection.values()]
   .filter((item) => !deletedWebsiteMediaKeys.includes(item.sectionKey || item.id))
   .map((item, index) =>
     tagRecord(normalizeWebsiteMedia(withoutCompanyFields(item), index), DEFAULT_COMPANY_ID),
   );
+const nonDefaultWebsiteMedia = normalizeTenantRecords(
+  persistedWebsiteMedia.filter((item) => inputCompanyId(item) !== DEFAULT_COMPANY_ID),
+  [],
+  normalizeWebsiteMedia,
+);
+export const websiteMedia = [...defaultCompanyWebsiteMedia, ...nonDefaultWebsiteMedia];
 const legacyHiddenWebsiteMediaKeys = deletedWebsiteMediaKeys.map((sectionKey) => ({
   id: `hidden-media-${DEFAULT_COMPANY_ID}-${sectionKey}`,
   company_id: DEFAULT_COMPANY_ID,
@@ -1563,6 +1572,19 @@ export const companyRepository = {
     }
 
     return serializeCompany(next);
+  },
+
+  resolveStorefront(host, path = "/") {
+    const company = resolveStorefrontCompany(companies, { host, path });
+    return company ? serializeCompany(company) : null;
+  },
+
+  isSharedStorefrontHost(host) {
+    return isSharedStorefrontHost(companies, host);
+  },
+
+  hasResolvableStorefront(id) {
+    return hasResolvableStorefront(companyByIdInternal(id));
   },
 
   async updateCompanyBrandingAndSettings(id, { name, settingsPatch = {} } = {}) {

@@ -44,6 +44,10 @@ const ebChemicalProductionOrigins = [
   "https://ebchemi.com",
   "https://www.ebchemi.com",
 ];
+const iGroupProductionOrigins = [
+  "https://igroup.website",
+  "https://www.igroup.website",
+];
 const existingEbFrontendOrigin = "https://eb-chemical-full.vercel.app";
 
 function normalizeOrigin(origin = "") {
@@ -79,6 +83,7 @@ if (deploymentOrigins.includes("*")) {
 const allowedOrigins = new Set([
   ...deploymentOrigins,
   ...ebChemicalProductionOrigins,
+  ...iGroupProductionOrigins,
   ...(!isProduction ? localDevelopmentOrigins : []),
 ]);
 

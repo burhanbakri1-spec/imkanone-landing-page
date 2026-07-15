@@ -11,7 +11,10 @@ const password = "Test-password-123!";
 const passwordHash = await hashPassword(password);
 const companies = [
   { id: "eb-chemical", slug: "eb-chemical", name: "EB Chemical", status: "active", isDefault: true },
-  { id: "icare", slug: "icare", name: "iCare", status: "active", isDefault: false },
+  {
+    id: "icare", slug: "icare", name: "iCare", status: "active", isDefault: false,
+    storefrontUrl: "https://igroup.website/icare", storefrontPath: "/icare",
+  },
   { id: "other-company", slug: "other-company", name: "Other Company", status: "active", isDefault: false },
 ];
 const users = [
@@ -69,6 +72,14 @@ fs.writeFileSync(path.join(dataStoreDir, "store.json"), JSON.stringify({
     { id: "eb-product", slug: "eb-product", name: "EB Product", company_id: "eb-chemical" },
     { id: "icare-product-1", slug: "icare-product-1", name: "iCare Product 1", company_id: "icare" },
     { id: "icare-product-2", slug: "icare-product-2", name: "iCare Product 2", company_id: "icare" },
+  ],
+  websiteMedia: [
+    { id: "eb-media", sectionKey: "tenant-proof", imageUrl: "/eb.jpg", isActive: true, company_id: "eb-chemical" },
+    { id: "icare-media", sectionKey: "tenant-proof", imageUrl: "/icare.jpg", isActive: true, company_id: "icare" },
+  ],
+  websiteTexts: [
+    { id: "eb-text", key: "tenant.proof", valueEn: "EB", isActive: true, company_id: "eb-chemical" },
+    { id: "icare-text", key: "tenant.proof", valueEn: "iCare", isActive: true, company_id: "icare" },
   ],
   orders: [
     { id: "icare-order-assign", company_id: "icare", status: "Pending", customer: {} },
@@ -162,6 +173,54 @@ test("membership-aware authentication and authenticated tenant context", async (
     const publicResult = await request("/products");
     assert.equal(publicResult.response.status, 200);
     assert.deepEqual(publicResult.body.map((product) => product.id), ["eb-product"]);
+
+    const publicIcare = await request("/products", {
+      headers: { "X-Company-Id": "icare" },
+    });
+    assert.equal(publicIcare.response.status, 200);
+    assert.deepEqual(
+      publicIcare.body.map((product) => product.id).sort(),
+      ["icare-product-1", "icare-product-2"],
+    );
+
+    const unknown = await request("/products", {
+      headers: { "X-Company-Id": "unknown-company" },
+    });
+    assert.equal(unknown.response.status, 404);
+
+    const activeWithoutStorefront = await request("/products", {
+      headers: { "X-Company-Id": "other-company" },
+    });
+    assert.equal(activeWithoutStorefront.response.status, 404);
+
+    const unresolvedSharedHost = await request("/products", {
+      headers: { "X-Forwarded-Host": "igroup.website" },
+    });
+    assert.equal(unresolvedSharedHost.response.status, 404);
+
+    const icareMedia = await request("/website-media", {
+      headers: { "X-Company-Id": "icare" },
+    });
+    assert.equal(icareMedia.response.status, 200);
+    assert.equal(icareMedia.body.some((item) => item.id === "icare-media"), true);
+    assert.equal(icareMedia.body.some((item) => item.id === "eb-media"), false);
+
+    const icareTexts = await request("/website-texts", {
+      headers: { "X-Company-Id": "icare" },
+    });
+    assert.equal(icareTexts.response.status, 200);
+    assert.deepEqual(icareTexts.body.map((item) => item.id), ["icare-text"]);
+  });
+
+  await t.test("storefront context selects the matching membership during login", async () => {
+    const result = await request("/auth/login", {
+      headers: { "X-Company-Id": "icare" },
+      body: { email: "multi@test.local", password },
+    });
+    assert.equal(result.response.status, 200);
+    assert.equal(result.body.companySelectionRequired, undefined);
+    assert.equal(result.body.activeCompany.id, "icare");
+    assert.equal(result.body.activeMembership.companyId, "icare");
   });
 
   await t.test("invalid bearer token on a public read is rejected", async () => {
@@ -170,16 +229,21 @@ test("membership-aware authentication and authenticated tenant context", async (
     assert.equal(result.body.message, "Invalid or expired authentication token.");
   });
 
-  await t.test("header, query, and body tenant inputs cannot override membership context", async () => {
+  await t.test("storefront header constrains auth while query and body cannot override membership", async () => {
     const productsResult = await request("/products?companyId=eb-chemical", {
       token: icareSession.token,
       headers: { "X-Company-Id": "eb-chemical" },
     });
-    assert.equal(productsResult.response.status, 200);
-    assert.deepEqual(
-      productsResult.body.map((product) => product.id).sort(),
-      ["icare-product-1", "icare-product-2"],
-    );
+    assert.equal(productsResult.response.status, 401);
+
+    const matchingHeader = await request("/products?companyId=eb-chemical", {
+      token: icareSession.token,
+      headers: { "X-Company-Id": "icare" },
+    });
+    assert.equal(matchingHeader.response.status, 200);
+    assert.deepEqual(matchingHeader.body.map((product) => product.id).sort(), [
+      "icare-product-1", "icare-product-2",
+    ]);
 
     const reviewResult = await request("/reviews", {
       token: icareSession.token,
@@ -197,7 +261,7 @@ test("membership-aware authentication and authenticated tenant context", async (
   await t.test("iCare company_admin can assign only an iCare employee to an iCare order", async () => {
     const result = await request("/orders/icare-order-assign/assign-employee?companyId=eb-chemical", {
       token: icareSession.token,
-      headers: { "X-Company-Id": "eb-chemical" },
+      headers: { "X-Company-Id": "icare" },
       body: { employeeId: "icare-employee", companyId: "eb-chemical" },
       method: "PUT",
     });

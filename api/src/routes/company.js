@@ -3,6 +3,7 @@ import { companyRepository } from "../data/store.js";
 import { optionalAuth, requireAuth } from "../middleware/auth.js";
 import {
   THEME_TOKEN_KEYS,
+  createPlatformCompanySummary,
   createPublicCompanyContext,
 } from "../tenancy/company.js";
 import {
@@ -13,6 +14,26 @@ import {
 } from "./catalogValidation.js";
 
 const router = Router();
+
+router.get("/resolve-storefront", (req, res) => {
+  const host = String(req.query.host || "");
+  const path = String(req.query.path || "/");
+  const company = companyRepository.resolveStorefront(host, path);
+  if (!company) return res.status(404).json({ message: "Storefront company not found or inactive." });
+  const summary = createPlatformCompanySummary(company);
+  const { adminModules: _internalAdminModules, ...publicSettings } = summary.settings;
+  return res.json({
+    id: summary.id,
+    slug: summary.slug,
+    name: summary.name,
+    status: summary.status,
+    isDefault: summary.isDefault,
+    domain: summary.domain,
+    storefrontUrl: summary.storefrontUrl,
+    storefrontPath: summary.storefrontPath,
+    settings: publicSettings,
+  });
+});
 const settingFields = new Set([
   "name",
   "logoUrl",

@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { hashPassword } from "../src/auth/passwords.js";
+import { resolveStorefrontCompany } from "../src/tenancy/company.js";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const dataStoreDir = fs.mkdtempSync(path.join(os.tmpdir(), "tenant-catalog-settings-"));
@@ -65,6 +66,8 @@ fs.writeFileSync(path.join(dataStoreDir, "store.json"), JSON.stringify({
       name: "iCare",
       status: "active",
       isDefault: false,
+      storefrontUrl: "https://igroup.website/icare",
+      storefrontPath: "/icare",
       settings: { language: "ar", locale: "ar-PS", direction: "rtl", currency: "ILS" },
     },
   ],
@@ -175,6 +178,47 @@ async function login(email) {
 }
 
 test("tenant catalog and company settings contracts", async (t) => {
+  await t.test("storefront resolver supports dedicated domains and generic shared paths", () => {
+    const storefrontCompanies = [
+      {
+        id: "eb-chemical", slug: "eb-chemical", status: "active",
+        domain: "ebchemi.com", domains: ["ebchemi.com"],
+      },
+      {
+        id: "icare", slug: "icare", status: "active", domain: "", domains: [],
+        storefrontUrl: "https://igroup.website/icare", storefrontPath: "/icare",
+      },
+      {
+        id: "ifit", slug: "ifit", status: "active", domain: "", domains: [],
+        storefrontUrl: "https://igroup.website/ifit", storefrontPath: "/ifit",
+      },
+      {
+        id: "inactive", slug: "inactive", status: "inactive", domain: "", domains: [],
+        storefrontUrl: "https://igroup.website/inactive", storefrontPath: "/inactive",
+      },
+    ];
+    assert.equal(resolveStorefrontCompany(storefrontCompanies, {
+      host: "ebchemi.com", path: "/products",
+    })?.id, "eb-chemical");
+    assert.equal(resolveStorefrontCompany(storefrontCompanies, {
+      host: "igroup.website", path: "/icare",
+    })?.id, "icare");
+    assert.equal(resolveStorefrontCompany(storefrontCompanies, {
+      host: "igroup.website", path: "/icare/products",
+    })?.id, "icare");
+    assert.equal(resolveStorefrontCompany(storefrontCompanies, {
+      host: "igroup.website", path: "/ifit/products",
+    })?.id, "ifit");
+    assert.equal(resolveStorefrontCompany(storefrontCompanies, {
+      host: "igroup.website", path: "/unknown-company",
+    }), null);
+    assert.equal(resolveStorefrontCompany(storefrontCompanies, {
+      host: "igroup.website", path: "/inactive",
+    }), null);
+    assert.equal(resolveStorefrontCompany(storefrontCompanies, {
+      host: "igroup.website", path: "/icare-products",
+    }), null);
+  });
   const icare = await login("admin@icare.test");
   const eb = await login("admin@eb.test");
   const customer = await login("customer@icare.test");
@@ -262,7 +306,7 @@ test("tenant catalog and company settings contracts", async (t) => {
     assert.equal(status.body.isActive, false);
     const overridden = await request("/categories?companyId=eb-chemical", {
       token: icare.token,
-      headers: { "X-Company-Id": "eb-chemical" },
+      headers: { "X-Company-Id": "icare" },
       body: {
         companyId: "eb-chemical",
         slug: "override-category",
@@ -331,7 +375,7 @@ test("tenant catalog and company settings contracts", async (t) => {
     })).response.status, 409);
     const overridden = await request("/brands?companyId=eb-chemical", {
       token: icare.token,
-      headers: { "X-Company-Id": "eb-chemical" },
+      headers: { "X-Company-Id": "icare" },
       body: { companyId: "eb-chemical", slug: "override-brand", name: "Override Attempt" },
     });
     assert.equal(overridden.response.status, 201);
@@ -348,7 +392,7 @@ test("tenant catalog and company settings contracts", async (t) => {
 
     const updated = await request("/company/settings?companyId=eb-chemical", {
       token: icare.token,
-      headers: { "X-Company-Id": "eb-chemical" },
+      headers: { "X-Company-Id": "icare" },
       body: {
         companyId: "eb-chemical",
         name: "iCare Updated",
@@ -567,6 +611,20 @@ test("tenant catalog and company settings contracts", async (t) => {
     const listedIcare = listed.body.find((company) => company.id === "icare");
     assert.equal(listedIcare.storefrontUrl, "https://igroup.website/icare");
     assert.equal(listedIcare.storefrontPath, "/icare");
+
+    const resolved = await request(
+      "/company/resolve-storefront?host=igroup.website&path=%2Ficare%2Fproducts",
+    );
+    assert.equal(resolved.response.status, 200);
+    assert.equal(resolved.body.id, "icare");
+    assert.equal(resolved.body.storefrontPath, "/icare");
+    assert.equal("users" in resolved.body, false);
+    assert.equal("memberships" in resolved.body, false);
+    assert.equal("adminModules" in resolved.body.settings, false);
+    const unresolved = await request(
+      "/company/resolve-storefront?host=igroup.website&path=%2Funknown-company",
+    );
+    assert.equal(unresolved.response.status, 404);
 
     const created = await request("/platform/companies", {
       token: superAdmin.token,

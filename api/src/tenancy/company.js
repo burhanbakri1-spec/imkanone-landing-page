@@ -145,7 +145,100 @@ export function normalizeCompanyStorefrontPath(value) {
   const path = value.trim();
   if (!/^\/(?!\/)(?:[A-Za-z0-9._~-]+\/?)*$/.test(path)) return "";
   if (path.split("/").some((segment) => segment === "." || segment === "..")) return "";
-  return path;
+  return path.length > 1 ? path.replace(/\/+$/, "") : path;
+}
+
+function normalizedRequestPath(value) {
+  const input = String(value || "/").trim();
+  try {
+    const path = new URL(input, "https://storefront.invalid").pathname;
+    return path.length > 1 ? path.replace(/\/+$/, "") : "/";
+  } catch {
+    return "";
+  }
+}
+
+function pathMatchesStorefront(requestPath, storefrontPath) {
+  return requestPath === storefrontPath || requestPath.startsWith(`${storefrontPath}/`);
+}
+
+export function isSharedStorefrontHost(companies = [], host) {
+  const requestHost = normalizeCompanyHost(host);
+  if (!requestHost) return false;
+  return (Array.isArray(companies) ? companies : []).some((company) => {
+    if (company?.status !== "active") return false;
+    const storefrontUrl = normalizeCompanyStorefrontUrl(
+      company.storefrontUrl ?? company.settings?.storefrontUrl,
+    );
+    return storefrontUrl && normalizeCompanyHost(new URL(storefrontUrl).hostname) === requestHost;
+  });
+}
+
+export function hasResolvableStorefront(company) {
+  if (!company || company.status !== "active") return false;
+  const domains = selectPreferredCompanyDomains([
+    ...(Array.isArray(company.domains) ? company.domains : []),
+    company.domain,
+  ]);
+  if (domains.length) return true;
+
+  const storefrontUrl = normalizeCompanyStorefrontUrl(
+    company.storefrontUrl ?? company.settings?.storefrontUrl,
+  );
+  const storefrontPath = normalizeCompanyStorefrontPath(
+    company.storefrontPath ?? company.settings?.storefrontPath,
+  );
+  if (!storefrontUrl || !storefrontPath) return false;
+  const url = new URL(storefrontUrl);
+  return resolveStorefrontCompany([company], {
+    host: url.hostname,
+    path: storefrontPath,
+  })?.id === company.id;
+}
+
+export function resolveStorefrontCompany(companies = [], { host, path = "/" } = {}) {
+  const requestHost = normalizeCompanyHost(host);
+  const requestPath = normalizedRequestPath(path);
+  if (!requestHost || !requestPath) return null;
+
+  const activeCompanies = (Array.isArray(companies) ? companies : [])
+    .filter((company) => company?.status === "active");
+
+  const dedicatedMatch = activeCompanies.find((company) => {
+    const domains = selectPreferredCompanyDomains([
+      ...(Array.isArray(company.domains) ? company.domains : []),
+      company.domain,
+    ]);
+    return domains.some((entry) => normalizeCompanyHost(entry.domain) === requestHost);
+  });
+  if (dedicatedMatch) return dedicatedMatch;
+
+  const sharedMatches = activeCompanies
+    .map((company) => {
+      const storefrontUrl = normalizeCompanyStorefrontUrl(
+        company.storefrontUrl ?? company.settings?.storefrontUrl,
+      );
+      const storefrontPath = normalizeCompanyStorefrontPath(
+        company.storefrontPath ?? company.settings?.storefrontPath,
+      );
+      if (!storefrontUrl || !storefrontPath) return null;
+      const url = new URL(storefrontUrl);
+      const configuredUrlPath = normalizedRequestPath(url.pathname);
+      const storefrontSlug = storefrontPath.split("/").filter(Boolean)[0] || "";
+      if (
+        normalizeCompanyHost(url.hostname) !== requestHost
+        || configuredUrlPath !== storefrontPath
+        || storefrontSlug !== company.slug
+        || !pathMatchesStorefront(requestPath, storefrontPath)
+      ) {
+        return null;
+      }
+      return { company, storefrontPath };
+    })
+    .filter(Boolean)
+    .sort((left, right) => right.storefrontPath.length - left.storefrontPath.length);
+
+  return sharedMatches[0]?.company || null;
 }
 
 export function isProductSettingsModuleEnabled(company) {

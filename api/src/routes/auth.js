@@ -129,6 +129,15 @@ router.post("/login", asyncHandler(async (req, res) => {
   if (!memberships.length) {
     return res.status(403).json({ message: "No active company membership is available for this account." });
   }
+  if (req.requestedCompanyId) {
+    const storefrontMembership = memberships.find(
+      (membership) => membership.companyId === req.requestedCompanyId,
+    );
+    if (!storefrontMembership) {
+      return res.status(403).json({ message: "Active membership for this storefront is required." });
+    }
+    return res.json(await createSessionResponse(user, storefrontMembership, memberships));
+  }
   if (memberships.length > 1) {
     return res.json({
       companySelectionRequired: true,
