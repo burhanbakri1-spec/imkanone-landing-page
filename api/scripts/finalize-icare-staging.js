@@ -14,11 +14,13 @@ const args = new Set(process.argv.slice(2));
 const containerLocal = args.has("--container-local");
 const verifyBoundaryOnly = args.has("--verify-boundary");
 const statusOnly = args.has("--status");
+const statusDetails = args.has("--details");
 const clearLegacyImagesOnly = args.has("--clear-legacy-images");
 const supportedArgs = new Set([
   "--container-local",
   "--verify-boundary",
   "--status",
+  "--details",
   "--clear-legacy-images",
 ]);
 const unsupportedArgs = [...args].filter((argument) => !supportedArgs.has(argument));
@@ -33,6 +35,9 @@ if (statusOnly && !containerLocal) {
 }
 if (statusOnly && verifyBoundaryOnly) {
   throw new Error("--status and --verify-boundary cannot be combined.");
+}
+if (statusDetails && !statusOnly) {
+  throw new Error("--details requires --status.");
 }
 if (clearLegacyImagesOnly && !containerLocal) {
   throw new Error("--clear-legacy-images requires --container-local.");
@@ -78,6 +83,7 @@ const LEGACY_HOST = "backend.igroup.website";
 const PLACEHOLDER_HOST = "via.placeholder.com";
 const LEGACY_PREFIXES = ["/public/uploads/", "/uploads/", "/storage/icare/uploads/"];
 const CLEARED_PRODUCT_IMAGE = "/images/products/product-placeholder.svg";
+const CLEARED_PRODUCT_PRIMARY_IMAGE = `${CLEARED_PRODUCT_IMAGE}?legacy-cleared=1`;
 const IMAGE_CONCURRENCY = 4;
 const runState = {
   interrupted: false,
@@ -105,6 +111,8 @@ const report = {
   },
   smoke: {},
   counts: {},
+  clearLegacyImages: null,
+  remainingLegacyImages: [],
 };
 
 function isRecord(value) {
@@ -376,7 +384,13 @@ function isMigratedIcareUrl(value) {
 }
 
 function isClearedImage(value) {
-  return !String(value || "").trim() || value === CLEARED_PRODUCT_IMAGE;
+  const normalized = String(value || "").trim();
+  if (!normalized) return true;
+  try {
+    return new URL(normalized, "https://local.invalid").pathname === CLEARED_PRODUCT_IMAGE;
+  } catch {
+    return normalized === CLEARED_PRODUCT_IMAGE;
+  }
 }
 
 function imageReferences({ products = [], categories = [], brands = [], media = [] }) {
@@ -409,6 +423,26 @@ export function summarizeStatus({
   media = [],
 }) {
   const references = imageReferences({ products, categories, brands, media });
+  const details = references
+    .map(({ value, entity }) => {
+      const url = legacyUrl(value);
+      if (!url) return null;
+      const parts = entity.split(":");
+      let [entityType, entityId] = parts;
+      let field = "image";
+      if (entityType === "category") field = "imageUrl";
+      if (entityType === "brand") field = "logoUrl";
+      if (entityType === "website-media") {
+        field = parts[2] === "fallback" ? "fallbackImageUrl" : "imageUrl";
+      }
+      if (entityType === "product" && parts[2] === "gallery") {
+        entityType = "product-gallery";
+        entityId = parts.slice(3).join(":");
+        field = "image_url";
+      }
+      return { entityType, entityId, field, url: String(value) };
+    })
+    .filter(Boolean);
   return {
     counts: {
       categories: categories.length,
@@ -427,6 +461,7 @@ export function summarizeStatus({
       migrated: references.filter(({ value }) => isMigratedIcareUrl(value)).length,
       emptyOrCleared: references.filter(({ value }) => isClearedImage(value)).length,
     },
+    details,
   };
 }
 
@@ -442,9 +477,11 @@ async function loadPublicStatusSnapshot(apiCall = api) {
   return { products, categories, brands, texts, media };
 }
 
-export async function runStatusMode({ apiCall = api } = {}) {
+export async function runStatusMode({ apiCall = api, details = statusDetails } = {}) {
   const snapshot = await loadPublicStatusSnapshot(apiCall);
-  return summarizeStatus(snapshot);
+  const status = summarizeStatus(snapshot);
+  if (!details) delete status.details;
+  return status;
 }
 
 function candidateUrls(source) {
@@ -799,7 +836,16 @@ export async function clearLegacyImages(token, apiCall = api) {
     apiCall(token, "/api/website-media/all"),
   ]);
   const media = Array.isArray(mediaResponse) ? mediaResponse : mediaResponse?.items || [];
-  const cleared = { categories: 0, brands: 0, products: 0, galleryImages: 0, websiteMedia: 0 };
+  const cleared = {
+    categories: 0,
+    brands: 0,
+    products: 0,
+    productPrimaryImages: 0,
+    galleryImages: 0,
+    websiteMedia: 0,
+    websiteMediaUrls: 0,
+    urlsCleared: 0,
+  };
 
   for (const category of categories) {
     if (!legacyUrl(category.imageUrl)) continue;
@@ -808,6 +854,7 @@ export async function clearLegacyImages(token, apiCall = api) {
       body: JSON.stringify({ imageUrl: null }),
     });
     cleared.categories += 1;
+    cleared.urlsCleared += 1;
   }
 
   for (const brand of brands) {
@@ -817,6 +864,7 @@ export async function clearLegacyImages(token, apiCall = api) {
       body: JSON.stringify({ logoUrl: null }),
     });
     cleared.brands += 1;
+    cleared.urlsCleared += 1;
   }
 
   for (const item of media) {
@@ -832,6 +880,8 @@ export async function clearLegacyImages(token, apiCall = api) {
       }),
     });
     cleared.websiteMedia += 1;
+    cleared.websiteMediaUrls += Number(clearImage) + Number(clearFallback);
+    cleared.urlsCleared += Number(clearImage) + Number(clearFallback);
   }
 
   for (const product of products) {
@@ -843,6 +893,7 @@ export async function clearLegacyImages(token, apiCall = api) {
       if (!legacyUrl(current)) return entry;
       galleryChanged = true;
       cleared.galleryImages += 1;
+      cleared.urlsCleared += 1;
       return {
         ...entry,
         image_url: CLEARED_PRODUCT_IMAGE,
@@ -852,8 +903,12 @@ export async function clearLegacyImages(token, apiCall = api) {
     });
     if (!primaryIsLegacy && !galleryChanged) continue;
     const primary = primaryIsLegacy
-      ? CLEARED_PRODUCT_IMAGE
+      ? CLEARED_PRODUCT_PRIMARY_IMAGE
       : product.image || product.primaryImage || CLEARED_PRODUCT_IMAGE;
+    if (primaryIsLegacy) {
+      cleared.productPrimaryImages += 1;
+      cleared.urlsCleared += 1;
+    }
     await apiCall(token, `/api/products/${encodeURIComponent(product.id)}`, {
       method: "PUT",
       body: JSON.stringify({
@@ -887,8 +942,10 @@ async function verifyClearedLegacyImages(token, apiCall = api) {
     }
   }
   if (status.images.legacy !== 0) {
+    report.remainingLegacyImages = status.details;
     throw new Error(`Final legacy image URL count is ${status.images.legacy}, expected 0.`);
   }
+  report.remainingLegacyImages = [];
   await Promise.all([
     apiCall(null, "/api/products"),
     apiCall(null, "/api/categories"),
@@ -987,6 +1044,7 @@ async function main() {
     mutate: async (token) => {
       if (clearLegacyImagesOnly) {
         const cleared = await clearLegacyImages(token);
+        report.clearLegacyImages = cleared;
         const status = await verifyClearedLegacyImages(token);
         console.log(JSON.stringify({ ok: true, mode: "clear-legacy-images", cleared, status }, null, 2));
         return;

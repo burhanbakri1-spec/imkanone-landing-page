@@ -8,6 +8,7 @@ import {
   processUniqueImageJobs,
   requireLoginPassword,
   runStatusMode,
+  summarizeStatus,
 } from "../scripts/finalize-icare-staging.js";
 
 test("finalizer login accepts any non-empty existing password", async () => {
@@ -326,21 +327,27 @@ test("clear-legacy-images is tenant-API scoped, download-free, and idempotent", 
     categories: 1,
     brands: 1,
     products: 1,
+    productPrimaryImages: 1,
     galleryImages: 1,
     websiteMedia: 1,
+    websiteMediaUrls: 1,
+    urlsCleared: 5,
   });
   assert.deepEqual(second, {
     categories: 0,
     brands: 0,
     products: 0,
+    productPrimaryImages: 0,
     galleryImages: 0,
     websiteMedia: 0,
+    websiteMediaUrls: 0,
+    urlsCleared: 0,
   });
   assert.equal(state.categories[0].imageUrl, null);
   assert.equal(state.brands[0].logoUrl, null);
   assert.equal(state.media[0].imageUrl, "");
   assert.equal(state.media[0].fallbackImageUrl, "/uploads/icare/keep-media.jpg");
-  assert.equal(state.products[0].image, "/images/products/product-placeholder.svg");
+  assert.equal(state.products[0].image, "/images/products/product-placeholder.svg?legacy-cleared=1");
   assert.equal(state.products[0].categoryId, "category-1");
   assert.equal(state.products[0].brandId, "brand-1");
   assert.deepEqual(state.products[0].variants, [
@@ -354,4 +361,58 @@ test("clear-legacy-images is tenant-API scoped, download-free, and idempotent", 
     ],
   );
   assert.equal(requests.some(({ pathname }) => pathname === "/api/uploads"), false);
+});
+
+test("product primary clearing bypasses legacy-preservation without classifying the placeholder as legacy", () => {
+  const status = summarizeStatus({
+    products: [{
+      id: "product-1",
+      image: "/images/products/product-placeholder.svg?legacy-cleared=1",
+      variants: [],
+      gallery_images: [],
+    }],
+    categories: [],
+    brands: [],
+    texts: [],
+    media: [],
+  });
+  assert.equal(status.images.legacy, 0);
+  assert.equal(status.images.emptyOrCleared, 1);
+  assert.deepEqual(status.details, []);
+});
+
+test("detailed status identifies missed product primary and gallery fields exactly", async () => {
+  const responses = new Map([
+    ["/api/products", [{
+      id: "product-6",
+      image: "https://backend.igroup.website/uploads/primary.jpg",
+      variants: [],
+      gallery_images: [{
+        id: "gallery-6",
+        image_url: "/public/uploads/gallery.jpg",
+      }],
+    }]],
+    ["/api/categories", []],
+    ["/api/brands", []],
+    ["/api/website-texts", []],
+    ["/api/website-media", []],
+  ]);
+  const status = await runStatusMode({
+    details: true,
+    apiCall: async (_token, pathname) => responses.get(pathname),
+  });
+  assert.deepEqual(status.details, [
+    {
+      entityType: "product",
+      entityId: "product-6",
+      field: "image",
+      url: "https://backend.igroup.website/uploads/primary.jpg",
+    },
+    {
+      entityType: "product-gallery",
+      entityId: "gallery-6",
+      field: "image_url",
+      url: "/public/uploads/gallery.jpg",
+    },
+  ]);
 });
