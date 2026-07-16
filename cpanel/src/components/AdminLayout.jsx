@@ -106,6 +106,7 @@ function normalizedActive(activePage) {
 function AdminLayout({
   activePage,
   children,
+  company,
   currentUser,
   language = "en",
   onLogout,
@@ -116,6 +117,8 @@ function AdminLayout({
   isDarkMode = false,
   onToggleDarkMode,
 }) {
+  const companyName = company?.name || "Company";
+  const companyMark = companyName.slice(0, 2).toUpperCase();
   const activeKey = normalizedActive(activePage);
   const visibleNavSections = React.useMemo(
     () => navSections.filter(
@@ -162,9 +165,13 @@ function AdminLayout({
 
       <aside className={`admin-sidebar ${mobileOpen ? "open" : ""}`}>
         <div className="admin-sidebar-brand">
-          <span className="admin-logo-mark">EB</span>
+          {company?.logoUrl ? (
+            <img className="admin-logo-mark" src={company.logoUrl} alt={`${companyName} logo`} />
+          ) : (
+            <span className="admin-logo-mark">{companyMark}</span>
+          )}
           <div>
-            <strong>EB Chemical</strong>
+            <strong>{companyName}</strong>
             <small>{labels.admin}</small>
           </div>
         </div>

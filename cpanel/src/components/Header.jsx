@@ -3,6 +3,7 @@ import { brand } from "../data/brand.js";
 import { hasPermission } from "../data/permissions.js";
 import WorkTimer from "./WorkTimer.jsx";
 import { getWebsiteMediaImage } from "../data/websiteMedia.js";
+import { isCompanyAdmin } from "../utils/roles.js";
 
 const shopLinks = [
   { key: "all", labelEn: "Shop All", labelAr: "كل المنتجات", action: "products" },
@@ -119,7 +120,7 @@ function Header({
   websiteMedia = [],
   workSession,
 }) {
-  const isAdmin = currentUser?.role === "admin";
+  const isAdmin = isCompanyAdmin(currentUser?.role);
   const isEmployee = ["employee", "staff"].includes(currentUser?.role);
   const isCustomer = currentUser?.role === "customer";
   const [isMegaOpen, setIsMegaOpen] = React.useState(false);

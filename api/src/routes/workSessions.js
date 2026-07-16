@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { persistCompanyStore, workSessionRepository } from "../data/store.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAdmin, requireAuth } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -82,15 +82,17 @@ router.get("/my-today", (req, res) => {
   return res.json(findOpenSession(req.companyId, req.user) || null);
 });
 
-router.get("/employees", (req, res) => {
-  if (req.user.role !== "admin") {
-    return res.status(403).json({ message: "Admin access required." });
-  }
+router.get("/employees", requireAdmin, (req, res) => {
   return res.json(workSessionRepository.getByCompany(req.companyId));
 });
 
 router.get("/employees/:employeeId", (req, res) => {
-  if (req.user.role !== "admin" && req.user.id !== req.params.employeeId) {
+  const canReadOwnSessions = isStaffRole(req.membershipRole)
+    && req.user.id === req.params.employeeId;
+  if (
+    !["admin", "company_admin"].includes(req.membershipRole)
+    && !canReadOwnSessions
+  ) {
     return res.status(403).json({ message: "Work session access denied." });
   }
   return res.json(

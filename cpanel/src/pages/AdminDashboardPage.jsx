@@ -5,20 +5,18 @@ import AdminOrdersTable from "../components/AdminOrdersTable.jsx";
 import WebsiteMediaManager from "../components/WebsiteMediaManager.jsx";
 import { uploadImage, uploadImages } from "../utils/api.js";
 import {
-  adminCategoriesStorageKey,
-  defaultAdminCategories,
   getSelectableAdminCategories,
 } from "../utils/adminCategories.js";
+import { tenantStorageKey } from "../utils/companyContext.js";
+import { isCompanyAdmin, isTenantOperator, tenantAccessNotice } from "../utils/roles.js";
 
 const storageKeys = {
-  brands: "ebAdminBrands",
-  categories: adminCategoriesStorageKey,
-  inventory: "ebAdminInventory",
-  movements: "ebAdminStockMovements",
-  settings: "ebAdminSettings",
-  stores: "ebAdminStores",
-  vlogHero: "ebAdminVlogHero",
-  vlogs: "ebAdminVlogs",
+  inventory: "inventory",
+  movements: "stockMovements",
+  settings: "settings",
+  stores: "stores",
+  vlogHero: "vlogHero",
+  vlogs: "vlogs",
 };
 
 const pageMeta = {
@@ -292,7 +290,7 @@ function createProductFromForm(form) {
     sku: form.sku || slug.toUpperCase(),
     name: createLocalizedCopy(form.nameEn, form.nameAr || form.nameEn),
     categoryId: form.categoryId,
-    brand: form.brand || "EB Chemical",
+    brandId: form.brandId || null,
     shortDescription: createLocalizedCopy(form.shortDescription, form.shortDescriptionAr || form.shortDescription),
     longDescription: createLocalizedCopy(form.fullDescription, form.fullDescriptionAr || form.fullDescription || form.shortDescription),
     howToUse: form.howToUse,
@@ -427,12 +425,11 @@ function MediaField({ label, name, value, onChange }) {
 }
 
 function PermissionNotice({ role }) {
-  if (role === "admin") return null;
+  const notice = tenantAccessNotice(role);
+  if (!notice) return null;
   return (
     <div className="message-panel warning">
-      {role === "manager"
-        ? "Manager access: content, catalog, orders, customers, and reviews can be managed. Staff and settings are restricted."
-        : "Employee access: admin sections are available in view-only mode."}
+      {notice}
     </div>
   );
 }
@@ -502,12 +499,12 @@ function DashboardHome({ customers, language, orders, products, t }) {
   );
 }
 
-function ProductsListPage({ categories, filters, onAdd, onDeleteProduct, onEdit, products, readOnly, setFilters }) {
+function ProductsListPage({ brands, categories, filters, onAdd, onDeleteProduct, onEdit, products, readOnly, setFilters }) {
   const filtered = products.filter((product) => {
     const name = getText(product.name).toLowerCase();
     const sku = getProductSku(product).toLowerCase();
     const matchesSearch = !filters.search || name.includes(filters.search.toLowerCase()) || sku.includes(filters.search.toLowerCase());
-    const matchesBrand = filters.brand === "all" || (product.brand || "EB Chemical") === filters.brand;
+    const matchesBrand = filters.brand === "all" || product.brandId === filters.brand;
     const matchesCategory = filters.category === "all" || product.categoryId === filters.category;
     const matchesStatus = filters.status === "all" || (filters.status === "active" ? product.isActive !== false : product.isActive === false);
     return matchesSearch && matchesBrand && matchesCategory && matchesStatus;
@@ -525,7 +522,9 @@ function ProductsListPage({ categories, filters, onAdd, onDeleteProduct, onEdit,
         </select>
         <select value={filters.brand} onChange={(event) => setFilters((current) => ({ ...current, brand: event.target.value }))}>
           <option value="all">All brands</option>
-          <option value="EB Chemical">EB Chemical</option>
+          {brands.map((brand) => (
+            <option key={brand.id} value={brand.id}>{brand.name}</option>
+          ))}
         </select>
         <div className="admin-segmented">
           {["all", "active", "inactive"].map((status) => (
@@ -560,7 +559,7 @@ function ProductsListPage({ categories, filters, onAdd, onDeleteProduct, onEdit,
                 <td><img className="admin-thumb" alt="" src={product.image || product.fallbackImage} /></td>
                 <td><strong>{getText(product.name)}</strong><span className="table-muted">{getProductSku(product)}</span></td>
                 <td>{getText(category?.name) || "-"}</td>
-                <td>{product.brand || "EB Chemical"}</td>
+                <td>{brands.find((brand) => brand.id === product.brandId)?.name || product.brand || "-"}</td>
                 <td>{product.sizes?.length || 1}</td>
                 <td><strong>{getProductPrice(product)} ILS</strong></td>
                 <td>{stock}</td>
@@ -590,7 +589,7 @@ function ProductsListPage({ categories, filters, onAdd, onDeleteProduct, onEdit,
   );
 }
 
-function ProductWizard({ categories, editingProduct, onCancel, onSave }) {
+function ProductWizard({ brands, categories, editingProduct, onCancel, onSave }) {
   const [step, setStep] = React.useState("basic");
   const initialCategoryOptions = getSelectableAdminCategories(categories, editingProduct?.categoryId);
   const [uploadError, setUploadError] = React.useState("");
@@ -610,7 +609,7 @@ function ProductWizard({ categories, editingProduct, onCancel, onSave }) {
     slug: editingProduct?.slug || "",
     sku: editingProduct?.sku || "",
     categoryId: editingProduct?.categoryId || initialCategoryOptions[0]?.id || "",
-    brand: editingProduct?.brand || "EB Chemical",
+    brandId: editingProduct?.brandId || "",
     size: editingProduct?.sizes?.[0]?.size || "500ml",
     price: editingProduct?.sizes?.[0]?.price || "",
     stockQty: getStockQty(editingProduct || {}),
@@ -872,7 +871,15 @@ function ProductWizard({ categories, editingProduct, onCancel, onSave }) {
             <label>Slug<input name="slug" value={form.slug} onChange={change} /></label>
             <label>SKU<input name="sku" value={form.sku} onChange={change} /></label>
             <label>Category *<select name="categoryId" required value={form.categoryId} onChange={change}>{selectableCategories.map((category) => <option key={category.id} value={category.id}>{getText(category.name)}</option>)}</select></label>
-            <label>Brand<input name="brand" value={form.brand} onChange={change} /></label>
+            <label>
+              Brand
+              <select name="brandId" value={form.brandId} onChange={change}>
+                <option value="">No brand</option>
+                {brands.map((brand) => (
+                  <option key={brand.id} value={brand.id}>{brand.name}</option>
+                ))}
+              </select>
+            </label>
             <label>Short Description<textarea name="shortDescription" value={form.shortDescription} onChange={change} /></label>
             <label>Full Description<textarea name="fullDescription" value={form.fullDescription} onChange={change} /></label>
             <label>How to Use<textarea name="howToUse" value={form.howToUse} onChange={change} /></label>
@@ -1133,52 +1140,50 @@ function GenericEntityForm({ fields, initial, onCancel, onSave, title }) {
   );
 }
 
-function SettingsPage() {
-  const [tab, setTab] = React.useState("general");
-  const [settings, setSettings] = React.useState(() => readStorage(storageKeys.settings, {}));
-  const fields = {
-    general: [
-      "Site Name", "Site Description", "Meta Title", "Meta Description", "Open Graph Image URL", "Site URL",
-      "Maintenance Mode", "Tax Rate (%)", "Currency Code", "Items Per Page", "Enable Wishlist",
-      "Enable Product Reviews", "Enable Guest Checkout", "Default Country", "Announcement Bar Text",
-      "Home Hero Headline", "Home Hero Image URL", "Trending Section Title", "Promo Badge Text",
-      "Promo Headline", "Promo Description", "Promo CTA Label", "Promo Image URL", "Philosophy Headline",
-      "Philosophy Text", "Philosophy CTA", "Philosophy Background Image URL", "Marquee Scrolling Text",
-      "Commitment Headline", "Commitment CTA", "Commitment Image URL", "Social Grid Heading",
-      "Social Grid CTA", "Social Grid Image 1 URL", "Social Grid Image 2 URL", "Social Grid Image 3 URL",
-      "Social Grid Image 4 URL", "Intentional Skincare Title", "Intentional Skincare Text",
-      "Foundation Label", "Foundation Title", "Foundation Text 1", "Foundation Text 2", "Team Label",
-      "Team Title", "Team Description", "Founder Note Heading", "Founder Letter", "Store Locator Tagline",
-      "About Hero Headline", "About Hero CTA", "About Hero Image URL", "Login Page Image URL",
-      "Product Showcase Empty Text", "Back to All Products", "Add to Bag Button Text", "Checkout Button Text",
-      "Login Heading", "Signup Heading", "Search Placeholder", "Verified Buyer Label",
-    ],
-    social: ["Facebook URL", "Instagram URL", "X / Twitter URL", "YouTube URL", "TikTok URL", "Snapchat URL", "LinkedIn URL", "Pinterest URL"],
-    shipping: ["Free Shipping Threshold", "Default Shipping Cost", "Shipping Rates JSON", "Free Shipping Unlocked Text", "Shipping Page Content JSON"],
-  };
+function SettingsPage({ company, onSave }) {
+  const [settings, setSettings] = React.useState(() => ({
+    currency: company?.settings?.currency || "",
+    direction: company?.settings?.direction || "",
+    faviconUrl: company?.faviconUrl || "",
+    language: company?.settings?.language || "",
+    locale: company?.settings?.locale || "",
+    logoUrl: company?.logoUrl || "",
+    name: company?.name || "",
+  }));
+  const [message, setMessage] = React.useState("");
 
-  function save() {
-    writeStorage(storageKeys.settings, settings);
+  React.useEffect(() => {
+    setSettings({
+      currency: company?.settings?.currency || "",
+      direction: company?.settings?.direction || "",
+      faviconUrl: company?.faviconUrl || "",
+      language: company?.settings?.language || "",
+      locale: company?.settings?.locale || "",
+      logoUrl: company?.logoUrl || "",
+      name: company?.name || "",
+    });
+  }, [company]);
+
+  async function save() {
+    await onSave(Object.fromEntries(
+      Object.entries(settings).map(([key, value]) => [key, value || null]),
+    ));
+    setMessage("Company settings saved.");
   }
 
   return (
     <section className="admin-panel-card">
-      <div className="admin-tabs">
-        {["general", "social", "shipping"].map((item) => (
-          <button className={tab === item ? "active" : ""} key={item} onClick={() => setTab(item)} type="button">{item[0].toUpperCase() + item.slice(1)}</button>
-        ))}
-      </div>
+      {message && <div className="message-panel success">{message}</div>}
       <form className="admin-form settings-form" onSubmit={(event) => { event.preventDefault(); save(); }}>
-        {fields[tab].map((label) => {
-          const key = `${tab}.${label}`;
-          const isJson = label.includes("JSON");
-          const isImage = label.includes("Image URL");
-          if (isImage) return <MediaField key={key} label={label} name={key} value={settings[key] || ""} onChange={(event) => setSettings((current) => ({ ...current, [key]: event.target.value }))} />;
-          if (isJson) return <label key={key}>{label}<textarea value={settings[key] || ""} onChange={(event) => setSettings((current) => ({ ...current, [key]: event.target.value }))} /></label>;
-          return <label key={key}>{label}<input value={settings[key] || ""} onChange={(event) => setSettings((current) => ({ ...current, [key]: event.target.value }))} /></label>;
-        })}
+        <label>Company Name<input required value={settings.name} onChange={(event) => setSettings((current) => ({ ...current, name: event.target.value }))} /></label>
+        <MediaField label="Company Logo" name="logoUrl" value={settings.logoUrl} onChange={(event) => setSettings((current) => ({ ...current, logoUrl: event.target.value }))} />
+        <MediaField label="Favicon" name="faviconUrl" value={settings.faviconUrl} onChange={(event) => setSettings((current) => ({ ...current, faviconUrl: event.target.value }))} />
+        <label>Language<input value={settings.language} onChange={(event) => setSettings((current) => ({ ...current, language: event.target.value }))} /></label>
+        <label>Locale<input value={settings.locale} onChange={(event) => setSettings((current) => ({ ...current, locale: event.target.value }))} /></label>
+        <label>Direction<select value={settings.direction} onChange={(event) => setSettings((current) => ({ ...current, direction: event.target.value }))}><option value="">Automatic</option><option value="ltr">LTR</option><option value="rtl">RTL</option></select></label>
+        <label>Currency<input maxLength="3" value={settings.currency} onChange={(event) => setSettings((current) => ({ ...current, currency: event.target.value.toUpperCase() }))} /></label>
         <div className="form-actions full-field">
-          <button className="admin-primary-button" type="submit">Save {tab[0].toUpperCase() + tab.slice(1)} Settings</button>
+          <button className="admin-primary-button" type="submit">Save Company Settings</button>
         </div>
       </form>
     </section>
@@ -1261,12 +1266,17 @@ function StockUpdateModal({ inventoryRows, onApply, onClose, products }) {
 
 function AdminDashboardPage({
   activePage = "admin",
+  brands = [],
+  categories = [],
+  company,
   currentUser,
   employees,
   homepageCategoryCards,
   language,
   homepageOffers,
   onDeleteProduct,
+  onDeleteBrand,
+  onDeleteCategory,
   onDeleteOffer,
   onAssignEmployee,
   onDeleteOrder,
@@ -1276,6 +1286,9 @@ function AdminDashboardPage({
   onSaveCategoryCard,
   onSaveOffer,
   onSaveProduct,
+  onSaveBrand,
+  onSaveCategory,
+  onSaveCompanySettings,
   onSaveWebsiteMedia,
   onDeleteWebsiteMedia,
   onModerateReview,
@@ -1289,29 +1302,53 @@ function AdminDashboardPage({
   statusMessage,
   t,
   websiteMedia = [],
+  websiteMediaError = "",
 }) {
   const [editingProduct, setEditingProduct] = React.useState(null);
+  const [editingCategory, setEditingCategory] = React.useState(null);
+  const [editingBrand, setEditingBrand] = React.useState(null);
   const [filters, setFilters] = React.useState({ brand: "all", category: "all", search: "", status: "all" });
-  const [adminCategories, setAdminCategories] = React.useState(() => readStorage(storageKeys.categories, defaultAdminCategories));
-  const [brands, setBrands] = React.useState(() => readStorage(storageKeys.brands, [{ id: "eb-chemical", name: "EB Chemical", slug: "eb-chemical", country: "Palestine", active: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }]));
-  const [vlogs, setVlogs] = React.useState(() => readStorage(storageKeys.vlogs, []));
-  const [vlogHero, setVlogHero] = React.useState(() => readStorage(storageKeys.vlogHero, { image: "", title: "EB Chemical care stories" }));
-  const [stores, setStores] = React.useState(() => readStorage(storageKeys.stores, []));
-  const [inventoryRows, setInventoryRows] = React.useState(() => readStorage(storageKeys.inventory, {}));
-  const [movements, setMovements] = React.useState(() => readStorage(storageKeys.movements, []));
+  const adminCategories = categories;
+  const companyId = company?.id || "";
+  const storageKey = React.useCallback(
+    (key) => tenantStorageKey(companyId, storageKeys[key]),
+    [companyId],
+  );
+  const [vlogs, setVlogs] = React.useState([]);
+  const [vlogHero, setVlogHero] = React.useState({ image: "", title: "" });
+  const [stores, setStores] = React.useState([]);
+  const [inventoryRows, setInventoryRows] = React.useState({});
+  const [movements, setMovements] = React.useState([]);
   const [stockModalOpen, setStockModalOpen] = React.useState(false);
 
+  React.useEffect(() => {
+    if (!companyId) {
+      setVlogs([]);
+      setVlogHero({ image: "", title: "" });
+      setStores([]);
+      setInventoryRows({});
+      setMovements([]);
+      return;
+    }
+    setVlogs(readStorage(storageKey("vlogs"), []));
+    setVlogHero(readStorage(storageKey("vlogHero"), { image: "", title: `${company.name} care stories` }));
+    setStores(readStorage(storageKey("stores"), []));
+    setInventoryRows(readStorage(storageKey("inventory"), {}));
+    setMovements(readStorage(storageKey("movements"), []));
+  }, [companyId, company?.name, storageKey]);
+
   const role = currentUser?.role;
-  const canEdit = role === "admin" || role === "manager";
-  const canManageSensitive = role === "admin";
+  const canEdit = isTenantOperator(role);
+  const canManageSensitive = isCompanyAdmin(role);
   const readOnly = !canEdit;
   const customers = uniqueCustomersFromOrders(orders);
   const [title, subtitle] = pageMeta[activePage] || pageMeta.admin;
 
-  if (!currentUser || currentUser.role === "customer") {
+  if (!isTenantOperator(role)) {
     return (
       <AdminLayout
         activePage={activePage}
+        company={company}
         currentUser={currentUser}
         isDarkMode={isDarkMode}
         language={language}
@@ -1327,12 +1364,10 @@ function AdminDashboardPage({
     );
   }
 
-  function saveCategories(next) { setAdminCategories(next); writeStorage(storageKeys.categories, next); }
-  function saveBrands(next) { setBrands(next); writeStorage(storageKeys.brands, next); }
-  function saveVlogs(next) { setVlogs(next); writeStorage(storageKeys.vlogs, next); }
-  function saveStores(next) { setStores(next); writeStorage(storageKeys.stores, next); }
-  function saveInventory(next) { setInventoryRows(next); writeStorage(storageKeys.inventory, next); }
-  function saveMovements(next) { setMovements(next); writeStorage(storageKeys.movements, next); }
+  function saveVlogs(next) { setVlogs(next); writeStorage(storageKey("vlogs"), next); }
+  function saveStores(next) { setStores(next); writeStorage(storageKey("stores"), next); }
+  function saveInventory(next) { setInventoryRows(next); writeStorage(storageKey("inventory"), next); }
+  function saveMovements(next) { setMovements(next); writeStorage(storageKey("movements"), next); }
 
   function renderSimpleTable(kind) {
     const config = {
@@ -1347,10 +1382,14 @@ function AdminDashboardPage({
           <div className="admin-vlog-hero">
             <MediaField label="Hero Image" name="image" value={vlogHero.image} onChange={(event) => setVlogHero((current) => ({ ...current, image: event.target.value }))} />
             <label>Hero Title<input value={vlogHero.title} onChange={(event) => setVlogHero((current) => ({ ...current, title: event.target.value }))} /></label>
-            <button className="admin-primary-button" onClick={() => writeStorage(storageKeys.vlogHero, vlogHero)} type="button">Save Hero</button>
+            <button className="admin-primary-button" onClick={() => writeStorage(storageKey("vlogHero"), vlogHero)} type="button">Save Hero</button>
           </div>
         )}
-        <Toolbar addLabel={config.title} onAdd={readOnly ? null : () => onNavigate(config.add)}>
+        <Toolbar addLabel={config.title} onAdd={readOnly ? null : () => {
+          if (kind === "categories") setEditingCategory(null);
+          if (kind === "brands") setEditingBrand(null);
+          onNavigate(config.add);
+        }}>
           <SearchField placeholder={config.search} value="" onChange={() => {}} />
           <div className="admin-segmented"><button className="active" type="button">All</button><button type="button">Active</button><button type="button">Inactive</button></div>
           {kind === "vlogs" && <div className="admin-segmented"><button className="active" type="button">All</button><button type="button">Featured</button><button type="button">Standard</button></div>}
@@ -1368,11 +1407,11 @@ function AdminDashboardPage({
                 {kind === "stores" ? (
                   <><td>{row.name}</td><td>{row.city}</td><td>{row.country}</td><td>{row.phone || "-"}</td><td><Badge>{row.active === false ? "Inactive" : "Active"}</Badge></td><td>{row.sort || index + 1}</td><td>-</td></>
                 ) : kind === "brands" ? (
-                  <><td>{row.logo ? <img className="admin-thumb" src={row.logo} alt="" /> : <span className="admin-logo-mini">{row.name?.charAt(0)}</span>}</td><td>{row.name}</td><td>{row.country}</td><td><Badge>{row.active === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>{formatDate(row.updatedAt)}</td><td>-</td></>
+                  <><td>{row.logoUrl ? <img className="admin-thumb" src={row.logoUrl} alt="" /> : <span className="admin-logo-mini">{row.name?.charAt(0)}</span>}</td><td>{row.name}</td><td>{row.country}</td><td><Badge>{row.isActive === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>{formatDate(row.updatedAt)}</td><td>{!readOnly && <div className="row-actions"><button className="text-action" onClick={() => { setEditingBrand(row); onNavigate("admin-brands-new"); }} type="button">Edit</button><button className="text-action danger" onClick={() => onDeleteBrand(row.id)} type="button">Delete</button></div>}</td></>
                 ) : kind === "vlogs" ? (
                   <><td>{row.thumbnail ? <img className="admin-thumb" src={row.thumbnail} alt="" /> : "-"}</td><td>{row.title}</td><td>{row.featured ? "Featured" : "Standard"}</td><td><Badge>{row.active === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>-</td></>
                 ) : (
-                  <><td>{row.image ? <img className="admin-thumb" src={row.image} alt="" /> : <span className="admin-logo-mini">C</span>}</td><td>{getText(row.name)}</td><td>{row.parentId || "None"}</td><td><Badge>{row.active === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>{formatDate(row.updatedAt)}</td><td>-</td></>
+                  <><td>{row.imageUrl ? <img className="admin-thumb" src={row.imageUrl} alt="" /> : <span className="admin-logo-mini">C</span>}</td><td>{getText(row.name)}</td><td>{row.parentId || "None"}</td><td><Badge>{row.isActive === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>{formatDate(row.updatedAt)}</td><td>{!readOnly && <div className="row-actions"><button className="text-action" onClick={() => { setEditingCategory(row); onNavigate("admin-categories-new"); }} type="button">Edit</button><button className="text-action danger" onClick={() => onDeleteCategory(row.id)} type="button">Delete</button></div>}</td></>
                 )}
               </tr>
             )) : <tr><td colSpan="7"><EmptyState title={kind === "vlogs" ? "No vlogs yet" : "No records yet"} description={kind === "vlogs" ? "Create your first vlog entry for the storefront." : ""} /></td></tr>}
@@ -1385,14 +1424,16 @@ function AdminDashboardPage({
   function renderEntityForm(kind) {
     if (!canEdit) return <EmptyState title="View-only access" description="You do not have permission to create records." />;
     if (kind === "category") {
-      return <GenericEntityForm title="New Category" initial={{ active: true, parentId: "" }} fields={[
+      const current = editingCategory;
+      return <GenericEntityForm title={current ? "Edit Category" : "New Category"} initial={{ active: current?.isActive !== false, description: getText(current?.description), image: current?.imageUrl || "", name: getText(current?.name), parentId: current?.parentId || "", slug: current?.slug || "" }} fields={[
         { name: "name", label: "Category Name *", required: true }, { name: "slug", label: "Slug" }, { name: "description", label: "Description", type: "textarea" }, { name: "image", label: "Category Image", type: "media" }, { name: "parentId", label: "Parent Category", type: "select", options: [{ value: "", label: "None (top-level)" }, ...adminCategories.map((category) => ({ value: category.id, label: getText(category.name) }))] }, { name: "active", label: "Active", type: "checkbox" }, { name: "metaTitle", label: "Meta Title" }, { name: "metaDescription", label: "Meta Description", type: "textarea" },
-      ]} onCancel={() => onNavigate("admin-categories")} onSave={(form) => { saveCategories([{ id: form.slug || makeSlug(form.name), name: createLocalizedCopy(form.name, form.name), description: createLocalizedCopy(form.description, form.description), image: form.image, parentId: form.parentId, active: form.active, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, ...adminCategories]); onNavigate("admin-categories"); }} />;
+      ]} onCancel={() => { setEditingCategory(null); onNavigate("admin-categories"); }} onSave={async (form) => { await onSaveCategory({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.name), name: createLocalizedCopy(form.name, form.name), description: form.description ? createLocalizedCopy(form.description, form.description) : null, imageUrl: form.image || null, parentId: form.parentId || null, isActive: form.active }); setEditingCategory(null); onNavigate("admin-categories"); }} />;
     }
     if (kind === "brand") {
-      return <GenericEntityForm title="New Brand" initial={{ active: true, country: "Palestine" }} fields={[
+      const current = editingBrand;
+      return <GenericEntityForm title={current ? "Edit Brand" : "New Brand"} initial={{ active: current?.isActive !== false, country: current?.country || "", logo: current?.logoUrl || "", name: current?.name || "", slug: current?.slug || "" }} fields={[
         { name: "name", label: "Brand Name *", required: true }, { name: "slug", label: "Slug" }, { name: "description", label: "Description", type: "textarea" }, { name: "country", label: "Country" }, { name: "website", label: "Website" }, { name: "logo", label: "Brand Logo", type: "media" }, { name: "active", label: "Active", type: "checkbox" }, { name: "metaTitle", label: "Meta Title" }, { name: "metaDescription", label: "Meta Description", type: "textarea" },
-      ]} onCancel={() => onNavigate("admin-brands")} onSave={(form) => { saveBrands([{ id: form.slug || makeSlug(form.name), ...form, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, ...brands]); onNavigate("admin-brands"); }} />;
+      ]} onCancel={() => { setEditingBrand(null); onNavigate("admin-brands"); }} onSave={async (form) => { await onSaveBrand({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.name), name: form.name, country: form.country || null, logoUrl: form.logo || null, isActive: form.active }); setEditingBrand(null); onNavigate("admin-brands"); }} />;
     }
     if (kind === "vlog") {
       return <GenericEntityForm title="New Vlog" initial={{ active: true, featured: false }} fields={[
@@ -1448,9 +1489,9 @@ function AdminDashboardPage({
   function renderActivePage() {
     switch (activePage) {
       case "admin-products":
-        return <ProductsListPage categories={adminCategories} filters={filters} onAdd={() => { setEditingProduct(null); onNavigate("admin-products-new"); }} onDeleteProduct={onDeleteProduct} onEdit={(product) => { setEditingProduct(product); onNavigate("admin-products-new"); }} products={products} readOnly={readOnly} setFilters={setFilters} />;
+        return <ProductsListPage brands={brands} categories={adminCategories} filters={filters} onAdd={() => { setEditingProduct(null); onNavigate("admin-products-new"); }} onDeleteProduct={onDeleteProduct} onEdit={(product) => { setEditingProduct(product); onNavigate("admin-products-new"); }} products={products} readOnly={readOnly} setFilters={setFilters} />;
       case "admin-products-new":
-        return <ProductWizard categories={adminCategories} editingProduct={editingProduct} onCancel={() => onNavigate("admin-products")} onSave={onSaveProduct} />;
+        return <ProductWizard brands={brands} categories={adminCategories} editingProduct={editingProduct} onCancel={() => onNavigate("admin-products")} onSave={onSaveProduct} />;
       case "admin-categories":
         return renderSimpleTable("categories");
       case "admin-categories-new":
@@ -1468,7 +1509,7 @@ function AdminDashboardPage({
       case "admin-store-locator-new":
         return renderEntityForm("store");
       case "admin-website-media":
-        return <WebsiteMediaManager items={websiteMedia} language={language} onDelete={onDeleteWebsiteMedia} onSave={onSaveWebsiteMedia} />;
+        return <WebsiteMediaManager error={websiteMediaError} items={websiteMedia} language={language} onDelete={onDeleteWebsiteMedia} onSave={onSaveWebsiteMedia} />;
       case "admin-orders":
         return <section className="admin-panel-card"><Toolbar><SearchField placeholder="Search order #, customer..." value="" onChange={() => {}} /><select><option>Status</option></select><select><option>Payment</option></select></Toolbar>{orders.length ? <AdminOrdersTable employees={employees} canDelete={canManageSensitive} language={language} onAssignEmployee={onAssignEmployee} onDeleteOrder={onDeleteOrder} onStatusChange={onStatusChange} orders={orders} products={products} t={t} /> : <EmptyState title="No orders found" description="No orders have been placed yet. Orders will appear here once customers complete their purchases." />}</section>;
       case "admin-reviews":
@@ -1478,7 +1519,7 @@ function AdminDashboardPage({
       case "admin-customers":
         return renderCustomers();
       case "admin-settings":
-        return canManageSensitive ? <SettingsPage /> : <EmptyState title="Settings are restricted" description="Only admins can manage configuration." />;
+        return canManageSensitive ? <SettingsPage company={company} onSave={onSaveCompanySettings} /> : <EmptyState title="Settings are restricted" description="Only admins can manage configuration." />;
       case "admin":
       default:
         return <DashboardHome customers={customers} language={language} orders={orders} products={products} t={t} />;
@@ -1488,6 +1529,7 @@ function AdminDashboardPage({
   return (
     <AdminLayout
       activePage={activePage}
+      company={company}
       currentUser={currentUser}
       isDarkMode={isDarkMode}
       language={language}

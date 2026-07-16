@@ -1,6 +1,6 @@
 import React from "react";
 
-function AdminLoginPage({ message, onLogin, t }) {
+function AdminLoginPage({ company, message, onLogin, t }) {
   const [form, setForm] = React.useState({
     email: "",
     password: "",
@@ -25,14 +25,18 @@ function AdminLoginPage({ message, onLogin, t }) {
   return (
     <section className="admin-login-page">
       <div className="admin-login-brand">
-        <img src="/images/brand/ep-chemical-logo.png" alt="EB Chemical" />
+        {company?.logoUrl ? (
+          <img src={company.logoUrl} alt={`${company.name} logo`} />
+        ) : (
+          <strong>{company?.name || "Company CPanel"}</strong>
+        )}
       </div>
 
       <form className="admin-login-card" onSubmit={handleSubmit}>
         <div className="admin-login-icon" aria-hidden="true">
-          <span>EB</span>
+          <span>{(company?.name || "CP").slice(0, 2).toUpperCase()}</span>
         </div>
-        <h1>{t("adminLogin.title")}</h1>
+        <h1>{company?.name ? `${company.name} CPanel` : "Company CPanel"}</h1>
         <p>{t("adminLogin.subtitle")}</p>
 
         {message && <div className="message-panel error">{message}</div>}

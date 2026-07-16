@@ -1,6 +1,6 @@
 import React from "react";
 import { ImageOff, ImagePlus, Save, Trash2, Upload } from "lucide-react";
-import { defaultWebsiteMedia, withWebsiteMediaVersion } from "../data/websiteMedia.js";
+import { withWebsiteMediaVersion } from "../data/websiteMedia.js";
 import { uploadImage } from "../utils/api.js";
 
 const emptyItem = {
@@ -44,25 +44,6 @@ function groupItems(items) {
     groups[key] = [...(groups[key] || []), item];
     return groups;
   }, {});
-}
-
-function defaultManagerItem(item) {
-  return {
-    ...item,
-    id: "",
-    _draftKey: `default-${item.sectionKey}`,
-    fallbackImageUrl: item.fallbackImageUrl || item.imageUrl || "",
-    imageUrl: "",
-  };
-}
-
-function mergeDefaultMediaItems(items) {
-  const seenSectionKeys = new Set((items || []).map((item) => item.sectionKey).filter(Boolean));
-  const missingDefaults = defaultWebsiteMedia
-    .filter((item) => item.sectionKey && !seenSectionKeys.has(item.sectionKey))
-    .map(defaultManagerItem);
-
-  return [...(items || []), ...missingDefaults];
 }
 
 function MediaEditor({ item, language, onDelete, onSave }) {
@@ -220,10 +201,13 @@ function MediaEditor({ item, language, onDelete, onSave }) {
   );
 }
 
-function WebsiteMediaManager({ language = "en", items = [], onDelete, onSave }) {
+function WebsiteMediaManager({ error = "", language = "en", items = [], onDelete, onSave }) {
   const [drafts, setDrafts] = React.useState([]);
   const isArabic = language === "ar";
-  const registeredItems = React.useMemo(() => mergeDefaultMediaItems(items), [items]);
+  const registeredItems = React.useMemo(
+    () => (Array.isArray(items) ? items : []),
+    [items],
+  );
   const grouped = groupItems([...registeredItems, ...drafts].sort(
     (a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0),
   ));
@@ -231,7 +215,11 @@ function WebsiteMediaManager({ language = "en", items = [], onDelete, onSave }) 
   function addDraft() {
     setDrafts((current) => [
       ...current,
-      { ...emptyItem, _draftKey: `draft-${Date.now()}`, sortOrder: items.length + current.length + 1 },
+      {
+        ...emptyItem,
+        _draftKey: `draft-${Date.now()}`,
+        sortOrder: registeredItems.length + current.length + 1,
+      },
     ]);
   }
 
@@ -260,6 +248,18 @@ function WebsiteMediaManager({ language = "en", items = [], onDelete, onSave }) 
           {isArabic ? "إضافة صورة" : "Add image"}
         </button>
       </header>
+
+      {error && (
+        <p className="website-media-message" role="alert">
+          {error}
+        </p>
+      )}
+
+      {!error && registeredItems.length === 0 && drafts.length === 0 && (
+        <p className="website-media-message">
+          {isArabic ? "لا توجد صور موقع حتى الآن." : "No website media has been added yet."}
+        </p>
+      )}
 
       {Object.entries(grouped).map(([group, groupEntries]) => (
         <section className="website-media-group" key={group}>

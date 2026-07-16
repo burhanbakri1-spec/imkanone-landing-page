@@ -3,7 +3,6 @@ import AdminCompaniesPage from "./pages/AdminCompaniesPage.jsx";
 import AdminDashboardPage from "./pages/AdminDashboardPage.jsx";
 import AdminEmployeesPage from "./pages/AdminEmployeesPage.jsx";
 import AdminLoginPage from "./pages/AdminLoginPage.jsx";
-import { products as initialProducts } from "./data/products.js";
 import { hasPermission } from "./data/permissions.js";
 import { createTranslator } from "./data/translations.js";
 import {
@@ -40,16 +39,41 @@ import {
   updateReviewStatus,
 } from "./utils/homeContentApi.js";
 import {
+  createBrand,
+  createCategory,
+  deleteBrand,
+  deleteCategory,
+  fetchBrands,
+  fetchCategories,
+  updateBrand,
+  updateCategory,
+} from "./utils/catalogApi.js";
+import {
+  applyCompanyDocumentBranding,
+  clearTenantCaches,
+  getStoredCompanyContext,
+} from "./utils/companyContext.js";
+import { updateCompanySettings } from "./utils/companyApi.js";
+import {
   clearWebsiteMediaCache,
   deleteWebsiteMedia as deleteWebsiteMediaApi,
   fetchAllWebsiteMedia,
   saveWebsiteMedia as saveWebsiteMediaApi,
 } from "./utils/websiteMediaApi.js";
+import {
+  canAccessAdminPage,
+  adminDashboardPath,
+  isAdminPortalRole,
+  isCompanyAdmin,
+  isPlatformAdmin,
+  landingPageForRole,
+  resolveAdminPage,
+} from "./utils/roles.js";
 import "./styles/global.css";
 
 const pagePaths = {
   "admin-login": "/admin/login",
-  admin: "/admin",
+  admin: adminDashboardPath,
   "admin-platform-companies": "/admin/platform/companies",
   "admin-products": "/admin/products",
   "admin-products-new": "/admin/products/new",
@@ -76,39 +100,29 @@ const adminPageKeys = Object.keys(pagePaths).filter((page) => page !== "admin-lo
 const staffPageKeys = ["admin-staff", "admin-staff-new", "admin-employees"];
 
 function isAdminRole(role) {
-  return role === "super_admin" || role === "admin" || role === "manager";
+  return isAdminPortalRole(role);
 }
 
 function landingPage(user) {
-  if (user?.role === "super_admin") return "admin-platform-companies";
-  if (user?.role === "admin" || user?.role === "manager") return "admin";
-  return "admin-login";
+  return landingPageForRole(user?.role);
 }
 
 function resolvePage(pathname, user) {
-  if (pathname === "/" || pathname === "/admin/dashboard") return landingPage(user);
-  const match = Object.entries(pagePaths).find(([, path]) => path === pathname);
-  if (!match) return landingPage(user);
-  if (match[0] === "admin-login") return isAdminRole(user?.role) ? landingPage(user) : match[0];
-  return isAdminRole(user?.role) ? match[0] : "admin-login";
-}
-
-function mergeCatalogDetails(products) {
-  return products.map((product) => {
-    const local = initialProducts.find(
-      (item) => item.id === product.id || item.slug === product.slug,
-    );
-    return local ? { ...local, ...product } : product;
-  });
+  return resolveAdminPage(pathname, user?.role, pagePaths);
 }
 
 function CPanelApp() {
   const storedUser = React.useMemo(() => getCurrentUser(), []);
+  const [company, setCompany] = React.useState(
+    () => storedUser?.activeCompany || getStoredCompanyContext(),
+  );
   const [activePage, setActivePage] = React.useState(() =>
     resolvePage(window.location.pathname, storedUser),
   );
   const [currentUser, setUser] = React.useState(storedUser);
-  const [products, setProducts] = React.useState(initialProducts);
+  const [products, setProducts] = React.useState([]);
+  const [categories, setCategories] = React.useState([]);
+  const [brands, setBrands] = React.useState([]);
   const [orders, setOrders] = React.useState([]);
   const [employees, setEmployees] = React.useState([]);
   const [employeeSessions, setEmployeeSessions] = React.useState([]);
@@ -116,6 +130,7 @@ function CPanelApp() {
   const [homepageCategoryCards, setHomepageCategoryCards] = React.useState([]);
   const [reviews, setReviews] = React.useState([]);
   const [websiteMedia, setWebsiteMedia] = React.useState([]);
+  const [websiteMediaError, setWebsiteMediaError] = React.useState("");
   const [adminLoginMessage, setAdminLoginMessage] = React.useState("");
   const [adminMessage, setAdminMessage] = React.useState("");
   const [language, setLanguage] = React.useState(
@@ -124,10 +139,16 @@ function CPanelApp() {
   const [isDarkMode, setIsDarkMode] = React.useState(
     () => localStorage.getItem("epChemicalAdminDarkMode") === "true",
   );
+  const previousCompanyId = React.useRef(company?.id || null);
   const t = React.useMemo(() => createTranslator(language), [language]);
 
   function navigate(page, options = {}) {
-    const safePage = pagePaths[page] ? page : landingPage(currentUser);
+    const authorizationRole = Object.prototype.hasOwnProperty.call(options, "role")
+      ? options.role
+      : currentUser?.role;
+    const safePage = pagePaths[page] && canAccessAdminPage(authorizationRole, page)
+      ? page
+      : landingPage({ role: authorizationRole });
     setAdminMessage("");
     if (!options.preserveLoginMessage) setAdminLoginMessage("");
     setActivePage(safePage);
@@ -141,8 +162,19 @@ function CPanelApp() {
     if (error?.status === 401) {
       persistCurrentUser(null);
       setUser(null);
+      setCompany(null);
+      setProducts([]);
+      setCategories([]);
+      setBrands([]);
+      setOrders([]);
+      setEmployees([]);
+      setReviews([]);
+      setHomepageOffers([]);
+      setHomepageCategoryCards([]);
+      setWebsiteMedia([]);
+      setWebsiteMediaError("");
       setAdminLoginMessage("Your session expired. Please sign in again.");
-      navigate("admin-login", { preserveLoginMessage: true, replace: true });
+      navigate("admin-login", { preserveLoginMessage: true, replace: true, role: null });
       return;
     }
     setAdminMessage(error?.status === 403 ? "Access denied." : error?.message || "Request failed.");
@@ -178,6 +210,26 @@ function CPanelApp() {
   }, []);
 
   React.useEffect(() => {
+    const nextCompanyId = company?.id || null;
+    if (previousCompanyId.current !== nextCompanyId) {
+      clearTenantCaches();
+      setProducts([]);
+      setCategories([]);
+      setBrands([]);
+      setOrders([]);
+      setEmployees([]);
+      setEmployeeSessions([]);
+      setReviews([]);
+      setHomepageOffers([]);
+      setHomepageCategoryCards([]);
+      setWebsiteMedia([]);
+      setWebsiteMediaError("");
+      previousCompanyId.current = nextCompanyId;
+    }
+    applyCompanyDocumentBranding(company);
+  }, [company]);
+
+  React.useEffect(() => {
     fetchCurrentUser()
       .then((user) => {
         if (user && !isAdminRole(user.role)) {
@@ -186,11 +238,13 @@ function CPanelApp() {
           setAdminLoginMessage("Access denied. An administrator account is required.");
         } else {
           setUser(user);
+          setCompany(user?.activeCompany || null);
         }
       })
       .catch(() => {
         persistCurrentUser(null);
         setUser(null);
+        setCompany(null);
       });
   }, []);
 
@@ -220,8 +274,10 @@ function CPanelApp() {
   }, [isDarkMode]);
 
   React.useEffect(() => {
-    if (!isAdminRole(currentUser?.role) || currentUser.role === "super_admin") return;
+    if (!isAdminRole(currentUser?.role) || isPlatformAdmin(currentUser.role)) return;
     void refreshProducts();
+    void refreshCategories();
+    void refreshBrands();
     void refreshOrders(currentUser);
     void refreshEmployees(currentUser);
     void refreshAdminContent(currentUser);
@@ -230,12 +286,37 @@ function CPanelApp() {
 
   async function refreshProducts() {
     try {
-      const next = mergeCatalogDetails(await fetchProducts());
+      const next = await fetchProducts();
       setProducts(next);
       return next;
     } catch (error) {
+      setProducts([]);
       handleApiError(error);
-      return products;
+      return [];
+    }
+  }
+
+  async function refreshCategories() {
+    try {
+      const next = await fetchCategories();
+      setCategories(next);
+      return next;
+    } catch (error) {
+      setCategories([]);
+      handleApiError(error);
+      return [];
+    }
+  }
+
+  async function refreshBrands() {
+    try {
+      const next = await fetchBrands();
+      setBrands(next);
+      return next;
+    } catch (error) {
+      setBrands([]);
+      handleApiError(error);
+      return [];
     }
   }
 
@@ -253,7 +334,7 @@ function CPanelApp() {
   }
 
   async function refreshEmployees(user = currentUser) {
-    if (user?.role !== "admin") {
+    if (!isCompanyAdmin(user?.role)) {
       setEmployees([]);
       setEmployeeSessions([]);
       return [];
@@ -267,13 +348,15 @@ function CPanelApp() {
       setEmployeeSessions(sessions);
       return nextEmployees;
     } catch (error) {
+      setEmployees([]);
+      setEmployeeSessions([]);
       handleApiError(error);
       return [];
     }
   }
 
   async function refreshAdminContent(user = currentUser) {
-    if (user?.role !== "admin") return;
+    if (!isCompanyAdmin(user?.role)) return;
     try {
       const [nextReviews, offers, cards] = await Promise.all([
         fetchAllReviews(),
@@ -284,6 +367,9 @@ function CPanelApp() {
       setHomepageOffers(offers);
       setHomepageCategoryCards(cards);
     } catch (error) {
+      setReviews([]);
+      setHomepageOffers([]);
+      setHomepageCategoryCards([]);
       handleApiError(error);
     }
   }
@@ -292,8 +378,12 @@ function CPanelApp() {
     if (!hasPermission(user, "website_media.manage")) return;
     try {
       clearWebsiteMediaCache();
-      setWebsiteMedia(await fetchAllWebsiteMedia());
+      const nextMedia = await fetchAllWebsiteMedia();
+      setWebsiteMedia(nextMedia);
+      setWebsiteMediaError("");
     } catch (error) {
+      setWebsiteMedia([]);
+      setWebsiteMediaError(error?.message || "Unable to load website media.");
       handleApiError(error);
     }
   }
@@ -309,7 +399,8 @@ function CPanelApp() {
         return;
       }
       setUser(session.user);
-      navigate(landingPage(session.user));
+      setCompany(session.activeCompany || null);
+      navigate(landingPage(session.user), { role: session.user.role });
     } catch (error) {
       setAdminLoginMessage(error.message || t("auth.loginFailed"));
     }
@@ -318,9 +409,78 @@ function CPanelApp() {
   async function handleLogout() {
     await logoutUser().catch(() => persistCurrentUser(null));
     setUser(null);
+    setCompany(null);
+    clearTenantCaches();
+    setProducts([]);
+    setCategories([]);
+    setBrands([]);
     setOrders([]);
     setEmployees([]);
-    navigate("admin-login");
+    setEmployeeSessions([]);
+    setReviews([]);
+    setHomepageOffers([]);
+    setHomepageCategoryCards([]);
+    setWebsiteMedia([]);
+    setWebsiteMediaError("");
+    navigate("admin-login", { role: null });
+  }
+
+  async function handleSaveCategory(category) {
+    try {
+      const saved = category.id
+        ? await updateCategory(category)
+        : await createCategory(category);
+      await refreshCategories();
+      return saved;
+    } catch (error) {
+      handleApiError(error);
+      throw error;
+    }
+  }
+
+  async function handleDeleteCategory(id) {
+    if (!window.confirm(t("admin.deleteConfirm"))) return;
+    try {
+      await deleteCategory(id);
+      await refreshCategories();
+    } catch (error) {
+      handleApiError(error);
+    }
+  }
+
+  async function handleSaveBrand(brand) {
+    try {
+      const saved = brand.id
+        ? await updateBrand(brand)
+        : await createBrand(brand);
+      await refreshBrands();
+      return saved;
+    } catch (error) {
+      handleApiError(error);
+      throw error;
+    }
+  }
+
+  async function handleDeleteBrand(id) {
+    if (!window.confirm(t("admin.deleteConfirm"))) return;
+    try {
+      await deleteBrand(id);
+      await refreshBrands();
+    } catch (error) {
+      handleApiError(error);
+    }
+  }
+
+  async function handleSaveCompanySettings(settings) {
+    try {
+      const updated = await updateCompanySettings(settings);
+      setCompany(updated);
+      setUser((current) => current ? { ...current, activeCompany: updated } : current);
+      return updated;
+    } catch (error) {
+      handleApiError(error);
+      throw error;
+    }
   }
 
   async function handleSaveProduct(product) {
@@ -494,6 +654,7 @@ function CPanelApp() {
   }
 
   const sharedLayoutProps = {
+    company,
     currentUser,
     isDarkMode,
     language,
@@ -507,7 +668,7 @@ function CPanelApp() {
     <div className={activePage === "admin-login" ? "app-shell admin-login-shell" : "app-shell"}>
       <main className={activePage === "admin-login" ? "admin-login-main" : "admin-panel-main"}>
         {activePage === "admin-login" && (
-          <AdminLoginPage message={adminLoginMessage} onLogin={handleAdminLogin} t={t} />
+          <AdminLoginPage company={company} message={adminLoginMessage} onLogin={handleAdminLogin} t={t} />
         )}
 
         {adminPageKeys.includes(activePage) &&
@@ -515,11 +676,16 @@ function CPanelApp() {
           !staffPageKeys.includes(activePage) && (
             <AdminDashboardPage
               activePage={activePage}
+              brands={brands}
+              categories={categories}
+              company={company}
               employees={employees}
               homepageCategoryCards={homepageCategoryCards}
               homepageOffers={homepageOffers}
               onAssignEmployee={handleAssignEmployee}
               onDeleteEmployee={handleDeleteEmployee}
+              onDeleteBrand={handleDeleteBrand}
+              onDeleteCategory={handleDeleteCategory}
               onDeleteOffer={handleDeleteOffer}
               onDeleteOrder={handleDeleteOrder}
               onDeleteProduct={handleDeleteProduct}
@@ -527,6 +693,9 @@ function CPanelApp() {
               onDeleteWebsiteMedia={handleDeleteWebsiteMedia}
               onModerateReview={handleModerateReview}
               onSaveCategoryCard={handleSaveCategoryCard}
+              onSaveBrand={handleSaveBrand}
+              onSaveCategory={handleSaveCategory}
+              onSaveCompanySettings={handleSaveCompanySettings}
               onSaveEmployee={handleSaveEmployee}
               onSaveOffer={handleSaveOffer}
               onSaveProduct={handleSaveProduct}
@@ -538,6 +707,7 @@ function CPanelApp() {
               statusMessage={adminMessage}
               t={t}
               websiteMedia={websiteMedia}
+              websiteMediaError={websiteMediaError}
               {...sharedLayoutProps}
             />
           )}

@@ -1,3 +1,5 @@
+import { isCompanyAdmin } from "../utils/roles.js";
+
 export const permissionGroups = [
   {
     titleKey: "admin.dashboard",
@@ -38,7 +40,7 @@ export const permissionGroups = [
 ];
 
 export function hasPermission(user, permission) {
-  if (user?.role === "admin") {
+  if (isCompanyAdmin(user?.role)) {
     return true;
   }
 

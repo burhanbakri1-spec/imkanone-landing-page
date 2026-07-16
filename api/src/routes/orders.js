@@ -241,8 +241,11 @@ async function safePersist(companyId) {
 
 router.get("/", requireAuth, (req, res) => {
   const orders = orderRepository.getByCompany(req.companyId);
-  if (req.user.role === "admin" || req.user.permissions?.includes("orders.view")) {
-    const isRestrictedStaff = isStaffRole(req.user.role) && !req.user.permissions?.includes("orders.view");
+  if (
+    ["admin", "company_admin"].includes(req.membershipRole)
+    || req.user.permissions?.includes("orders.view")
+  ) {
+    const isRestrictedStaff = isStaffRole(req.membershipRole) && !req.user.permissions?.includes("orders.view");
     if (isRestrictedStaff) {
       return res.json(
         orders.filter(

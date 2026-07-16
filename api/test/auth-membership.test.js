@@ -88,6 +88,22 @@ fs.writeFileSync(path.join(dataStoreDir, "store.json"), JSON.stringify({
     { id: "eb-order-assign", company_id: "eb-chemical", status: "Pending", customer: {} },
     { id: "eb-order-delete", company_id: "eb-chemical", status: "Pending", customer: {} },
   ],
+  workSessions: [
+    {
+      id: "icare-session",
+      company_id: "icare",
+      employeeId: "icare-employee",
+      date: "2026-07-13",
+      loginTime: now,
+    },
+    {
+      id: "eb-session",
+      company_id: "eb-chemical",
+      employeeId: "eb-employee",
+      date: "2026-07-13",
+      loginTime: now,
+    },
+  ],
 }, null, 2));
 
 process.env.DATA_STORE_DIR = dataStoreDir;
@@ -256,6 +272,68 @@ test("membership-aware authentication and authenticated tenant context", async (
     });
     assert.equal(reviewResult.response.status, 201);
     assert.equal("companyId" in reviewResult.body, false);
+  });
+
+  await t.test("iCare company_admin reads only iCare orders, employees, work sessions, and media", async () => {
+    const ordersResult = await request("/orders", { token: icareSession.token });
+    assert.equal(ordersResult.response.status, 200);
+    assert.equal(ordersResult.body.length, 3);
+    assert.equal(ordersResult.body.every((order) => order.id.startsWith("icare-")), true);
+
+    const employeesResult = await request("/employees", { token: icareSession.token });
+    assert.equal(employeesResult.response.status, 200);
+    assert.deepEqual(employeesResult.body.map((employee) => employee.id), ["icare-employee"]);
+    assert.equal(employeesResult.body.some((employee) => employee.id === "eb-employee"), false);
+
+    const sessionsResult = await request("/work-sessions/employees", {
+      token: icareSession.token,
+    });
+    assert.equal(sessionsResult.response.status, 200);
+    assert.deepEqual(sessionsResult.body.map((session) => session.id), ["icare-session"]);
+
+    const mediaResult = await request("/website-media/all", { token: icareSession.token });
+    assert.equal(mediaResult.response.status, 200);
+    assert.deepEqual(mediaResult.body.items.map((item) => item.id), ["icare-media"]);
+    assert.equal(mediaResult.body.items.some((item) => item.id === "eb-media"), false);
+  });
+
+  await t.test("customers and employees remain restricted from tenant administration reads", async () => {
+    const customerSession = await login("customer@icare.test");
+    const employeeSession = await login("employee@icare.test");
+    assert.equal(customerSession.response.status, 200);
+    assert.equal(employeeSession.response.status, 200);
+
+    for (const token of [customerSession.body.token, employeeSession.body.token]) {
+      const ordersResult = await request("/orders", { token });
+      assert.equal(ordersResult.response.status, 403);
+
+      const employeesResult = await request("/employees", { token });
+      assert.equal(employeesResult.response.status, 403);
+
+      const sessionsResult = await request("/work-sessions/employees", { token });
+      assert.equal(sessionsResult.response.status, 403);
+    }
+
+    const customerOwnSessions = await request("/work-sessions/employees/icare-customer", {
+      token: customerSession.body.token,
+    });
+    assert.equal(customerOwnSessions.response.status, 403);
+
+    const employeeOtherSessions = await request("/work-sessions/employees/eb-employee", {
+      token: employeeSession.body.token,
+    });
+    assert.equal(employeeOtherSessions.response.status, 403);
+
+    const employeeOwnSessions = await request("/work-sessions/employees/icare-employee", {
+      token: employeeSession.body.token,
+    });
+    assert.equal(employeeOwnSessions.response.status, 200);
+    assert.equal(employeeOwnSessions.body.length >= 1, true);
+    assert.equal(
+      employeeOwnSessions.body.every((session) => session.employeeId === "icare-employee"),
+      true,
+    );
+    assert.equal(employeeOwnSessions.body.some((session) => session.id === "eb-session"), false);
   });
 
   await t.test("iCare company_admin can assign only an iCare employee to an iCare order", async () => {

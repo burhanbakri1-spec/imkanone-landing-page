@@ -1,4 +1,4 @@
-const configuredApiUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const configuredApiUrl = import.meta.env?.VITE_API_URL || "http://localhost:5000";
 const normalizedApiUrl = configuredApiUrl.replace(/\/$/, "");
 
 export const apiBaseUrl = normalizedApiUrl.endsWith("/api")
@@ -7,6 +7,12 @@ export const apiBaseUrl = normalizedApiUrl.endsWith("/api")
 export const tokenStorageKey = "epChemicalJwt";
 export const userStorageKey = "epChemicalUser";
 export const protectedApiErrorEvent = "epChemical:protected-api-error";
+
+export function resolveApiAssetUrl(value) {
+  if (!value || typeof value !== "string") return null;
+  if (!value.startsWith("/")) return value;
+  return new URL(value, `${new URL(apiBaseUrl).origin}/`).toString();
+}
 
 function createUploadError(message, status) {
   const error = new Error(message);
@@ -28,6 +34,10 @@ export function getToken() {
 }
 
 export function setAuthSession({ token, user }) {
+  const previousToken = localStorage.getItem(tokenStorageKey);
+  if (previousToken && previousToken !== token) {
+    localStorage.removeItem("cpanelActiveCompany");
+  }
   localStorage.setItem(tokenStorageKey, token);
   localStorage.setItem(userStorageKey, JSON.stringify(user));
 }
@@ -35,6 +45,7 @@ export function setAuthSession({ token, user }) {
 export function clearAuthSession() {
   localStorage.removeItem(tokenStorageKey);
   localStorage.removeItem(userStorageKey);
+  localStorage.removeItem("cpanelActiveCompany");
 }
 
 export function getStoredUser() {
@@ -46,16 +57,24 @@ export function getStoredUser() {
   }
 }
 
+export function createApiHeaders(token, headers = {}) {
+  const safeHeaders = Object.fromEntries(
+    Object.entries(headers).filter(([name]) => name.toLowerCase() !== "x-company-id"),
+  );
+
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...safeHeaders,
+  };
+}
+
 export async function apiRequest(path, options = {}) {
   const token = getToken();
   const url = `${apiBaseUrl}${path}`;
   const response = await fetch(url, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
-    },
+    headers: createApiHeaders(token, options.headers),
   });
 
   if (response.status === 204) {

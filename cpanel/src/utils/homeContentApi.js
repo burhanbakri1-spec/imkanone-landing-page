@@ -14,11 +14,7 @@ export async function fetchHomepageOffers() {
 }
 
 export async function fetchAllHomepageOffers() {
-  try {
-    return await apiRequest("/home-offers/all");
-  } catch (error) {
-    return fallbackOffers;
-  }
+  return apiRequest("/home-offers/all");
 }
 
 export async function fetchHomepageCategoryCards() {
@@ -30,11 +26,7 @@ export async function fetchHomepageCategoryCards() {
 }
 
 export async function fetchAllHomepageCategoryCards() {
-  try {
-    return await apiRequest("/home-offers/category-cards/all");
-  } catch (error) {
-    return fallbackCategoryCards;
-  }
+  return apiRequest("/home-offers/category-cards/all");
 }
 
 export async function saveHomepageCategoryCard(card) {
@@ -67,11 +59,7 @@ export async function fetchReviews() {
 }
 
 export async function fetchAllReviews() {
-  try {
-    return await apiRequest("/reviews/all");
-  } catch (error) {
-    return fallbackReviews;
-  }
+  return apiRequest("/reviews/all");
 }
 
 export async function saveReview(review) {

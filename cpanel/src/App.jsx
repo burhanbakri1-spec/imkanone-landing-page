@@ -77,6 +77,13 @@ import {
   fetchWebsiteMedia,
   saveWebsiteMedia as saveWebsiteMediaApi,
 } from "./utils/websiteMediaApi.js";
+import {
+  isCompanyAdmin,
+  isPlatformAdmin,
+  isPlatformPage,
+  isStaffRole,
+  isTenantOperator,
+} from "./utils/roles.js";
 import "./styles/global.css";
 
 const cartStorageKey = "epChemicalCart";
@@ -154,10 +161,6 @@ function getInitialPageFromPath() {
   return entry?.[0] || "home";
 }
 
-function isStaffRole(role) {
-  return role === "employee" || role === "staff" || role === "manager";
-}
-
 function getStoredCart() {
   try {
     const storedCart = localStorage.getItem(cartStorageKey);
@@ -226,7 +229,7 @@ function App() {
   React.useEffect(() => {
     loadOrders(currentUser);
     loadEmployees(currentUser);
-    if (currentUser?.role === "admin") {
+    if (isCompanyAdmin(currentUser?.role)) {
       loadReviews(currentUser);
     }
     loadWorkSession(currentUser);
@@ -237,9 +240,9 @@ function App() {
     const portalPages = [...adminPageKeys, "employee"];
 
     if (activePage === "admin-login" && currentUser) {
-      if (currentUser.role === "super_admin") {
+      if (isPlatformAdmin(currentUser.role)) {
         navigate("admin-platform-companies");
-      } else if (currentUser.role === "admin" || currentUser.role === "manager") {
+      } else if (isTenantOperator(currentUser.role)) {
         navigate("admin");
       } else if (isStaffRole(currentUser.role)) {
         navigate("employee");
@@ -258,6 +261,15 @@ function App() {
     if (portalPages.includes(activePage) && currentUser?.role === "customer") {
       setAdminLoginMessage(t("adminLogin.staffOnly"));
       navigate("admin-login", { preserveAdminLoginMessage: true });
+      return;
+    }
+
+    if (adminPageKeys.includes(activePage) && currentUser) {
+      if (isPlatformPage(activePage) && !isPlatformAdmin(currentUser.role)) {
+        navigate(isTenantOperator(currentUser.role) ? "admin" : "admin-login");
+      } else if (!isPlatformPage(activePage) && !isTenantOperator(currentUser.role)) {
+        navigate(isPlatformAdmin(currentUser.role) ? "admin-platform-companies" : "admin-login");
+      }
     }
   }, [activePage, currentUser, t]);
 
@@ -335,7 +347,7 @@ function App() {
   }
 
   async function loadEmployees(user) {
-    if (user?.role !== "admin") {
+    if (!isCompanyAdmin(user?.role)) {
       setEmployees([]);
       return;
     }
@@ -370,14 +382,14 @@ function App() {
         setWorkSession(await fetchMyTodayWorkSession());
       }
 
-      if (user.role === "admin") {
+      if (isCompanyAdmin(user.role)) {
         setEmployeeSessions(await fetchEmployeeWorkSessions());
       }
     } catch (error) {
       if (isStaffRole(user.role)) {
         setWorkSession(null);
       }
-      if (user.role === "admin") {
+      if (isCompanyAdmin(user.role)) {
         setEmployeeSessions([]);
       }
     }
@@ -402,7 +414,7 @@ function App() {
   async function loadReviews(user) {
     if (!user) return;
     setReviews(await fetchAllReviews());
-    if (user.role === "admin" || isStaffRole(user.role)) {
+    if (isCompanyAdmin(user.role) || isStaffRole(user.role)) {
       setHomepageOffers(await fetchAllHomepageOffers());
       setHomepageCategoryCards(await fetchAllHomepageCategoryCards());
     }
@@ -526,9 +538,9 @@ function App() {
       setUser(session.user);
       setWorkSession(session.workSession || null);
       navigate(
-        session.user.role === "super_admin"
+        isPlatformAdmin(session.user.role)
           ? "admin-platform-companies"
-          : session.user.role === "admin"
+          : isTenantOperator(session.user.role)
           ? "admin"
           : isStaffRole(session.user.role)
             ? "employee"
@@ -544,21 +556,14 @@ function App() {
       const session = await loginUser(credentials.email, credentials.password);
       const role = session.user?.role;
 
-      if (role === "super_admin") {
+      if (isPlatformAdmin(role)) {
         setUser(session.user);
         setWorkSession(session.workSession || null);
         navigate("admin-platform-companies");
         return;
       }
 
-      if (role === "admin") {
-        setUser(session.user);
-        setWorkSession(session.workSession || null);
-        navigate("admin");
-        return;
-      }
-
-      if (role === "manager") {
+      if (isTenantOperator(role)) {
         setUser(session.user);
         setWorkSession(session.workSession || null);
         navigate("admin");
@@ -867,7 +872,7 @@ function App() {
   }
 
   async function handleCreateEmployeeOrder(orderPayload) {
-    const isPortalOperator = currentUser?.role === "admin" || isStaffRole(currentUser?.role);
+    const isPortalOperator = isTenantOperator(currentUser?.role) || isStaffRole(currentUser?.role);
     try {
       const order = await createOrder({
         ...orderPayload,

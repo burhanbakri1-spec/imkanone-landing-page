@@ -1,4 +1,3 @@
-import { defaultWebsiteMedia } from "../data/websiteMedia.js";
 import { apiRequest } from "./api.js";
 
 const websiteMediaCacheKeys = [
@@ -9,16 +8,21 @@ const websiteMediaCacheKeys = [
   "epChemicalWebsiteMediaCache",
 ];
 
-function stripFallbackImage(item) {
-  return {
-    ...item,
-    fallbackImageUrl: item.fallbackImageUrl || item.imageUrl || "",
-    imageUrl: "",
-  };
-}
+export function normalizeWebsiteMediaResponse(payload, { includeHidden = false } = {}) {
+  if (Array.isArray(payload)) return payload;
 
-function defaultWebsiteMediaDefinitions() {
-  return defaultWebsiteMedia.map(stripFallbackImage);
+  if (payload && typeof payload === "object" && Array.isArray(payload.items)) {
+    if (!includeHidden) return payload.items;
+    const hiddenSectionKeys = Array.isArray(payload.hiddenSectionKeys)
+      ? payload.hiddenSectionKeys
+      : [];
+    return [
+      ...payload.items,
+      ...hiddenSectionKeys.map((sectionKey) => ({ sectionKey, isHidden: true })),
+    ];
+  }
+
+  throw new TypeError("Website media API returned an invalid response.");
 }
 
 export function clearWebsiteMediaCache() {
@@ -31,22 +35,21 @@ export function clearWebsiteMediaCache() {
 }
 
 export async function fetchWebsiteMedia() {
-  try {
-    clearWebsiteMediaCache();
-    return await apiRequest("/website-media", { cache: "no-store" });
-  } catch {
-    return defaultWebsiteMediaDefinitions();
-  }
+  clearWebsiteMediaCache();
+  const response = await apiRequest("/website-media", { cache: "no-store" });
+  return normalizeWebsiteMediaResponse(response);
 }
 
-export function fetchAllWebsiteMedia() {
+export async function fetchAllWebsiteMedia() {
   clearWebsiteMediaCache();
-  return apiRequest("/website-media/all", { cache: "no-store" });
+  const response = await apiRequest("/website-media/all", { cache: "no-store" });
+  return normalizeWebsiteMediaResponse(response);
 }
 
-export function fetchWebsiteMediaSection(sectionKey) {
+export async function fetchWebsiteMediaSection(sectionKey) {
   clearWebsiteMediaCache();
-  return apiRequest(`/website-media/${encodeURIComponent(sectionKey)}`, { cache: "no-store" });
+  const response = await apiRequest(`/website-media/${encodeURIComponent(sectionKey)}`, { cache: "no-store" });
+  return normalizeWebsiteMediaResponse(response);
 }
 
 export async function saveWebsiteMedia(item) {
