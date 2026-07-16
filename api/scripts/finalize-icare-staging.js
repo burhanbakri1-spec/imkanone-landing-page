@@ -1,5 +1,7 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import crypto from "node:crypto";
+import fs from "node:fs/promises";
 import { Pool } from "pg";
 
 const EXTERNAL_TARGET_URL = "https://cg8hv00dppir2hu99ds4p75h.187.55.225.56.sslip.io";
@@ -11,13 +13,20 @@ const CONTAINER_DATABASE_USER = "eb_catalog_test_user";
 const args = new Set(process.argv.slice(2));
 const containerLocal = args.has("--container-local");
 const verifyBoundaryOnly = args.has("--verify-boundary");
-const supportedArgs = new Set(["--container-local", "--verify-boundary"]);
+const statusOnly = args.has("--status");
+const supportedArgs = new Set(["--container-local", "--verify-boundary", "--status"]);
 const unsupportedArgs = [...args].filter((argument) => !supportedArgs.has(argument));
 if (unsupportedArgs.length) {
   throw new Error(`Unsupported argument: ${unsupportedArgs[0]}`);
 }
 if (verifyBoundaryOnly && !containerLocal) {
   throw new Error("--verify-boundary requires --container-local.");
+}
+if (statusOnly && !containerLocal) {
+  throw new Error("--status requires --container-local.");
+}
+if (statusOnly && verifyBoundaryOnly) {
+  throw new Error("--status and --verify-boundary cannot be combined.");
 }
 const TARGET_URL = containerLocal ? CONTAINER_TARGET_URL : EXTERNAL_TARGET_URL;
 const TARGET_HOST = containerLocal ? CONTAINER_TARGET_HOST : EXTERNAL_TARGET_HOST;
@@ -55,6 +64,16 @@ const EXPECTED_COUNTS = Object.freeze({
 
 const LEGACY_HOST = "backend.igroup.website";
 const LEGACY_PREFIXES = ["/public/uploads/", "/uploads/", "/storage/icare/uploads/"];
+const IMAGE_CONCURRENCY = 4;
+const runState = {
+  interrupted: false,
+  completed: 0,
+  failed: 0,
+  total: 0,
+  activeToken: "",
+  abortController: new AbortController(),
+  interruptReported: false,
+};
 const report = {
   cleanup: [],
   images: {
@@ -99,12 +118,26 @@ export async function authenticateBeforeMutation({
   let token = "";
   try {
     token = await authenticate(loginPassword);
+    runState.activeToken = token;
     loginPassword = "";
     return await mutate(token);
   } finally {
     loginPassword = "";
     token = "";
+    runState.activeToken = "";
   }
+}
+
+export function interruptRun(state = runState) {
+  state.interrupted = true;
+  state.activeToken = "";
+  password = "";
+  state.abortController.abort();
+  return {
+    completed: state.completed,
+    failed: state.failed,
+    remaining: Math.max(0, state.total - state.completed - state.failed),
+  };
 }
 
 async function readJson(response, label) {
@@ -254,11 +287,11 @@ function assertExactRecord(actual, expected, type) {
   }
 }
 
-async function cleanupTestRecords(token) {
+export async function cleanupTestRecords(token, apiCall = api) {
   const [products, categories, brands] = await Promise.all([
-    api(token, "/api/products"),
-    api(token, "/api/categories"),
-    api(token, "/api/brands"),
+    apiCall(token, "/api/products"),
+    apiCall(token, "/api/categories"),
+    apiCall(token, "/api/brands"),
   ]);
   const product = products.find((entry) => entry.id === TEST_RECORDS.product.id);
   const category = categories.find((entry) => entry.id === TEST_RECORDS.category.id);
@@ -284,15 +317,15 @@ async function cleanupTestRecords(token) {
   }
 
   if (product) {
-    await api(token, `/api/products/${encodeURIComponent(product.id)}`, { method: "DELETE" });
+    await apiCall(token, `/api/products/${encodeURIComponent(product.id)}`, { method: "DELETE" });
     report.cleanup.push({ type: "product", id: product.id });
   }
   if (category) {
-    await api(token, `/api/categories/${encodeURIComponent(category.id)}`, { method: "DELETE" });
+    await apiCall(token, `/api/categories/${encodeURIComponent(category.id)}`, { method: "DELETE" });
     report.cleanup.push({ type: "category", id: category.id });
   }
   if (brand) {
-    await api(token, `/api/brands/${encodeURIComponent(brand.id)}`, { method: "DELETE" });
+    await apiCall(token, `/api/brands/${encodeURIComponent(brand.id)}`, { method: "DELETE" });
     report.cleanup.push({ type: "brand", id: brand.id });
   }
 }
@@ -301,12 +334,102 @@ function legacyUrl(value) {
   if (typeof value !== "string" || !value.trim()) return "";
   try {
     const url = new URL(value, `https://${LEGACY_HOST}`);
+    if (url.pathname.includes("/uploads/icare/")) return "";
     if (url.hostname.toLowerCase() !== LEGACY_HOST) return "";
     if (!LEGACY_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))) return "";
     return url.toString();
   } catch {
     return "";
   }
+}
+
+function isMigratedIcareUrl(value) {
+  if (typeof value !== "string" || !value.trim()) return false;
+  try {
+    const url = new URL(value, CONTAINER_TARGET_URL);
+    return url.hostname.toLowerCase() !== LEGACY_HOST
+      && (
+        url.pathname.includes("/uploads/icare/")
+        || url.pathname.includes("/storage/icare/uploads/")
+      );
+  } catch {
+    return false;
+  }
+}
+
+function imageReferences({ products = [], categories = [], brands = [], media = [] }) {
+  const references = [];
+  const add = (value, entity) => references.push({ value: String(value || ""), entity });
+
+  for (const category of categories) add(category.imageUrl, `category:${category.id}`);
+  for (const brand of brands) add(brand.logoUrl, `brand:${brand.id}`);
+  for (const item of media) {
+    add(item.imageUrl, `website-media:${item.id}:image`);
+    add(item.fallbackImageUrl, `website-media:${item.id}:fallback`);
+  }
+  for (const product of products) {
+    add(product.image || product.primaryImage, `product:${product.id}:primary`);
+    add(product.hoverImage || product.secondaryImage, `product:${product.id}:hover`);
+    for (const [index, variant] of (Array.isArray(product.variants) ? product.variants : []).entries()) {
+      add(
+        variant?.image_url || variant?.imageUrl || variant?.image,
+        `product:${product.id}:variant:${variant?.id || index}`,
+      );
+    }
+    for (const [index, entry] of (Array.isArray(product.gallery_images) ? product.gallery_images : []).entries()) {
+      add(
+        entry?.image_url || entry?.image || entry?.url,
+        `product:${product.id}:gallery:${entry?.id || index}`,
+      );
+    }
+  }
+  return references;
+}
+
+export function summarizeStatus({
+  products = [],
+  categories = [],
+  brands = [],
+  texts = [],
+  media = [],
+}) {
+  const references = imageReferences({ products, categories, brands, media });
+  return {
+    counts: {
+      categories: categories.length,
+      brands: brands.length,
+      products: products.length,
+      websiteTexts: texts.length,
+      websiteMedia: media.length,
+    },
+    testRecords: {
+      product: products.some((entry) => entry.id === TEST_RECORDS.product.id),
+      category: categories.some((entry) => entry.id === TEST_RECORDS.category.id),
+      brand: brands.some((entry) => entry.id === TEST_RECORDS.brand.id),
+    },
+    images: {
+      legacy: references.filter(({ value }) => Boolean(legacyUrl(value))).length,
+      migrated: references.filter(({ value }) => isMigratedIcareUrl(value)).length,
+      emptyOrCleared: references.filter(({ value }) => !value.trim()).length,
+    },
+  };
+}
+
+async function loadPublicStatusSnapshot(apiCall = api) {
+  const [products, categories, brands, texts, mediaResponse] = await Promise.all([
+    apiCall(null, "/api/products"),
+    apiCall(null, "/api/categories"),
+    apiCall(null, "/api/brands"),
+    apiCall(null, "/api/website-texts"),
+    apiCall(null, "/api/website-media"),
+  ]);
+  const media = Array.isArray(mediaResponse) ? mediaResponse : mediaResponse?.items || [];
+  return { products, categories, brands, texts, media };
+}
+
+export async function runStatusMode({ apiCall = api } = {}) {
+  const snapshot = await loadPublicStatusSnapshot(apiCall);
+  return summarizeStatus(snapshot);
 }
 
 function candidateUrls(source) {
@@ -324,42 +447,39 @@ function candidateUrls(source) {
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 async function downloadCandidate(url) {
-  let lastError = null;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      const response = await fetch(url, {
-        redirect: "follow",
-        signal: AbortSignal.timeout(45000),
-        headers: {
-          Accept: "image/avif,image/webp,image/png,image/jpeg,image/gif,*/*;q=0.5",
-          "User-Agent": "iCare-Staging-Migration/1.0",
-        },
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const contentType = String(response.headers.get("content-type") || "").split(";")[0].toLowerCase();
-      if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(contentType)) {
-        throw new Error(`unsupported content type ${contentType || "unknown"}`);
-      }
-      const data = Buffer.from(await response.arrayBuffer());
-      if (!data.length || data.length > 8 * 1024 * 1024) {
-        throw new Error(`invalid image size ${data.length}`);
-      }
-      return { data, contentType, sourceUrl: url };
-    } catch (error) {
-      lastError = error;
-      if (attempt < 3) await delay(attempt * 1500);
-    }
+  if (runState.interrupted) throw new Error("Finalization interrupted.");
+  const response = await fetch(url, {
+    redirect: "follow",
+    signal: AbortSignal.any([
+      AbortSignal.timeout(15000),
+      runState.abortController.signal,
+    ]),
+    headers: {
+      Accept: "image/avif,image/webp,image/png,image/jpeg,image/gif,*/*;q=0.5",
+      "User-Agent": "iCare-Staging-Migration/1.0",
+    },
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const contentType = String(response.headers.get("content-type") || "").split(";")[0].toLowerCase();
+  if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(contentType)) {
+    throw new Error(`unsupported content type ${contentType || "unknown"}`);
   }
-  throw lastError || new Error("download failed");
+  const data = Buffer.from(await response.arrayBuffer());
+  if (!data.length || data.length > 8 * 1024 * 1024) {
+    throw new Error(`invalid image size ${data.length}`);
+  }
+  return { data, contentType, sourceUrl: url };
 }
 
 async function recoverImage(source) {
   let lastError = null;
-  for (const candidate of candidateUrls(source)) {
+  for (const [index, candidate] of candidateUrls(source).slice(0, 2).entries()) {
     try {
       return await downloadCandidate(candidate);
     } catch (error) {
       lastError = error;
+      if (runState.interrupted) throw new Error("Finalization interrupted.");
+      if (index === 0) await delay(1000);
     }
   }
   throw lastError || new Error("No recoverable legacy image candidate.");
@@ -390,6 +510,98 @@ async function uploadImage(token, source, recovered) {
   return url;
 }
 
+function contentHash(data) {
+  return crypto.createHash("sha256").update(data).digest("hex");
+}
+
+function publicUploadUrl(filename) {
+  const relativePath = `/uploads/icare/${encodeURIComponent(filename)}`;
+  const publicApiUrl = String(process.env.PUBLIC_API_URL || "").trim().replace(/\/+$/, "");
+  return publicApiUrl ? `${publicApiUrl}${relativePath}` : relativePath;
+}
+
+async function existingUploadHashes() {
+  const uploadsRoot = process.env.UPLOADS_DIR
+    ? path.resolve(process.env.UPLOADS_DIR)
+    : path.resolve(process.cwd(), "uploads");
+  const companyDirectory = path.join(uploadsRoot, "icare");
+  const hashes = new Map();
+  let entries = [];
+  try {
+    entries = await fs.readdir(companyDirectory, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return hashes;
+    throw error;
+  }
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const extension = path.extname(entry.name).toLowerCase();
+    if (![".jpg", ".jpeg", ".png", ".webp", ".gif"].includes(extension)) continue;
+    const filename = path.join(companyDirectory, entry.name);
+    const stat = await fs.stat(filename);
+    if (!stat.size || stat.size > 8 * 1024 * 1024) continue;
+    const data = await fs.readFile(filename);
+    hashes.set(contentHash(data), publicUploadUrl(entry.name));
+  }
+  return hashes;
+}
+
+export async function processUniqueImageJobs({
+  jobs,
+  recover,
+  upload,
+  findExisting = async () => "",
+  concurrency = IMAGE_CONCURRENCY,
+  state = runState,
+  onProgress = () => {},
+  dedupeKey = (recovered) => recovered?.data ? contentHash(recovered.data) : "",
+}) {
+  const uniqueJobs = [...new Map(jobs.map((job) => [job.source, job])).values()];
+  const results = new Map();
+  const resolvedByKey = new Map();
+  let cursor = 0;
+  state.total = uniqueJobs.length;
+
+  async function worker() {
+    while (!state.interrupted) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= uniqueJobs.length) return;
+      const job = uniqueJobs[index];
+      onProgress(index + 1, uniqueJobs.length, job);
+      try {
+        const recovered = await recover(job.source);
+        if (state.interrupted) return;
+        const key = dedupeKey(recovered, job);
+        let resolution = key ? resolvedByKey.get(key) : null;
+        if (!resolution) {
+          resolution = (async () => {
+            const existing = await findExisting(recovered, job);
+            return existing || upload(job.source, recovered, job);
+          })();
+          if (key) resolvedByKey.set(key, resolution);
+        }
+        const migratedUrl = await resolution;
+        results.set(job.source, migratedUrl);
+        state.completed += 1;
+      } catch (error) {
+        if (state.interrupted) return;
+        results.set(job.source, "");
+        state.failed += 1;
+        job.error = error.message;
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(Math.max(1, concurrency), uniqueJobs.length || 1) },
+      () => worker(),
+    ),
+  );
+  return { results, jobs: uniqueJobs };
+}
+
 async function migrateImages(token) {
   const [products, categories, brands, mediaResponse] = await Promise.all([
     api(token, "/api/products"),
@@ -398,30 +610,50 @@ async function migrateImages(token) {
     api(token, "/api/website-media/all"),
   ]);
   const media = Array.isArray(mediaResponse) ? mediaResponse : mediaResponse?.items || [];
-  const migrated = new Map();
+  const references = imageReferences({ products, categories, brands, media });
+  const legacyReferences = references
+    .map(({ value, entity }) => ({ source: legacyUrl(value), entity }))
+    .filter(({ source }) => Boolean(source));
+  report.images.discovered = legacyReferences.length;
+  const uploadHashes = await existingUploadHashes();
+  const processed = await processUniqueImageJobs({
+    jobs: legacyReferences,
+    recover: recoverImage,
+    findExisting: async (recovered) => uploadHashes.get(contentHash(recovered.data)) || "",
+    upload: async (source, recovered) => {
+      const hash = contentHash(recovered.data);
+      const url = await uploadImage(token, source, recovered);
+      uploadHashes.set(hash, url);
+      report.images.uploaded += 1;
+      return url;
+    },
+    onProgress: (current, total, job) => {
+      console.log(`[${current}/${total}] ${job.entity} image`);
+    },
+  });
+  if (runState.interrupted) {
+    throw new Error("Finalization interrupted.");
+  }
+  const migrated = processed.results;
+  report.images.reused += processed.jobs.length - report.images.uploaded - runState.failed;
+  for (const job of processed.jobs) {
+    if (job.error) {
+      report.images.failed.push({
+        entity: job.entity,
+        sourceUrl: job.source,
+        error: job.error,
+      });
+    }
+  }
 
   async function migratedUrl(source, entity) {
     const normalized = legacyUrl(source);
     if (!normalized) return source;
-    report.images.discovered += 1;
-    if (migrated.has(normalized)) {
-      report.images.reused += 1;
-      return migrated.get(normalized);
-    }
-    try {
-      const recovered = await recoverImage(normalized);
-      const uploaded = await uploadImage(token, normalized, recovered);
-      migrated.set(normalized, uploaded);
-      report.images.uploaded += 1;
-      return uploaded;
-    } catch (error) {
-      migrated.set(normalized, "");
-      report.images.failed.push({ entity, sourceUrl: normalized, error: error.message });
-      return "";
-    }
+    return migrated.get(normalized) || "";
   }
 
   for (const category of categories) {
+    if (runState.interrupted) throw new Error("Finalization interrupted.");
     const current = legacyUrl(category.imageUrl);
     if (!current) continue;
     const imageUrl = await migratedUrl(current, `category:${category.id}`);
@@ -434,6 +666,7 @@ async function migrateImages(token) {
   }
 
   for (const brand of brands) {
+    if (runState.interrupted) throw new Error("Finalization interrupted.");
     const current = legacyUrl(brand.logoUrl);
     if (!current) continue;
     const logoUrl = await migratedUrl(current, `brand:${brand.id}`);
@@ -446,6 +679,7 @@ async function migrateImages(token) {
   }
 
   for (const item of media) {
+    if (runState.interrupted) throw new Error("Finalization interrupted.");
     const current = legacyUrl(item.imageUrl) || legacyUrl(item.fallbackImageUrl);
     if (!current && !/placeholder\.com/i.test(String(item.imageUrl || item.fallbackImageUrl || ""))) continue;
     const imageUrl = current ? await migratedUrl(current, `website-media:${item.id}`) : "";
@@ -462,6 +696,7 @@ async function migrateImages(token) {
   }
 
   for (const product of products) {
+    if (runState.interrupted) throw new Error("Finalization interrupted.");
     let changed = false;
     const gallerySource = Array.isArray(product.gallery_images) ? product.gallery_images : [];
     const nextGallery = [];
@@ -487,7 +722,12 @@ async function migrateImages(token) {
       }
       const imageUrl = await migratedUrl(source, `product:${product.id}:variant:${variant.id || index}`);
       changed = true;
-      nextVariants.push({ ...variant, image_url: imageUrl });
+      nextVariants.push({
+        ...variant,
+        image_url: imageUrl,
+        imageUrl,
+        image: imageUrl,
+      });
       if (!imageUrl) report.images.cleared += 1;
     }
 
@@ -516,15 +756,19 @@ async function migrateImages(token) {
     }
     if (!changed) continue;
 
+    if (runState.interrupted) throw new Error("Finalization interrupted.");
     await api(token, `/api/products/${encodeURIComponent(product.id)}`, {
       method: "PUT",
       body: JSON.stringify({
         ...product,
         id: product.id,
         image: primary,
+        primaryImage: primary,
         hoverImage: hover,
+        secondaryImage: hover,
         variants: nextVariants,
         gallery_images: nextGallery,
+        galleryImages: nextGallery.map((entry) => entry.image_url),
         clearGalleryImages: gallerySource.length > 0 && nextGallery.length === 0,
       }),
     });
@@ -606,6 +850,10 @@ async function main() {
     console.log("Container-local staging boundary verified.");
     return;
   }
+  if (statusOnly) {
+    console.log(JSON.stringify(await runStatusMode(), null, 2));
+    return;
+  }
   await authenticateBeforeMutation({
     passwordValue: password,
     authenticate: async (loginPassword) => {
@@ -627,8 +875,22 @@ const isMain = Boolean(process.argv[1])
   && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isMain) {
+  process.once("SIGINT", () => {
+    const partial = interruptRun();
+    runState.interruptReported = true;
+    console.error(JSON.stringify({ interrupted: true, ...partial }, null, 2));
+    process.exitCode = 130;
+  });
   main().catch((error) => {
     password = "";
+    runState.activeToken = "";
+    if (runState.interrupted) {
+      if (!runState.interruptReported) {
+        console.error(JSON.stringify({ interrupted: true, ...interruptRun() }, null, 2));
+      }
+      process.exitCode = 130;
+      return;
+    }
     console.error(JSON.stringify({ ok: false, error: error.message, report }, null, 2));
     process.exitCode = 1;
   });
