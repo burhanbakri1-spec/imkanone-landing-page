@@ -1,4 +1,5 @@
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { Pool } from "pg";
 
 const EXTERNAL_TARGET_URL = "https://cg8hv00dppir2hu99ds4p75h.187.55.225.56.sslip.io";
@@ -82,10 +83,27 @@ function localizedEnglish(value) {
   return isRecord(value) && typeof value.en === "string" ? value.en : "";
 }
 
-function requirePassword() {
-  if (!password) throw new Error("ICARE_STAGING_PASSWORD is required.");
-  if (password.length < 14 || password.length > 128) {
-    throw new Error("The password does not meet the official reset policy.");
+export function requireLoginPassword(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error("ICARE_STAGING_PASSWORD is required.");
+  }
+  return value;
+}
+
+export async function authenticateBeforeMutation({
+  passwordValue,
+  authenticate,
+  mutate,
+}) {
+  let loginPassword = requireLoginPassword(passwordValue);
+  let token = "";
+  try {
+    token = await authenticate(loginPassword);
+    loginPassword = "";
+    return await mutate(token);
+  } finally {
+    loginPassword = "";
+    token = "";
   }
 }
 
@@ -194,15 +212,14 @@ async function resolveStagingCompany() {
   return company;
 }
 
-async function login() {
-  requirePassword();
+async function login(loginPassword) {
   const response = await stagingFetch(`${TARGET_URL}/api/auth/login`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "X-Company-Id": COMPANY_ID,
     },
-    body: JSON.stringify({ email: ADMIN_EMAIL, password }),
+    body: JSON.stringify({ email: ADMIN_EMAIL, password: loginPassword }),
   });
   const session = await readJson(response, "Staging iCare login");
   if (
@@ -589,21 +606,30 @@ async function main() {
     console.log("Container-local staging boundary verified.");
     return;
   }
-  let token = await login();
+  await authenticateBeforeMutation({
+    passwordValue: password,
+    authenticate: async (loginPassword) => {
+      const token = await login(loginPassword);
+      password = "";
+      return token;
+    },
+    mutate: async (token) => {
+      await cleanupTestRecords(token);
+      await migrateImages(token);
+      await verify(token);
+      console.log(JSON.stringify({ ok: true, ...report }, null, 2));
+    },
+  });
   password = "";
-  try {
-    await cleanupTestRecords(token);
-    await migrateImages(token);
-    await verify(token);
-    console.log(JSON.stringify({ ok: true, ...report }, null, 2));
-  } finally {
-    token = "";
-    password = "";
-  }
 }
 
-main().catch((error) => {
-  password = "";
-  console.error(JSON.stringify({ ok: false, error: error.message, report }, null, 2));
-  process.exitCode = 1;
-});
+const isMain = Boolean(process.argv[1])
+  && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isMain) {
+  main().catch((error) => {
+    password = "";
+    console.error(JSON.stringify({ ok: false, error: error.message, report }, null, 2));
+    process.exitCode = 1;
+  });
+}
