@@ -14,7 +14,13 @@ const args = new Set(process.argv.slice(2));
 const containerLocal = args.has("--container-local");
 const verifyBoundaryOnly = args.has("--verify-boundary");
 const statusOnly = args.has("--status");
-const supportedArgs = new Set(["--container-local", "--verify-boundary", "--status"]);
+const clearLegacyImagesOnly = args.has("--clear-legacy-images");
+const supportedArgs = new Set([
+  "--container-local",
+  "--verify-boundary",
+  "--status",
+  "--clear-legacy-images",
+]);
 const unsupportedArgs = [...args].filter((argument) => !supportedArgs.has(argument));
 if (unsupportedArgs.length) {
   throw new Error(`Unsupported argument: ${unsupportedArgs[0]}`);
@@ -27,6 +33,12 @@ if (statusOnly && !containerLocal) {
 }
 if (statusOnly && verifyBoundaryOnly) {
   throw new Error("--status and --verify-boundary cannot be combined.");
+}
+if (clearLegacyImagesOnly && !containerLocal) {
+  throw new Error("--clear-legacy-images requires --container-local.");
+}
+if (clearLegacyImagesOnly && (statusOnly || verifyBoundaryOnly)) {
+  throw new Error("--clear-legacy-images cannot be combined with --status or --verify-boundary.");
 }
 const TARGET_URL = containerLocal ? CONTAINER_TARGET_URL : EXTERNAL_TARGET_URL;
 const TARGET_HOST = containerLocal ? CONTAINER_TARGET_HOST : EXTERNAL_TARGET_HOST;
@@ -63,7 +75,9 @@ const EXPECTED_COUNTS = Object.freeze({
 });
 
 const LEGACY_HOST = "backend.igroup.website";
+const PLACEHOLDER_HOST = "via.placeholder.com";
 const LEGACY_PREFIXES = ["/public/uploads/", "/uploads/", "/storage/icare/uploads/"];
+const CLEARED_PRODUCT_IMAGE = "/images/products/product-placeholder.svg";
 const IMAGE_CONCURRENCY = 4;
 const runState = {
   interrupted: false,
@@ -333,10 +347,14 @@ export async function cleanupTestRecords(token, apiCall = api) {
 function legacyUrl(value) {
   if (typeof value !== "string" || !value.trim()) return "";
   try {
-    const url = new URL(value, `https://${LEGACY_HOST}`);
+    const rawValue = value.trim();
+    const absoluteUrl = /^https?:\/\//i.test(rawValue);
+    const url = new URL(rawValue, `https://${LEGACY_HOST}`);
     if (url.pathname.includes("/uploads/icare/")) return "";
-    if (url.hostname.toLowerCase() !== LEGACY_HOST) return "";
-    if (!LEGACY_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))) return "";
+    const hostname = url.hostname.toLowerCase();
+    const legacyHost = absoluteUrl && (hostname === LEGACY_HOST || hostname === PLACEHOLDER_HOST);
+    const legacyPath = LEGACY_PREFIXES.some((prefix) => url.pathname.startsWith(prefix));
+    if (!legacyHost && !legacyPath) return "";
     return url.toString();
   } catch {
     return "";
@@ -357,6 +375,10 @@ function isMigratedIcareUrl(value) {
   }
 }
 
+function isClearedImage(value) {
+  return !String(value || "").trim() || value === CLEARED_PRODUCT_IMAGE;
+}
+
 function imageReferences({ products = [], categories = [], brands = [], media = [] }) {
   const references = [];
   const add = (value, entity) => references.push({ value: String(value || ""), entity });
@@ -369,13 +391,6 @@ function imageReferences({ products = [], categories = [], brands = [], media = 
   }
   for (const product of products) {
     add(product.image || product.primaryImage, `product:${product.id}:primary`);
-    add(product.hoverImage || product.secondaryImage, `product:${product.id}:hover`);
-    for (const [index, variant] of (Array.isArray(product.variants) ? product.variants : []).entries()) {
-      add(
-        variant?.image_url || variant?.imageUrl || variant?.image,
-        `product:${product.id}:variant:${variant?.id || index}`,
-      );
-    }
     for (const [index, entry] of (Array.isArray(product.gallery_images) ? product.gallery_images : []).entries()) {
       add(
         entry?.image_url || entry?.image || entry?.url,
@@ -410,7 +425,7 @@ export function summarizeStatus({
     images: {
       legacy: references.filter(({ value }) => Boolean(legacyUrl(value))).length,
       migrated: references.filter(({ value }) => isMigratedIcareUrl(value)).length,
-      emptyOrCleared: references.filter(({ value }) => !value.trim()).length,
+      emptyOrCleared: references.filter(({ value }) => isClearedImage(value)).length,
     },
   };
 }
@@ -776,6 +791,114 @@ async function migrateImages(token) {
   }
 }
 
+export async function clearLegacyImages(token, apiCall = api) {
+  const [products, categories, brands, mediaResponse] = await Promise.all([
+    apiCall(token, "/api/products"),
+    apiCall(token, "/api/categories"),
+    apiCall(token, "/api/brands"),
+    apiCall(token, "/api/website-media/all"),
+  ]);
+  const media = Array.isArray(mediaResponse) ? mediaResponse : mediaResponse?.items || [];
+  const cleared = { categories: 0, brands: 0, products: 0, galleryImages: 0, websiteMedia: 0 };
+
+  for (const category of categories) {
+    if (!legacyUrl(category.imageUrl)) continue;
+    await apiCall(token, `/api/categories/${encodeURIComponent(category.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ imageUrl: null }),
+    });
+    cleared.categories += 1;
+  }
+
+  for (const brand of brands) {
+    if (!legacyUrl(brand.logoUrl)) continue;
+    await apiCall(token, `/api/brands/${encodeURIComponent(brand.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ logoUrl: null }),
+    });
+    cleared.brands += 1;
+  }
+
+  for (const item of media) {
+    const clearImage = Boolean(legacyUrl(item.imageUrl));
+    const clearFallback = Boolean(legacyUrl(item.fallbackImageUrl));
+    if (!clearImage && !clearFallback) continue;
+    await apiCall(token, `/api/website-media/${encodeURIComponent(item.id)}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        ...item,
+        imageUrl: clearImage ? "" : item.imageUrl || "",
+        fallbackImageUrl: clearFallback ? "" : item.fallbackImageUrl || "",
+      }),
+    });
+    cleared.websiteMedia += 1;
+  }
+
+  for (const product of products) {
+    const gallery = Array.isArray(product.gallery_images) ? product.gallery_images : [];
+    const primaryIsLegacy = Boolean(legacyUrl(product.image || product.primaryImage));
+    let galleryChanged = false;
+    const nextGallery = gallery.map((entry) => {
+      const current = entry?.image_url || entry?.image || entry?.url;
+      if (!legacyUrl(current)) return entry;
+      galleryChanged = true;
+      cleared.galleryImages += 1;
+      return {
+        ...entry,
+        image_url: CLEARED_PRODUCT_IMAGE,
+        image: CLEARED_PRODUCT_IMAGE,
+        url: CLEARED_PRODUCT_IMAGE,
+      };
+    });
+    if (!primaryIsLegacy && !galleryChanged) continue;
+    const primary = primaryIsLegacy
+      ? CLEARED_PRODUCT_IMAGE
+      : product.image || product.primaryImage || CLEARED_PRODUCT_IMAGE;
+    await apiCall(token, `/api/products/${encodeURIComponent(product.id)}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        ...product,
+        id: product.id,
+        image: primary,
+        primaryImage: primary,
+        gallery_images: nextGallery,
+        galleryImages: nextGallery.map((entry) => entry.image_url),
+      }),
+    });
+    cleared.products += 1;
+  }
+
+  return cleared;
+}
+
+async function verifyClearedLegacyImages(token, apiCall = api) {
+  const [products, categories, brands, texts, mediaResponse] = await Promise.all([
+    apiCall(token, "/api/products"),
+    apiCall(token, "/api/categories"),
+    apiCall(token, "/api/brands"),
+    apiCall(token, "/api/admin/website-texts"),
+    apiCall(token, "/api/website-media/all"),
+  ]);
+  const media = Array.isArray(mediaResponse) ? mediaResponse : mediaResponse?.items || [];
+  const status = summarizeStatus({ products, categories, brands, texts, media });
+  for (const [key, expected] of Object.entries(EXPECTED_COUNTS)) {
+    if (status.counts[key] !== expected) {
+      throw new Error(`Final ${key} count is ${status.counts[key]}, expected ${expected}.`);
+    }
+  }
+  if (status.images.legacy !== 0) {
+    throw new Error(`Final legacy image URL count is ${status.images.legacy}, expected 0.`);
+  }
+  await Promise.all([
+    apiCall(null, "/api/products"),
+    apiCall(null, "/api/categories"),
+    apiCall(null, "/api/brands"),
+    apiCall(null, "/api/website-texts"),
+    apiCall(null, "/api/website-media"),
+  ]);
+  return status;
+}
+
 async function verify(token) {
   const [products, categories, brands, texts, mediaResponse, orders, employees, workSessions] = await Promise.all([
     api(token, "/api/products"),
@@ -862,6 +985,12 @@ async function main() {
       return token;
     },
     mutate: async (token) => {
+      if (clearLegacyImagesOnly) {
+        const cleared = await clearLegacyImages(token);
+        const status = await verifyClearedLegacyImages(token);
+        console.log(JSON.stringify({ ok: true, mode: "clear-legacy-images", cleared, status }, null, 2));
+        return;
+      }
       await cleanupTestRecords(token);
       await migrateImages(token);
       await verify(token);

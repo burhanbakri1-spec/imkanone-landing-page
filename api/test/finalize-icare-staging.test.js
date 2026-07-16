@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   authenticateBeforeMutation,
+  clearLegacyImages,
   cleanupTestRecords,
   interruptRun,
   processUniqueImageJobs,
@@ -107,7 +108,7 @@ test("status mode performs read-only API requests and summarizes current state",
   });
   assert.equal(status.images.legacy, 1);
   assert.equal(status.images.migrated, 1);
-  assert.equal(status.images.emptyOrCleared, 2);
+  assert.equal(status.images.emptyOrCleared, 1);
 });
 
 test("cleanup rerun continues after a partially completed prior cleanup", async () => {
@@ -262,4 +263,95 @@ test("SIGINT stops the worker pool from scheduling remaining image work", async 
   assert.equal(started, 1);
   assert.equal(state.activeToken, "");
   assert.equal(state.completed, 0);
+});
+
+test("clear-legacy-images is tenant-API scoped, download-free, and idempotent", async () => {
+  const state = {
+    products: [{
+      id: "product-1",
+      categoryId: "category-1",
+      brandId: "brand-1",
+      image: "https://backend.igroup.website/public/uploads/product.jpg",
+      variants: [{ id: "variant-1", image_url: "/uploads/icare/keep-variant.jpg" }],
+      gallery_images: [
+        { id: "gallery-1", image_url: "/uploads/old-gallery.jpg", sort_order: 0 },
+        { id: "gallery-2", image_url: "/uploads/icare/keep-gallery.jpg", sort_order: 1 },
+      ],
+    }],
+    categories: [{
+      id: "category-1",
+      imageUrl: "https://via.placeholder.com/500",
+    }],
+    brands: [{
+      id: "brand-1",
+      logoUrl: "/storage/icare/uploads/old-brand.png",
+    }],
+    media: [{
+      id: "media-1",
+      imageUrl: "/public/uploads/old-media.jpg",
+      fallbackImageUrl: "/uploads/icare/keep-media.jpg",
+    }],
+  };
+  const requests = [];
+  const apiCall = async (_token, pathname, init = {}) => {
+    requests.push({ pathname, method: init.method || "GET" });
+    if (pathname === "/api/products") return structuredClone(state.products);
+    if (pathname === "/api/categories") return structuredClone(state.categories);
+    if (pathname === "/api/brands") return structuredClone(state.brands);
+    if (pathname === "/api/website-media/all") return { items: structuredClone(state.media) };
+    const body = init.body ? JSON.parse(init.body) : {};
+    if (pathname.startsWith("/api/products/") && init.method === "PUT") {
+      state.products[0] = body;
+      return body;
+    }
+    if (pathname.startsWith("/api/categories/") && init.method === "PATCH") {
+      Object.assign(state.categories[0], body);
+      return state.categories[0];
+    }
+    if (pathname.startsWith("/api/brands/") && init.method === "PATCH") {
+      Object.assign(state.brands[0], body);
+      return state.brands[0];
+    }
+    if (pathname.startsWith("/api/website-media/") && init.method === "PUT") {
+      state.media[0] = body;
+      return body;
+    }
+    throw new Error(`Unexpected request: ${init.method || "GET"} ${pathname}`);
+  };
+
+  const first = await clearLegacyImages("token", apiCall);
+  const second = await clearLegacyImages("token", apiCall);
+
+  assert.deepEqual(first, {
+    categories: 1,
+    brands: 1,
+    products: 1,
+    galleryImages: 1,
+    websiteMedia: 1,
+  });
+  assert.deepEqual(second, {
+    categories: 0,
+    brands: 0,
+    products: 0,
+    galleryImages: 0,
+    websiteMedia: 0,
+  });
+  assert.equal(state.categories[0].imageUrl, null);
+  assert.equal(state.brands[0].logoUrl, null);
+  assert.equal(state.media[0].imageUrl, "");
+  assert.equal(state.media[0].fallbackImageUrl, "/uploads/icare/keep-media.jpg");
+  assert.equal(state.products[0].image, "/images/products/product-placeholder.svg");
+  assert.equal(state.products[0].categoryId, "category-1");
+  assert.equal(state.products[0].brandId, "brand-1");
+  assert.deepEqual(state.products[0].variants, [
+    { id: "variant-1", image_url: "/uploads/icare/keep-variant.jpg" },
+  ]);
+  assert.deepEqual(
+    state.products[0].gallery_images.map(({ id, image_url }) => ({ id, image_url })),
+    [
+      { id: "gallery-1", image_url: "/images/products/product-placeholder.svg" },
+      { id: "gallery-2", image_url: "/uploads/icare/keep-gallery.jpg" },
+    ],
+  );
+  assert.equal(requests.some(({ pathname }) => pathname === "/api/uploads"), false);
 });
