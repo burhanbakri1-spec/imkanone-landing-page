@@ -12,6 +12,8 @@
     "admin:reset-password": "node scripts/reset-admin-password.js",
     "db:check-staging": "node scripts/check-staging-readiness.js",
     "export:live": "node scripts/export-live-store.js",
+    "finalize:icare-staging": "node scripts/finalize-icare-staging.js",
+    "migrate:icare": "node scripts/migrate-icare-legacy.js",
     "migrate:supabase": "node scripts/migrate-store-to-supabase.js"
   },
   "dependencies": {
