@@ -1,9 +1,14 @@
 import { apiBaseUrl, apiRequest, getToken } from "./api.js";
+import {
+  dropshippingProductUpdatePath,
+  normalizeDropshippingProducts,
+} from "./dropshippingProducts.js";
 const base = "/admin/dropshipping";
 export const dropshippingApi = {
   overview: () => apiRequest(`${base}/overview`),
   marketers: () => apiRequest(`${base}/marketers`),
-  products: () => apiRequest(`${base}/products`),
+  products: async () =>
+    normalizeDropshippingProducts(await apiRequest(`${base}/products`)),
   orders: () => apiRequest(`${base}/orders`),
   earnings: () => apiRequest(`${base}/earnings`),
   withdrawals: () => apiRequest(`${base}/withdrawals`),
@@ -11,6 +16,11 @@ export const dropshippingApi = {
   settings: () => apiRequest(`${base}/settings`),
   action: (path, body = {}) => apiRequest(`${base}${path}`, { method: "POST", body: JSON.stringify(body) }),
   update: (path, body) => apiRequest(`${base}${path}`, { method: "PATCH", body: JSON.stringify(body) }),
+  updateProduct: (product, body) =>
+    apiRequest(`${base}${dropshippingProductUpdatePath(product)}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
 };
 
 export async function downloadDropshippingReport() {

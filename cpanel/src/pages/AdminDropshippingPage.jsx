@@ -9,12 +9,26 @@ const sectionByPage = {
 };
 const labels = { overview:"Overview",marketers:"Marketers",products:"Products",orders:"Orders",earnings:"Earnings",withdrawals:"Withdrawals",reports:"Reports",settings:"Settings" };
 const money = (value) => Number(value || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const productColumns = [
+  "product_id",
+  "id",
+  "company_id",
+  "enabled",
+  "dropshipping_price",
+  "suggested_selling_price",
+  "minimum_selling_price",
+  "maximum_selling_price",
+  "stock_qty",
+  "name",
+  "slug",
+  "is_active",
+];
 
 function DataTable({ rows, onAction, section }) {
   if (!rows.length) return <div className="dropshipping-empty">No records yet.</div>;
   const hidden = new Set(["payment_details","social_media_accounts","product_snapshot"]);
-  const keys = Object.keys(rows[0]).filter((key)=>!hidden.has(key)).slice(0,9);
-  return <div className="dropshipping-table-wrap"><table className="dropshipping-table"><thead><tr>{keys.map(key=><th key={key}>{key.replaceAll("_"," ")}</th>)}{onAction&&<th>Actions</th>}</tr></thead><tbody>{rows.map((row,index)=><tr key={row.id||index}>{keys.map(key=><td key={key}>{typeof row[key]==="object"?JSON.stringify(row[key]):String(row[key]??"")}</td>)}{onAction&&<td>{onAction(row,section)}</td>}</tr>)}</tbody></table></div>;
+  const keys = section === "products" ? productColumns : Object.keys(rows[0]).filter((key)=>!hidden.has(key)).slice(0,9);
+  return <div className="dropshipping-table-wrap"><table className="dropshipping-table"><thead><tr>{keys.map(key=><th key={key}>{key.replaceAll("_"," ")}</th>)}{onAction&&<th>Actions</th>}</tr></thead><tbody>{rows.map((row,index)=><tr key={row.id||row.product_id||index}>{keys.map(key=><td key={key}>{typeof row[key]==="object"?JSON.stringify(row[key]):String(row[key]??"")}</td>)}{onAction&&<td>{onAction(row,section)}</td>}</tr>)}</tbody></table></div>;
 }
 
 export default function AdminDropshippingPage({ activePage, ...layout }) {
@@ -27,7 +41,7 @@ export default function AdminDropshippingPage({ activePage, ...layout }) {
     if(section==="marketers"&&row.status==="pending")return <><button disabled={busy} onClick={()=>run(`/marketers/${row.id}/approve`)}>Approve</button><button disabled={busy} onClick={()=>{const reason=prompt("Rejection reason");if(reason)run(`/marketers/${row.id}/reject`,{reason});}}>Reject</button></>;
     if(section==="marketers"&&row.status==="approved")return <button disabled={busy} onClick={()=>{const reason=prompt("Suspension reason");if(reason)run(`/marketers/${row.id}/suspend`,{reason});}}>Suspend</button>;
     if(section==="marketers"&&row.status==="suspended")return <button disabled={busy} onClick={()=>run(`/marketers/${row.id}/reactivate`)}>Reactivate</button>;
-    if(section==="products")return <button disabled={busy} onClick={()=>{const dropshippingPrice=prompt("Dropshipping price",row.dropshipping_price||row.price||0);if(dropshippingPrice===null)return;const suggestedSellingPrice=prompt("Suggested selling price",row.suggested_selling_price||dropshippingPrice);const minimumSellingPrice=prompt("Minimum selling price",row.minimum_selling_price||dropshippingPrice);const maximumSellingPrice=prompt("Maximum selling price",row.maximum_selling_price||suggestedSellingPrice);update(`/products/${row.product_id}`,{enabled:!row.enabled,dropshippingPrice,suggestedSellingPrice,minimumSellingPrice,maximumSellingPrice,availableStock:row.available_stock??row.stock_qty,allowMediaDownload:true});}}>{row.enabled?"Disable / update":"Enable / price"}</button>;
+    if(section==="products")return <button disabled={busy} onClick={async()=>{const dropshippingPrice=prompt("Dropshipping price",row.dropshipping_price??0);if(dropshippingPrice===null)return;const suggestedSellingPrice=prompt("Suggested selling price",row.suggested_selling_price??dropshippingPrice);const minimumSellingPrice=prompt("Minimum selling price",row.minimum_selling_price??dropshippingPrice);const maximumSellingPrice=prompt("Maximum selling price",row.maximum_selling_price??suggestedSellingPrice);setBusy(true);setError("");try{await dropshippingApi.updateProduct(row,{enabled:!row.enabled,dropshippingPrice,suggestedSellingPrice,minimumSellingPrice,maximumSellingPrice,availableStock:row.available_stock??row.stock_qty,allowMediaDownload:true});await load();}catch(e){setError(e.message);}finally{setBusy(false);}}}>{row.enabled?"Disable / update":"Enable / price"}</button>;
     if(section==="orders")return <select disabled={busy} value="" onChange={(e)=>e.target.value&&run(`/orders/${row.id}/status`,{status:e.target.value})}><option value="">Change status</option>{["confirmed","preparing","ready_for_delivery","out_for_delivery","delivered","cancelled","returned"].map(v=><option key={v}>{v}</option>)}</select>;
     if(section==="withdrawals"&&row.status==="pending")return <><button onClick={()=>run(`/withdrawals/${row.id}/approve`)}>Approve</button><button onClick={()=>{const reason=prompt("Rejection reason");if(reason)run(`/withdrawals/${row.id}/reject`,{reason});}}>Reject</button></>;
     if(section==="withdrawals"&&row.status==="approved")return <button onClick={()=>{const referenceNumber=prompt("Payment reference");if(referenceNumber)run(`/withdrawals/${row.id}/pay`,{referenceNumber});}}>Mark paid</button>;

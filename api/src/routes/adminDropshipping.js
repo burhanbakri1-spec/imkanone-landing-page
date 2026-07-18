@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
-import { assertTransition, csvCell, money } from "../dropshipping/domain.js";
+import { assertTransition, csvCell } from "../dropshipping/domain.js";
+import { upsertDropshippingProductConfiguration } from "../dropshipping/adminProducts.js";
 import {
   dropshippingQuery,
   withDropshippingTransaction,
@@ -272,7 +273,32 @@ router.get(
   authorize("products", { read: true }),
   handle(async (req, res) => {
     const { rows } = await dropshippingQuery(
-      `select p.id product_id,p.name,p.slug,p.stock_qty,p.is_active,dp.* from public.products p left join public.dropshipping_products dp on dp.company_id=p.company_id and dp.product_id=p.id where p.company_id=$1 order by p.updated_at desc`,
+      `select
+        p.id as product_id,
+        dp.id as id,
+        dp.company_id as company_id,
+        coalesce(dp.enabled, false) as enabled,
+        dp.dropshipping_price,
+        dp.suggested_selling_price,
+        dp.minimum_selling_price,
+        dp.maximum_selling_price,
+        dp.marketer_fee,
+        dp.fixed_fee,
+        dp.percentage_fee,
+        dp.available_stock,
+        dp.allow_media_download,
+        dp.marketing_caption,
+        dp.marketing_hashtags,
+        dp.social_short_description,
+        p.name,
+        p.slug,
+        p.stock_qty,
+        p.is_active
+      from public.products p
+      left join public.dropshipping_products dp
+        on dp.company_id=p.company_id and dp.product_id=p.id
+      where p.company_id=$1
+      order by p.updated_at desc`,
       [req.companyId],
     );
     res.json(rows);
@@ -291,26 +317,11 @@ router.patch(
       ).rows[0] || null;
     const input = req.body;
     const saved = await withDropshippingTransaction(async (client) => {
-      const { rows } = await client.query(
-        `insert into public.dropshipping_products(company_id,product_id,enabled,dropshipping_price,suggested_selling_price,minimum_selling_price,maximum_selling_price,marketer_fee,fixed_fee,percentage_fee,available_stock,allow_media_download,marketing_caption,marketing_hashtags,social_short_description)
- values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15::jsonb) on conflict(company_id,product_id) do update set enabled=excluded.enabled,dropshipping_price=excluded.dropshipping_price,suggested_selling_price=excluded.suggested_selling_price,minimum_selling_price=excluded.minimum_selling_price,maximum_selling_price=excluded.maximum_selling_price,marketer_fee=excluded.marketer_fee,fixed_fee=excluded.fixed_fee,percentage_fee=excluded.percentage_fee,available_stock=excluded.available_stock,allow_media_download=excluded.allow_media_download,marketing_caption=excluded.marketing_caption,marketing_hashtags=excluded.marketing_hashtags,social_short_description=excluded.social_short_description,updated_at=now() returning *`,
-        [
-          req.companyId,
-          req.params.productId,
-          input.enabled === true,
-          money(input.dropshippingPrice ?? 0),
-          input.suggestedSellingPrice ?? null,
-          input.minimumSellingPrice ?? null,
-          input.maximumSellingPrice ?? null,
-          input.marketerFee ?? 0,
-          input.fixedFee ?? null,
-          input.percentageFee ?? null,
-          input.availableStock ?? null,
-          input.allowMediaDownload !== false,
-          JSON.stringify(input.marketingCaption || {}),
-          input.marketingHashtags || [],
-          JSON.stringify(input.socialShortDescription || {}),
-        ],
+      const configuration = await upsertDropshippingProductConfiguration(
+        client,
+        req.companyId,
+        req.params.productId,
+        input,
       );
       if (Array.isArray(input.marketingMedia)) {
         await client.query(
@@ -332,7 +343,7 @@ router.patch(
           );
         }
       }
-      return rows[0];
+      return configuration;
     });
     await audit(
       req,
