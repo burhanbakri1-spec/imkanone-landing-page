@@ -1002,18 +1002,14 @@ export async function uploadImageToSupabaseStorage({
   filename,
   contentType,
   data,
+  pathParts,
 }) {
   if (!isSupabaseStorageConfigured()) {
     throw new Error("Supabase Storage is not configured.");
   }
 
   const bucket = process.env.SUPABASE_BUCKET;
-  const storagePath = companyStoragePath(
-    companyId,
-    "uploads",
-    new Date().toISOString().slice(0, 10),
-    filename,
-  );
+  const storagePath = companyStoragePath(companyId, ...(pathParts || ["uploads", new Date().toISOString().slice(0, 10)]), filename);
   const encodedPath = encodeStoragePath(storagePath);
   await supabaseFetch(`/storage/v1/object/${encodeURIComponent(bucket)}/${encodedPath}`, {
     method: "POST",
@@ -1030,4 +1026,10 @@ export async function uploadImageToSupabaseStorage({
     url: publicUrl,
     storagePath,
   };
+}
+
+export async function deleteSupabaseStorageObject(storagePath) {
+  if (!isSupabaseStorageConfigured()) throw new Error("Supabase Storage is not configured.");
+  const bucket = process.env.SUPABASE_BUCKET;
+  await supabaseFetch(`/storage/v1/object/${encodeURIComponent(bucket)}/${encodeStoragePath(storagePath)}`, { method: "DELETE" });
 }

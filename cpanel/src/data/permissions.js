@@ -12,6 +12,10 @@ export const permissionGroups = [
       { key: "products.create", labelKey: "permissions.productsCreate" },
       { key: "products.update", labelKey: "permissions.productsUpdate" },
       { key: "products.delete", labelKey: "permissions.productsDelete" },
+      { key: "products.read", labelKey: "Products: read tenant fields" },
+      { key: "products.manage", labelKey: "Products: manage tenant fields" },
+      { key: "product_media.manage", labelKey: "Product media: manage" },
+      { key: "product_content.manage", labelKey: "Product content: manage" },
     ],
   },
   {

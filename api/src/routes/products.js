@@ -9,6 +9,7 @@ import { isVariantVisible, withVariantVisibility } from "../products/variantVisi
 import { recordActivityLog } from "../activityLog/logger.js";
 import { defaultProductSchema, sanitizeProductSchemaData } from "../productSchema/schema.js";
 import { optionalAuth, requireAuth } from "../middleware/auth.js";
+import { listTenantProductFieldValues } from "../productSchema/fieldValues.js";
 
 const router = Router();
 const placeholderImage = "/images/products/product-placeholder.svg";
@@ -210,6 +211,23 @@ function canonicalNormalizedCatalogReferences(incoming) {
 
 router.get("/", optionalAuth, (_req, res) => {
   res.json(productRepository.getByCompany(_req.companyId).map(normalizeProduct));
+});
+
+router.get("/:id/details", optionalAuth, async (req, res, next) => {
+  const product = productRepository.findByCompany(req.companyId, req.params.id);
+  if (!product || product.isActive === false) return res.status(404).json({ message: "Product not found." });
+  try {
+    const values = await listTenantProductFieldValues(req.companyId, req.params.id);
+    const fields = {};
+    for (const entry of values) {
+      const key = entry.storefront_mapping_key || entry.field_key;
+      if (entry.locale === "neutral") fields[key] = entry.value;
+      else fields[key] = { ...(fields[key] || {}), [entry.locale]: entry.value };
+    }
+    return res.json({ ...normalizeProduct(product), fields });
+  } catch (error) {
+    return next(error);
+  }
 });
 
 router.post("/", requireAuth, requireProductPermission("products.create"), async (req, res) => {

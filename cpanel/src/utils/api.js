@@ -169,3 +169,34 @@ export async function uploadImages(files = []) {
     };
   });
 }
+
+export function uploadProductMedia(file, productId, onProgress = () => {}) {
+  const token = getToken();
+  if (!token) return Promise.reject(createUploadError("Authentication required.", 401));
+  if (!productId) return Promise.reject(createUploadError("Save the product before uploading media.", 400));
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", `${apiBaseUrl}/uploads/products/${encodeURIComponent(productId)}`);
+    request.setRequestHeader("Authorization", `Bearer ${token}`);
+    request.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
+    });
+    request.addEventListener("load", () => {
+      const data = (() => { try { return JSON.parse(request.responseText || "{}"); } catch { return {}; } })();
+      if (request.status < 200 || request.status >= 300) return reject(createUploadError(data.message || "Media upload failed.", request.status));
+      const url = data.url || data.path || "";
+      return resolve({ ...data, url, path: data.path || url });
+    });
+    request.addEventListener("error", () => reject(createUploadError("Media upload failed.", 0)));
+    const formData = new FormData();
+    formData.append("media", file);
+    request.send(formData);
+  });
+}
+
+export async function deleteProductMedia(productId, value) {
+  return apiRequest(`/uploads/products/${encodeURIComponent(productId)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ url: value }),
+  });
+}

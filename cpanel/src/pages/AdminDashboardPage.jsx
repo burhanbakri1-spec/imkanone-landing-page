@@ -3,12 +3,15 @@ import { Minus, Plus, Search, Upload } from "lucide-react";
 import AdminLayout from "../components/AdminLayout.jsx";
 import AdminOrdersTable from "../components/AdminOrdersTable.jsx";
 import WebsiteMediaManager from "../components/WebsiteMediaManager.jsx";
-import { uploadImage, uploadImages } from "../utils/api.js";
+import TenantProductFields from "../components/TenantProductFields.jsx";
+import { deleteProductMedia, uploadImage, uploadImages, uploadProductMedia } from "../utils/api.js";
+import { fieldStateToValues, productFieldApi, valuesToFieldState } from "../utils/productFields.js";
 import {
   getSelectableAdminCategories,
 } from "../utils/adminCategories.js";
 import { tenantStorageKey } from "../utils/companyContext.js";
 import { isCompanyAdmin, isTenantOperator, tenantAccessNotice } from "../utils/roles.js";
+import { hasPermission } from "../data/permissions.js";
 
 const storageKeys = {
   inventory: "inventory",
@@ -306,6 +309,7 @@ function createProductFromForm(form) {
     variants,
     gallery_images: galleryImages,
     galleryImages: galleryImages.map((image) => image.image_url),
+    videoUrl: form.videoUrl || "",
     sizes: parsedSizes,
     badge: createLocalizedCopy(form.label || "Featured", form.labelAr || "مميز"),
     status: form.active ? "Active" : "Inactive",
@@ -388,7 +392,7 @@ function Badge({ tone = "active", children }) {
   return <span className={`admin-status-pill ${tone}`}>{children}</span>;
 }
 
-function MediaField({ label, name, value, onChange }) {
+function MediaField({ label, name, value, onChange, productId, tenantSpecific = false }) {
   const [isUploading, setIsUploading] = React.useState(false);
 
   async function handleUpload(event) {
@@ -396,7 +400,7 @@ function MediaField({ label, name, value, onChange }) {
     if (!file) return;
     setIsUploading(true);
     try {
-      const uploaded = await uploadImage(file);
+      const uploaded = productId ? await uploadProductMedia(file, productId) : await uploadImage(file);
       onChange({ target: { name, value: uploaded.url || uploaded.path } });
     } finally {
       setIsUploading(false);
@@ -412,8 +416,8 @@ function MediaField({ label, name, value, onChange }) {
       </label>
       <label className="admin-upload-button">
         <Upload size={14} />
-        {isUploading ? "Uploading..." : "Upload"}
-        <input accept="image/*" hidden type="file" onChange={handleUpload} />
+        {isUploading ? "Uploading..." : tenantSpecific && !productId ? "Save product first" : "Upload"}
+        <input accept="image/*" disabled={tenantSpecific && !productId} hidden type="file" onChange={handleUpload} />
       </label>
       {value && (
         <div className="admin-media-preview">
@@ -499,7 +503,7 @@ function DashboardHome({ customers, language, orders, products, t }) {
   );
 }
 
-function ProductsListPage({ brands, categories, filters, onAdd, onDeleteProduct, onEdit, products, readOnly, setFilters }) {
+function ProductsListPage({ brands, canCreate = true, canDelete = true, canUpdate = true, categories, filters, onAdd, onDeleteProduct, onEdit, products, setFilters }) {
   const filtered = products.filter((product) => {
     const name = getText(product.name).toLowerCase();
     const sku = getProductSku(product).toLowerCase();
@@ -512,7 +516,7 @@ function ProductsListPage({ brands, categories, filters, onAdd, onDeleteProduct,
 
   return (
     <section className="admin-panel-card">
-      <Toolbar addLabel="Add Product" onAdd={readOnly ? null : onAdd}>
+      <Toolbar addLabel="Add Product" onAdd={canCreate ? onAdd : null}>
         <SearchField placeholder="Search by name, SKU..." value={filters.search} onChange={(value) => setFilters((current) => ({ ...current, search: value }))} />
         <select value={filters.category} onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value }))}>
           <option value="all">All categories</option>
@@ -547,7 +551,7 @@ function ProductsListPage({ brands, categories, filters, onAdd, onDeleteProduct,
             <th>Status</th>
             <th>Created</th>
             <th>Updated</th>
-            {!readOnly && <th>Actions</th>}
+            {(canUpdate || canDelete) && <th>Actions</th>}
           </tr>
         </thead>
         <tbody>
@@ -572,11 +576,11 @@ function ProductsListPage({ brands, categories, filters, onAdd, onDeleteProduct,
                 </td>
                 <td>{formatDate(product.createdAt)}</td>
                 <td>{formatDate(product.updatedAt)}</td>
-                {!readOnly && (
+                {(canUpdate || canDelete) && (
                   <td>
                     <div className="row-actions">
-                      <button className="text-action" onClick={() => onEdit(product)} type="button">Edit</button>
-                      <button className="text-action danger" onClick={() => onDeleteProduct(product.id)} type="button">Delete</button>
+                      {canUpdate && <button className="text-action" onClick={() => onEdit(product)} type="button">Edit</button>}
+                      {canDelete && <button className="text-action danger" onClick={() => onDeleteProduct(product.id)} type="button">Delete</button>}
                     </div>
                   </td>
                 )}
@@ -589,13 +593,16 @@ function ProductsListPage({ brands, categories, filters, onAdd, onDeleteProduct,
   );
 }
 
-function ProductWizard({ brands, categories, editingProduct, onCancel, onSave }) {
+export function ProductWizard({ brands = [], categories = [], editingProduct, onCancel, onSave, canManageContent = true, canManageMedia = true }) {
   const [step, setStep] = React.useState("basic");
   const initialCategoryOptions = getSelectableAdminCategories(categories, editingProduct?.categoryId);
   const [uploadError, setUploadError] = React.useState("");
   const [uploadingField, setUploadingField] = React.useState("");
   const [uploadingVariantIndex, setUploadingVariantIndex] = React.useState(-1);
   const [uploadingGalleryIndex, setUploadingGalleryIndex] = React.useState(-1);
+  const [videoProgress, setVideoProgress] = React.useState(0);
+  const [tenantDefinitions, setTenantDefinitions] = React.useState([]);
+  const [tenantValues, setTenantValues] = React.useState({});
   const [variantGenerator, setVariantGenerator] = React.useState({
     colorsText: "Default|#1db7d8",
     sizesText: "500ml, 1L, 5L",
@@ -651,8 +658,32 @@ function ProductWizard({ brands, categories, editingProduct, onCancel, onSave })
     detailStatements: editingProduct?.detailStatements || editingProduct?.detail_statements || [],
   }));
 
-  const tabs = ["basic", "variants", "media", "seo", "showcase"];
-  const tabLabels = ["Basic", "Variants", "Media", "SEO", "Showcase"];
+  React.useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      productFieldApi.definitions(),
+      editingProduct?.id ? productFieldApi.values(editingProduct.id) : Promise.resolve([]),
+    ]).then(([definitions, values]) => {
+      if (cancelled) return;
+      setTenantDefinitions(Array.isArray(definitions) ? definitions : []);
+      const fieldState = valuesToFieldState(values);
+      setTenantValues(fieldState);
+      if (fieldState.product_video) setForm((current) => ({ ...current, videoUrl: fieldState.product_video }));
+      if (Array.isArray(definitions) && definitions.length) {
+        setVariantGenerator({ colorsText: "", sizesText: "", defaultPrice: "", defaultStock: "" });
+        if (!editingProduct?.id || !(editingProduct?.variants?.length || editingProduct?.sizes?.length)) setForm((current) => ({ ...current, size: "", price: "", variants: [] }));
+      }
+    }).catch((error) => setUploadError(error.message || "Unable to load product fields."));
+    return () => { cancelled = true; };
+  }, [editingProduct?.id]);
+
+  const usesTenantDefinitions = tenantDefinitions.length > 0;
+  const additionalMediaDefinitions = tenantDefinitions.filter((definition) => !["gallery_images", "product_video"].includes(definition.field_key));
+  const updateTenantValue = (key, value) => setTenantValues((current) => ({ ...current, [key]: value }));
+
+  const allTabs = ["basic", "pricing", "variants", "media", "details", "marketing", "preview"];
+  const tabName = { basic: "Basic", pricing: "Pricing and stock", variants: "Variants", media: "Media", details: "Product details", marketing: "Marketing and SEO", preview: "Preview" };
+  const tabs = allTabs.filter((tab) => (tab !== "media" || canManageMedia) && (!["details", "marketing"].includes(tab) || canManageContent));
   const selectableCategories = getSelectableAdminCategories(categories, form.categoryId);
 
   function change(event) {
@@ -762,7 +793,9 @@ function ProductWizard({ brands, categories, editingProduct, onCancel, onSave })
     setUploadError("");
     setUploadingVariantIndex(index);
     try {
-      const uploaded = await uploadImage(file);
+      const uploaded = usesTenantDefinitions && editingProduct?.id
+        ? await uploadProductMedia(file, editingProduct.id)
+        : await uploadImage(file);
       updateVariant(index, "image_url", uploaded.url || uploaded.path || "");
     } catch (error) {
       setUploadError(error.message || "Variant image upload failed.");
@@ -779,7 +812,10 @@ function ProductWizard({ brands, categories, editingProduct, onCancel, onSave })
     setUploadError("");
     setUploadingField("galleryImages");
     try {
-      const uploaded = await uploadImages(files);
+      if (usesTenantDefinitions && !editingProduct?.id) throw new Error("Save the product before uploading gallery media.");
+      const uploaded = usesTenantDefinitions
+        ? await Promise.all(Array.from(files).map((file) => uploadProductMedia(file, editingProduct.id)))
+        : await uploadImages(files);
       setForm((current) => {
         const currentImages = current.galleryImages || [];
         return {
@@ -803,7 +839,12 @@ function ProductWizard({ brands, categories, editingProduct, onCancel, onSave })
     }
   }
 
-  function removeGalleryImage(index) {
+  async function removeGalleryImage(index) {
+    const removed = form.galleryImages?.[index];
+    if (usesTenantDefinitions && editingProduct?.id && removed?.image_url?.includes(`/products/${editingProduct.id}/`)) {
+      try { await deleteProductMedia(editingProduct.id, removed.image_url); }
+      catch (error) { setUploadError(error.message || "Gallery image could not be deleted."); return; }
+    }
     setForm((current) => ({
       ...current,
       galleryImages: (current.galleryImages || [])
@@ -839,7 +880,9 @@ function ProductWizard({ brands, categories, editingProduct, onCancel, onSave })
     setUploadError("");
     setUploadingGalleryIndex(index);
     try {
-      const uploaded = await uploadImage(file);
+      const uploaded = usesTenantDefinitions && editingProduct?.id
+        ? await uploadProductMedia(file, editingProduct.id)
+        : await uploadImage(file);
       updateGalleryImage(index, uploaded.url || uploaded.path || "");
     } catch (error) {
       setUploadError(error.message || "Gallery image upload failed.");
@@ -851,7 +894,51 @@ function ProductWizard({ brands, categories, editingProduct, onCancel, onSave })
   async function submit(event) {
     event.preventDefault();
     const result = await onSave(createProductFromForm(form));
+    if (result?.ok && usesTenantDefinitions && canManageContent) {
+      try {
+        await productFieldApi.saveValues(result.product.id, fieldStateToValues(tenantDefinitions, tenantValues));
+      } catch (error) {
+        setUploadError(error.message || "Product content could not be saved.");
+        return;
+      }
+    }
     if (result?.ok) onCancel();
+  }
+
+  async function uploadVideo(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!editingProduct?.id) { setUploadError("Save the product before uploading a video."); return; }
+    setUploadError("");
+    setUploadingField("videoUrl");
+    setVideoProgress(0);
+    try {
+      const uploaded = await uploadProductMedia(file, editingProduct.id, setVideoProgress);
+      const url = uploaded.url || uploaded.path || "";
+      setForm((current) => ({ ...current, videoUrl: url }));
+      setTenantValues((current) => ({ ...current, product_video: url }));
+    } catch (error) { setUploadError(error.message || "Video upload failed."); }
+    finally { setUploadingField(""); }
+  }
+
+  async function removeVideo() {
+    try {
+      if (editingProduct?.id && form.videoUrl?.includes(`/products/${editingProduct.id}/`)) await deleteProductMedia(editingProduct.id, form.videoUrl);
+      setForm((current) => ({ ...current, videoUrl: "" }));
+      setTenantValues((current) => ({ ...current, product_video: "" }));
+      setVideoProgress(0);
+    } catch (error) { setUploadError(error.message || "Video could not be removed."); }
+  }
+
+  function moveGalleryImage(from, to) {
+    setForm((current) => {
+      const images = [...(current.galleryImages || [])];
+      if (from < 0 || to < 0 || from >= images.length || to >= images.length || from === to) return current;
+      const [moved] = images.splice(from, 1);
+      images.splice(to, 0, moved);
+      return { ...current, galleryImages: images.map((image, sortIndex) => ({ ...image, sort_order: sortIndex })) };
+    });
   }
 
   return (
@@ -859,7 +946,7 @@ function ProductWizard({ brands, categories, editingProduct, onCancel, onSave })
       <div className="admin-tabs">
         {tabs.map((tab, index) => (
           <button className={step === tab ? "active" : ""} key={tab} onClick={() => setStep(tab)} type="button">
-            {index + 1}. {tabLabels[index]}
+            {index + 1}. {tabName[tab]}
           </button>
         ))}
       </div>
@@ -882,11 +969,6 @@ function ProductWizard({ brands, categories, editingProduct, onCancel, onSave })
             </label>
             <label>Short Description<textarea name="shortDescription" value={form.shortDescription} onChange={change} /></label>
             <label>Full Description<textarea name="fullDescription" value={form.fullDescription} onChange={change} /></label>
-            <label>How to Use<textarea name="howToUse" value={form.howToUse} onChange={change} /></label>
-            <label>Ingredients<textarea name="ingredients" value={form.ingredients} onChange={change} /></label>
-            <label>Benefits<textarea name="benefits" value={form.benefits} onChange={change} /></label>
-            <label>Skin Types<input name="skinTypes" value={form.skinTypes} onChange={change} /></label>
-            <label>Concerns<input name="concerns" value={form.concerns} onChange={change} /></label>
             <div className="admin-checkbox-grid full-field">
               {["active", "featured", "newArrival", "bestseller"].map((field) => (
                 <label className="checkbox-line" key={field}><input name={field} type="checkbox" checked={form[field]} onChange={change} />{field.replace(/([A-Z])/g, " $1")}</label>
@@ -894,18 +976,23 @@ function ProductWizard({ brands, categories, editingProduct, onCancel, onSave })
             </div>
             <label>Label<input name="label" value={form.label} onChange={change} /></label>
             <label>Label Arabic<input name="labelAr" value={form.labelAr} onChange={change} /></label>
-            <p className="admin-note full-field">Pricing managed per variant. Set price, sale price, and stock individually for each variant below.</p>
           </>
         )}
+        {step === "pricing" && <div className="full-field">
+          <h3>Pricing and stock</h3>
+          <p className="admin-note">Pricing and stock are managed per variant so each shade, size, or volume can be controlled independently.</p>
+          <p><strong>{form.variants?.length || 0}</strong> variants · <strong>{(form.variants || []).reduce((sum, variant) => sum + Number(variant.stock || 0), 0)}</strong> units in stock</p>
+          <button className="secondary-action" onClick={() => setStep("variants")} type="button">Manage variant pricing</button>
+        </div>}
         {step === "variants" && (
           <div className="full-field admin-variants-editor">
             <div className="admin-inline-heading">
-              <strong>Color, size, price, and stock combinations</strong>
+              <strong>{usesTenantDefinitions ? "Shade / color, size or volume, price and stock" : "Color, size, price, and stock combinations"}</strong>
               <button className="secondary-action compact-action" onClick={addVariant} type="button">
                 Add Variant
               </button>
             </div>
-            <div className="variant-generator-panel">
+            {!usesTenantDefinitions && <div className="variant-generator-panel">
               <div>
                 <strong>Variant Generator</strong>
                 <p>Enter each color on a new line: name|hex|optional image URL. Separate sizes with commas.</p>
@@ -945,13 +1032,13 @@ function ProductWizard({ brands, categories, editingProduct, onCancel, onSave })
               <button className="admin-primary-button compact-action" onClick={generateVariants} type="button">
                 Generate Variants
               </button>
-            </div>
+            </div>}
             <div className="admin-variant-grid">
               {(form.variants || []).map((variant, index) => (
                 <div className="admin-variant-row" key={variant.id || index}>
-                  <label>Color name<input required value={variant.color_name} onChange={(event) => updateVariant(index, "color_name", event.target.value)} /></label>
-                  <label>Color value<input value={variant.color_value} onChange={(event) => updateVariant(index, "color_value", event.target.value)} /></label>
-                  <label>Size<input required value={variant.size} onChange={(event) => updateVariant(index, "size", event.target.value)} /></label>
+                  <label>{usesTenantDefinitions ? "Variant / shade name" : "Color name"}<input required value={variant.color_name} onChange={(event) => updateVariant(index, "color_name", event.target.value)} /></label>
+                  <label>{usesTenantDefinitions ? "Swatch / color value" : "Color value"}<input value={variant.color_value} onChange={(event) => updateVariant(index, "color_value", event.target.value)} /></label>
+                  <label>{usesTenantDefinitions ? "Size or volume" : "Size"}<input required value={variant.size} onChange={(event) => updateVariant(index, "size", event.target.value)} /></label>
                   <label>Price<input min="0" required type="number" value={variant.price} onChange={(event) => updateVariant(index, "price", event.target.value)} /></label>
                   <label>Stock<input min="0" required type="number" value={variant.stock} onChange={(event) => updateVariant(index, "stock", event.target.value)} /></label>
                   <label>
@@ -974,9 +1061,13 @@ function ProductWizard({ brands, categories, editingProduct, onCancel, onSave })
         )}
         {step === "media" && (
           <>
-            <MediaField label="Featured Image" name="image" value={form.image} onChange={change} />
-            <MediaField label="Second / Hover Image" name="hoverImage" value={form.hoverImage} onChange={change} />
-            <label>Video URL<input name="videoUrl" value={form.videoUrl} onChange={change} /></label>
+            <MediaField label="Featured Image" name="image" productId={usesTenantDefinitions ? editingProduct?.id : undefined} tenantSpecific={usesTenantDefinitions} value={form.image} onChange={change} />
+            <MediaField label="Second / Hover Image" name="hoverImage" productId={usesTenantDefinitions ? editingProduct?.id : undefined} tenantSpecific={usesTenantDefinitions} value={form.hoverImage} onChange={change} />
+            <div className="admin-media-field">
+              <label>Product video URL<input name="videoUrl" value={form.videoUrl} onChange={change} /></label>
+              {usesTenantDefinitions && <label className="admin-upload-button"><Upload size={14} />{uploadingField === "videoUrl" ? `Uploading ${videoProgress}%` : editingProduct?.id ? "Upload MP4/WebM" : "Save product first"}<input accept="video/mp4,video/webm" disabled={!editingProduct?.id} hidden type="file" onChange={uploadVideo} /></label>}
+              {form.videoUrl && <div className="admin-media-preview"><video controls preload="metadata" src={form.videoUrl} /><button className="text-action danger" onClick={removeVideo} type="button">Remove video</button></div>}
+            </div>
             <div className="full-field admin-gallery-editor">
               <div className="admin-inline-heading">
                 <strong>Vertical Gallery Images</strong>
@@ -991,7 +1082,7 @@ function ProductWizard({ brands, categories, editingProduct, onCancel, onSave })
               </div>
               <div className="admin-gallery-preview-grid">
                 {(form.galleryImages || []).map((image, index) => (
-                  <figure className="admin-gallery-preview" key={`${image.image_url}-${index}`}>
+                  <figure className="admin-gallery-preview" draggable onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); moveGalleryImage(Number(event.dataTransfer.getData("text/plain")), index); }} key={image.id || `${image.image_url}-${index}`}>
                     <label>
                       Image URL
                       <span className="image-upload-row">
@@ -1011,12 +1102,14 @@ function ProductWizard({ brands, categories, editingProduct, onCancel, onSave })
                       </span>
                     </label>
                     {image.image_url && <img alt="" src={image.image_url} />}
-                    <button onClick={() => removeGalleryImage(index)} type="button">Remove</button>
+                    <div className="structured-row-actions"><button disabled={index === 0} onClick={() => moveGalleryImage(index, index - 1)} type="button">↑</button><button disabled={index === form.galleryImages.length - 1} onClick={() => moveGalleryImage(index, index + 1)} type="button">↓</button><button onClick={() => removeGalleryImage(index)} type="button">Remove</button></div>
                   </figure>
                 ))}
               </div>
               {uploadError && <div className="message-panel error full-field">{uploadError}</div>}
             </div>
+            {usesTenantDefinitions && <TenantProductFields definitions={additionalMediaDefinitions} section="media" value={tenantValues} onChange={updateTenantValue} />}
+            {!usesTenantDefinitions && <>
             <div className="full-field">
               <strong>Product Details Section Images</strong>
               <div className="admin-dsi-grid">
@@ -1094,15 +1187,34 @@ function ProductWizard({ brands, categories, editingProduct, onCancel, onSave })
                 </button>
               </div>
             </div>
+            </>}
           </>
         )}
-        {step === "seo" && (
+        {step === "details" && <>
+          {!usesTenantDefinitions && <>
+            <label>How to Use<textarea name="howToUse" value={form.howToUse} onChange={change} /></label>
+            <label>Ingredients<textarea name="ingredients" value={form.ingredients} onChange={change} /></label>
+            <label>Benefits<textarea name="benefits" value={form.benefits} onChange={change} /></label>
+            <label>Skin Types<input name="skinTypes" value={form.skinTypes} onChange={change} /></label>
+            <label>Concerns<input name="concerns" value={form.concerns} onChange={change} /></label>
+          </>}
+          {usesTenantDefinitions && <><TenantProductFields definitions={tenantDefinitions} section="details" value={tenantValues} onChange={updateTenantValue} /><TenantProductFields definitions={tenantDefinitions} section="showcase" value={tenantValues} onChange={updateTenantValue} /></>}
+        </>}
+        {step === "marketing" && (
           <>
-            <label>Meta Title<input name="metaTitle" value={form.metaTitle} onChange={change} /></label>
-            <label>Meta Description<textarea name="metaDescription" value={form.metaDescription} onChange={change} /></label>
+            {!usesTenantDefinitions && <><label>Meta Title<input name="metaTitle" value={form.metaTitle} onChange={change} /></label><label>Meta Description<textarea name="metaDescription" value={form.metaDescription} onChange={change} /></label></>}
+            {usesTenantDefinitions && <><TenantProductFields definitions={tenantDefinitions} section="marketing" value={tenantValues} onChange={updateTenantValue} /><TenantProductFields definitions={tenantDefinitions} section="seo" value={tenantValues} onChange={updateTenantValue} /></>}
           </>
         )}
-        {step === "showcase" && <div className="full-field"><EmptyState title={form.id ? "Showcase content can be added for this product." : "Save the product first to manage its showcase content."} /></div>}
+        {step === "preview" && <article className="full-field admin-product-preview">
+          {form.image && <img className="admin-image-preview" alt="" src={form.image} />}
+          <h2>{form.nameEn || "Untitled product"}</h2>
+          {form.nameAr && <h3 dir="rtl">{form.nameAr}</h3>}
+          <p>{form.shortDescription}</p>
+          <p><strong>{form.variants?.length || 0}</strong> variants · <strong>{(form.variants || []).reduce((sum, variant) => sum + Number(variant.stock || 0), 0)}</strong> in stock</p>
+          {form.videoUrl && <video controls preload="metadata" src={form.videoUrl} />}
+          {(tenantValues.product_faqs || []).filter((item) => item.is_active !== false).length > 0 && <p>{tenantValues.product_faqs.filter((item) => item.is_active !== false).length} active FAQ items</p>}
+        </article>}
         <div className="form-actions full-field">
           <button className="secondary-action" disabled={tabs.indexOf(step) === 0} onClick={() => setStep(tabs[tabs.indexOf(step) - 1])} type="button">Previous</button>
           <button className="secondary-action" disabled={tabs.indexOf(step) === tabs.length - 1} onClick={() => setStep(tabs[tabs.indexOf(step) + 1])} type="button">Next</button>
@@ -1340,6 +1452,11 @@ function AdminDashboardPage({
   const role = currentUser?.role;
   const canEdit = isTenantOperator(role);
   const canManageSensitive = isCompanyAdmin(role);
+  const canManageProductContent = isCompanyAdmin(role) || ["product_content.manage", "products.manage", "products.update"].some((permission) => hasPermission(currentUser, permission));
+  const canManageProductMedia = isCompanyAdmin(role) || ["product_media.manage", "products.manage", "products.update"].some((permission) => hasPermission(currentUser, permission));
+  const canCreateProducts = isCompanyAdmin(role) || ["products.create", "products.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canUpdateProducts = isCompanyAdmin(role) || ["products.update", "products.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canDeleteProducts = isCompanyAdmin(role) || ["products.delete", "products.manage"].some((permission) => hasPermission(currentUser, permission));
   const readOnly = !canEdit;
   const customers = uniqueCustomersFromOrders(orders);
   const [title, subtitle] = pageMeta[activePage] || pageMeta.admin;
@@ -1489,9 +1606,10 @@ function AdminDashboardPage({
   function renderActivePage() {
     switch (activePage) {
       case "admin-products":
-        return <ProductsListPage brands={brands} categories={adminCategories} filters={filters} onAdd={() => { setEditingProduct(null); onNavigate("admin-products-new"); }} onDeleteProduct={onDeleteProduct} onEdit={(product) => { setEditingProduct(product); onNavigate("admin-products-new"); }} products={products} readOnly={readOnly} setFilters={setFilters} />;
+        return <ProductsListPage brands={brands} canCreate={canCreateProducts} canDelete={canDeleteProducts} canUpdate={canUpdateProducts} categories={adminCategories} filters={filters} onAdd={() => { setEditingProduct(null); onNavigate("admin-products-new"); }} onDeleteProduct={onDeleteProduct} onEdit={(product) => { setEditingProduct(product); onNavigate("admin-products-new"); }} products={products} setFilters={setFilters} />;
       case "admin-products-new":
-        return <ProductWizard brands={brands} categories={adminCategories} editingProduct={editingProduct} onCancel={() => onNavigate("admin-products")} onSave={onSaveProduct} />;
+        if ((editingProduct && !canUpdateProducts) || (!editingProduct && !canCreateProducts)) return <EmptyState title="View-only access" description="You do not have permission to save products." />;
+        return <ProductWizard brands={brands} categories={adminCategories} canManageContent={canManageProductContent} canManageMedia={canManageProductMedia} editingProduct={editingProduct} onCancel={() => onNavigate("admin-products")} onSave={onSaveProduct} />;
       case "admin-categories":
         return renderSimpleTable("categories");
       case "admin-categories-new":

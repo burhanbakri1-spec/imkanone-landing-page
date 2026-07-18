@@ -1,6 +1,6 @@
 import React from "react";
 import AdminOrdersTable from "../components/AdminOrdersTable.jsx";
-import AdminProductForm from "../components/AdminProductForm.jsx";
+import { ProductWizard } from "./AdminDashboardPage.jsx";
 import AdminProductTable from "../components/AdminProductTable.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import WorkTimer from "../components/WorkTimer.jsx";
@@ -47,6 +47,8 @@ function formatVariantLabel(variant, t) {
 }
 
 function EmployeeDashboardPage({
+  brands = [],
+  categories = [],
   currentUser,
   language,
   onCreateOrder,
@@ -457,12 +459,14 @@ function EmployeeDashboardPage({
             <h2>{t("admin.productsManagement")}</h2>
           </div>
           {(canCreateProducts || (canUpdateProducts && editingProduct)) && (
-            <AdminProductForm
+            <ProductWizard
+              brands={brands}
+              canManageContent={["product_content.manage", "products.manage", "products.update"].some((permission) => hasPermission(currentUser, permission))}
+              canManageMedia={["product_media.manage", "products.manage", "products.update"].some((permission) => hasPermission(currentUser, permission))}
+              categories={categories}
               editingProduct={editingProduct}
-              language={language}
               onCancel={() => setEditingProduct(null)}
               onSave={handleProductSave}
-              t={t}
             />
           )}
           {canViewProducts ? (

@@ -3,9 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { requireAuth } from "../middleware/auth.js";
-import { isSupabaseStorageConfigured, uploadImageToSupabaseStorage } from "../data/supabaseStore.js";
+import { deleteSupabaseStorageObject, isSupabaseStorageConfigured, uploadImageToSupabaseStorage } from "../data/supabaseStore.js";
 import { companyStoragePath, companyStorageSegment } from "../tenancy/company.js";
-import { persistCompanyStore, userRepository } from "../data/store.js";
+import { persistCompanyStore, productRepository, userRepository } from "../data/store.js";
+import { productMediaRelativeDirectory, validateProductMediaUpload } from "../productSchema/productMedia.js";
 
 const router = express.Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -20,6 +21,8 @@ const imageTypes = new Map([
   ["image/gif", ".gif"],
 ]);
 const allowedExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
+const videoTypes = new Map([["video/mp4", ".mp4"], ["video/webm", ".webm"]]);
+const productMediaTypes = new Map([...imageTypes, ...videoTypes]);
 
 function requireProductUploader(req, res, next) {
   if (!["admin", "company_admin", "manager", "employee", "staff"].includes(req.user?.role)) {
@@ -34,12 +37,12 @@ function getBoundary(contentType = "") {
   return match?.[1] || match?.[2] || "";
 }
 
-function safeFilename(filename, contentType) {
+function safeFilename(filename, contentType, types = imageTypes) {
   const extensionFromName = path.extname(filename || "").toLowerCase();
   const extension =
     allowedExtensions.has(extensionFromName)
       ? extensionFromName.replace(".jpeg", ".jpg")
-      : imageTypes.get(contentType);
+      : types.get(contentType);
 
   if (!extension) {
     return "";
@@ -122,6 +125,17 @@ function requiresPersistentStorage() {
   return process.env.NODE_ENV === "production" || Boolean(process.env.VERCEL);
 }
 
+function requireProductMediaPermission(req, res, next) {
+  if (["admin", "company_admin"].includes(req.membershipRole) || req.user?.permissions?.some((permission) => ["product_media.manage", "products.manage", "products.update"].includes(permission))) return next();
+  return res.status(403).json({ message: "Product media permission required." });
+}
+
+function requireOwnedProduct(req, res, next) {
+  if (!/^[a-zA-Z0-9_-]{1,160}$/.test(req.params.productId || "")) return res.status(400).json({ message: "Invalid product ID." });
+  if (!productRepository.findByCompany(req.companyId, req.params.productId)) return res.status(404).json({ message: "Product not found." });
+  return next();
+}
+
 function hasLocalPersistentStorage() {
   return Boolean(process.env.UPLOADS_DIR?.trim());
 }
@@ -190,6 +204,66 @@ router.post(
     });
   },
 );
+
+router.post(
+  "/products/:productId",
+  requireAuth,
+  requireProductMediaPermission,
+  requireOwnedProduct,
+  express.raw({ limit: "55mb", type: (req) => req.headers["content-type"]?.startsWith("multipart/form-data") }),
+  async (req, res, next) => {
+    try {
+      const boundary = getBoundary(req.headers["content-type"]);
+      const uploads = boundary ? parseMultipartImages(req.body, boundary) : [];
+      if (!uploads.length) return res.status(400).json({ message: "No media file was uploaded." });
+      const useSupabaseStorage = isSupabaseStorageConfigured();
+      if (!useSupabaseStorage && requiresPersistentStorage() && !hasLocalPersistentStorage()) return res.status(500).json({ message: "Persistent media storage is not configured." });
+      const relativeDirectory = productMediaRelativeDirectory(req.companyId, req.params.productId);
+      const localDirectory = path.join(uploadsDir, ...relativeDirectory.split("/"));
+      if (!useSupabaseStorage) fs.mkdirSync(localDirectory, { recursive: true });
+      const savedFiles = [];
+      for (const upload of uploads) {
+        let validation;
+        try { validation = validateProductMediaUpload({ contentType: upload.contentType, size: upload.data.length }); }
+        catch (error) { return res.status(error.statusCode || 400).json({ message: error.message }); }
+        const { isVideo } = validation;
+        const filename = safeFilename(upload.filename, upload.contentType, productMediaTypes);
+        if (!filename) return res.status(400).json({ message: "Unsupported media file type." });
+        if (useSupabaseStorage) {
+          savedFiles.push(await uploadImageToSupabaseStorage({ companyId: req.companyId, filename, contentType: upload.contentType, data: upload.data, pathParts: ["products", req.params.productId] }));
+        } else {
+          const relativePath = `${relativeDirectory}/${filename}`;
+          fs.writeFileSync(path.join(localDirectory, filename), upload.data);
+          savedFiles.push({ path: `/uploads/${relativePath}`, url: buildPublicUrl(req, relativePath), mediaType: isVideo ? "video" : "image" });
+        }
+      }
+      return res.status(201).json({ ...savedFiles[0], files: savedFiles });
+    } catch (error) { return next(error); }
+  },
+);
+
+router.delete("/products/:productId", requireAuth, requireProductMediaPermission, requireOwnedProduct, async (req, res, next) => {
+  try {
+    const raw = String(req.body?.path || req.body?.url || "");
+    const pathname = raw.startsWith("http") ? new URL(raw).pathname : raw;
+    const directory = companyStoragePath(req.companyId, "products", req.params.productId);
+    const prefix = `/uploads/${directory}/`;
+    const storageMarker = `/${directory}/`;
+    if (!pathname.startsWith(prefix) && !raw.includes(storageMarker)) return res.status(403).json({ message: "Media does not belong to this tenant and product." });
+    if (isSupabaseStorageConfigured()) {
+      const markerIndex = raw.indexOf(storageMarker);
+      const storagePath = markerIndex >= 0 ? decodeURIComponent(raw.slice(markerIndex + 1)) : pathname.slice("/uploads/".length);
+      await deleteSupabaseStorageObject(storagePath);
+    } else {
+      const relative = pathname.slice("/uploads/".length);
+      const target = path.resolve(uploadsDir, ...relative.split("/"));
+      const expectedRoot = path.resolve(uploadsDir, ...directory.split("/"));
+      if (!target.startsWith(`${expectedRoot}${path.sep}`)) return res.status(403).json({ message: "Invalid media path." });
+      if (fs.existsSync(target)) fs.unlinkSync(target);
+    }
+    return res.status(204).end();
+  } catch (error) { return next(error); }
+});
 
 router.post(
   "/avatar",
