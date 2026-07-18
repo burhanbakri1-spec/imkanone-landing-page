@@ -23,9 +23,27 @@ import {
   Tag,
   UserCircle,
   Users,
+  HandCoins,
 } from "lucide-react";
+import { hasPermission } from "../data/permissions.js";
 
 const navSections = [
+  {
+    id: "dropshipping",
+    icon: HandCoins,
+    label: { en: "Dropshipping", ar: "الدروبشيبينغ" },
+    permission: "dropshipping.reports.read",
+    items: [
+      { key: "admin-dropshipping", icon: Grid3X3, label: { en: "Overview", ar: "نظرة عامة" } },
+      { key: "admin-dropshipping-marketers", icon: Users, label: { en: "Marketers", ar: "المسوقون" } },
+      { key: "admin-dropshipping-products", icon: Package, label: { en: "Products", ar: "المنتجات" } },
+      { key: "admin-dropshipping-orders", icon: ShoppingCart, label: { en: "Orders", ar: "الطلبات" } },
+      { key: "admin-dropshipping-earnings", icon: HandCoins, label: { en: "Earnings", ar: "الأرباح" } },
+      { key: "admin-dropshipping-withdrawals", icon: Archive, label: { en: "Withdrawals", ar: "السحوبات" } },
+      { key: "admin-dropshipping-reports", icon: ClipboardList, label: { en: "Reports", ar: "التقارير" } },
+      { key: "admin-dropshipping-settings", icon: Settings, label: { en: "Settings", ar: "الإعدادات" } },
+    ],
+  },
   {
     id: "platform",
     icon: Building2,
@@ -121,8 +139,8 @@ function AdminLayout({
   const companyMark = companyName.slice(0, 2).toUpperCase();
   const activeKey = normalizedActive(activePage);
   const visibleNavSections = React.useMemo(
-    () => navSections.filter(
-      (section) => !section.roles || section.roles.includes(currentUser?.role)
+    () => navSections.filter((section) =>
+      (!section.roles || section.roles.includes(currentUser?.role)) && (!section.permission || hasPermission(currentUser, section.permission))
     ),
     [currentUser?.role]
   );

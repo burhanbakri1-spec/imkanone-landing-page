@@ -104,6 +104,18 @@ export const allPermissions = [
   "delivery.view",
   "activity_log.view",
   "reports.view",
+  "dropshipping.marketers.read",
+  "dropshipping.marketers.manage",
+  "dropshipping.products.read",
+  "dropshipping.products.manage",
+  "dropshipping.orders.read",
+  "dropshipping.orders.manage",
+  "dropshipping.earnings.read",
+  "dropshipping.earnings.manage",
+  "dropshipping.withdrawals.read",
+  "dropshipping.withdrawals.manage",
+  "dropshipping.reports.read",
+  "dropshipping.settings.manage",
 ];
 
 const seedUsers = [

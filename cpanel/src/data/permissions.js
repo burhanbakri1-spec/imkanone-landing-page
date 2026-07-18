@@ -37,6 +37,18 @@ export const permissionGroups = [
       { key: "website_media.manage", labelKey: "permissions.websiteMediaManage" },
     ],
   },
+  {
+    titleKey: "Dropshipping",
+    permissions: [
+      "marketers", "products", "orders", "earnings", "withdrawals",
+    ].flatMap((area) => [
+      { key: `dropshipping.${area}.read`, labelKey: `Dropshipping ${area}: read` },
+      { key: `dropshipping.${area}.manage`, labelKey: `Dropshipping ${area}: manage` },
+    ]).concat([
+      { key: "dropshipping.reports.read", labelKey: "Dropshipping reports" },
+      { key: "dropshipping.settings.manage", labelKey: "Dropshipping settings" },
+    ]),
+  },
 ];
 
 export function hasPermission(user, permission) {

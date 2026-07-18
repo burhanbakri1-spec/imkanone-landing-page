@@ -3,6 +3,7 @@ import AdminCompaniesPage from "./pages/AdminCompaniesPage.jsx";
 import AdminDashboardPage from "./pages/AdminDashboardPage.jsx";
 import AdminEmployeesPage from "./pages/AdminEmployeesPage.jsx";
 import AdminLoginPage from "./pages/AdminLoginPage.jsx";
+import AdminDropshippingPage from "./pages/AdminDropshippingPage.jsx";
 import { hasPermission } from "./data/permissions.js";
 import { createTranslator } from "./data/translations.js";
 import {
@@ -94,10 +95,19 @@ const pagePaths = {
   "admin-staff-new": "/admin/staff/new",
   "admin-employees": "/admin/staff",
   "admin-settings": "/admin/settings",
+  "admin-dropshipping": "/admin/dropshipping",
+  "admin-dropshipping-marketers": "/admin/dropshipping/marketers",
+  "admin-dropshipping-products": "/admin/dropshipping/products",
+  "admin-dropshipping-orders": "/admin/dropshipping/orders",
+  "admin-dropshipping-earnings": "/admin/dropshipping/earnings",
+  "admin-dropshipping-withdrawals": "/admin/dropshipping/withdrawals",
+  "admin-dropshipping-reports": "/admin/dropshipping/reports",
+  "admin-dropshipping-settings": "/admin/dropshipping/settings",
 };
 
 const adminPageKeys = Object.keys(pagePaths).filter((page) => page !== "admin-login");
 const staffPageKeys = ["admin-staff", "admin-staff-new", "admin-employees"];
+const dropshippingPageKeys = Object.keys(pagePaths).filter((key) => key.startsWith("admin-dropshipping"));
 
 function isAdminRole(role) {
   return isAdminPortalRole(role);
@@ -673,6 +683,7 @@ function CPanelApp() {
 
         {adminPageKeys.includes(activePage) &&
           activePage !== "admin-platform-companies" &&
+          !dropshippingPageKeys.includes(activePage) &&
           !staffPageKeys.includes(activePage) && (
             <AdminDashboardPage
               activePage={activePage}
@@ -713,6 +724,7 @@ function CPanelApp() {
           )}
 
         {activePage === "admin-platform-companies" && <AdminCompaniesPage {...sharedLayoutProps} />}
+        {dropshippingPageKeys.includes(activePage) && <AdminDropshippingPage activePage={activePage} {...sharedLayoutProps} />}
 
         {staffPageKeys.includes(activePage) && (
           <AdminEmployeesPage

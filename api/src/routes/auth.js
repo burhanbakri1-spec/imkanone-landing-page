@@ -15,6 +15,7 @@ import {
   signToken,
   verifyToken,
 } from "../middleware/auth.js";
+import { rateLimit } from "../middleware/rateLimit.js";
 
 function normalizePhone(phone) {
   if (!phone) return "";
@@ -112,7 +113,7 @@ async function startEmployeeSession(user, companyId) {
   return session;
 }
 
-router.post("/login", asyncHandler(async (req, res) => {
+router.post("/login", rateLimit({ key: "login", max: 10, windowMs: 15 * 60_000 }), asyncHandler(async (req, res) => {
   const { email, password } = req.body;
   const normalizedEmail = String(email || "").trim().toLowerCase();
   const user = await platformUserRepository.findByEmail(normalizedEmail);
