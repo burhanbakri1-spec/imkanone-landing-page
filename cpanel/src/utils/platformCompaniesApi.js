@@ -29,3 +29,28 @@ export async function disablePlatformCompany(companyId) {
   });
   return response?.company || response;
 }
+
+export async function fetchCompanyModules(companyId) {
+  return apiRequest(`${companiesPath}/${encodeURIComponent(companyId)}/modules`);
+}
+
+export async function updateCompanyModules(companyId, modules) {
+  return apiRequest(`${companiesPath}/${encodeURIComponent(companyId)}/modules`, {
+    method: "PUT",
+    body: JSON.stringify({ modules }),
+  });
+}
+
+export async function restoreCompanyModules(companyId) {
+  return apiRequest(`${companiesPath}/${encodeURIComponent(companyId)}/modules/restore-defaults`, {
+    method: "POST",
+  });
+}
+
+export async function requestCompanyScope(companyId) {
+  return apiRequest(`${companiesPath}/${encodeURIComponent(companyId)}/scope`, { method: "POST" });
+}
+
+export async function recordCompanyScopeExit() {
+  return apiRequest("/platform/company-scope/exit", { method: "POST" });
+}

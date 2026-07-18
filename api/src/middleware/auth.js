@@ -9,6 +9,7 @@ import {
 const JWT_SECRET = process.env.JWT_SECRET || "ep-chemical-jwt-dev-secret";
 const JWT_EXPIRY_SECONDS = 86400;
 const COMPANY_SELECTION_EXPIRY_SECONDS = 300;
+export const COMPANY_SCOPE_EXPIRY_SECONDS = 900;
 
 function signPayload(payload, expirySeconds) {
   const header = { alg: "HS256", typ: "JWT" };
@@ -62,6 +63,19 @@ export function signCompanySelectionChallenge(user) {
   }, COMPANY_SELECTION_EXPIRY_SECONDS);
 }
 
+export function signCompanyScopeToken(user, company) {
+  if (!isSuperAdmin(user) || !company?.id || company.status !== "active") {
+    throw new Error("An active company and Super Admin are required to issue a company scope.");
+  }
+  return signPayload({
+    tokenType: "company_scope",
+    id: user.id,
+    role: user.role,
+    companyId: company.id,
+    scopeId: crypto.randomUUID(),
+  }, COMPANY_SCOPE_EXPIRY_SECONDS);
+}
+
 export function verifyToken(token) {
   try {
     const parts = String(token || "").split(".");
@@ -98,11 +112,23 @@ function effectiveMembershipUser(user, membership) {
 
 async function authenticatedContext(req) {
   const payload = verifyToken(bearerToken(req));
-  if (!payload || payload.tokenType !== "access" || !payload.id) return null;
+  if (!payload || !["access", "company_scope"].includes(payload.tokenType) || !payload.id) return null;
   const user = await platformUserRepository.getUserById(payload.id);
   if (!user || user.isActive === false || payload.role !== user.role) return null;
 
   if (isSuperAdmin(user)) {
+    if (payload.tokenType === "company_scope") {
+      if (!payload.companyId || payload.membershipId || payload.membershipRole || !payload.scopeId) return null;
+      const company = companyRepository.getCompanyById(payload.companyId);
+      if (!company || company.status !== "active") return null;
+      return {
+        user: { ...user, globalRole: user.role, permissions: [] },
+        company,
+        membership: null,
+        membershipRole: "super_admin",
+        tenantScope: { id: payload.scopeId, companyId: company.id },
+      };
+    }
     if (payload.companyId || payload.membershipId || payload.membershipRole) return null;
     return {
       user: { ...user, globalRole: user.role },
@@ -111,6 +137,8 @@ async function authenticatedContext(req) {
       membershipRole: null,
     };
   }
+
+  if (payload.tokenType !== "access") return null;
 
   if (!payload.companyId || !payload.membershipId || !payload.membershipRole) return null;
   const company = companyRepository.getCompanyById(payload.companyId);
@@ -146,6 +174,7 @@ function applyContext(req, context) {
   req.companyId = context.company?.id || null;
   req.membership = context.membership;
   req.membershipRole = context.membershipRole;
+  req.tenantScope = context.tenantScope || null;
 }
 
 function allowsPlatformOnlySession(req) {
@@ -174,7 +203,7 @@ export async function getSessionUser(req) {
 export async function requireAuth(req, res, next) {
   const user = await getSessionUser(req);
   if (!user) return res.status(401).json({ message: "Authentication required." });
-  if (!req.membership && !allowsPlatformOnlySession(req)) {
+  if (!req.membership && !req.tenantScope && !allowsPlatformOnlySession(req)) {
     return res.status(403).json({ message: "An active company membership is required." });
   }
   return next();
@@ -189,14 +218,14 @@ export async function optionalAuth(req, res, next) {
   if (!user) {
     return res.status(401).json({ message: "Invalid or expired authentication token." });
   }
-  if (!req.membership && !allowsPlatformOnlySession(req)) {
+  if (!req.membership && !req.tenantScope && !allowsPlatformOnlySession(req)) {
     return res.status(403).json({ message: "An active company membership is required." });
   }
   return next();
 }
 
 export function requireAdmin(req, res, next) {
-  if (!["admin", "company_admin"].includes(req.membershipRole)) {
+  if (!["admin", "company_admin", "super_admin"].includes(req.membershipRole)) {
     return res.status(403).json({ message: "Tenant admin access required." });
   }
   return next();

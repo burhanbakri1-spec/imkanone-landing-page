@@ -12,6 +12,7 @@ import {
   requireTenantPermission,
   validateOptionalUrl,
 } from "./catalogValidation.js";
+import { listCompanyModules, modulesVisibleToUser } from "../moduleRegistry.js";
 
 const router = Router();
 
@@ -154,9 +155,12 @@ function authenticatedContext(req, company) {
   });
 }
 
-router.get("/context", optionalAuth, (req, res) => {
+router.get("/context", optionalAuth, async (req, res) => {
   const company = companyRepository.getCompanyById(req.companyId) || req.company;
-  res.json(authenticatedContext(req, company));
+  const context = authenticatedContext(req, company);
+  if (!req.user || !company?.id) return res.json(context);
+  const modules = modulesVisibleToUser(await listCompanyModules(company.id), req.user);
+  return res.json({ ...context, modules });
 });
 
 router.get(

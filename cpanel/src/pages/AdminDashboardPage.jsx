@@ -1385,6 +1385,7 @@ function AdminDashboardPage({
   employees,
   homepageCategoryCards,
   language,
+  modules,
   homepageOffers,
   onDeleteProduct,
   onDeleteBrand,
@@ -1395,6 +1396,8 @@ function AdminDashboardPage({
   onLogout,
   onLanguageChange,
   onNavigate,
+  onReturnToPlatform,
+  onSwitchCompany,
   onSaveCategoryCard,
   onSaveOffer,
   onSaveProduct,
@@ -1469,9 +1472,12 @@ function AdminDashboardPage({
         currentUser={currentUser}
         isDarkMode={isDarkMode}
         language={language}
+        modules={modules}
         onLanguageChange={onLanguageChange}
         onLogout={onLogout}
         onNavigate={onNavigate}
+        onReturnToPlatform={onReturnToPlatform}
+        onSwitchCompany={onSwitchCompany}
         onToggleDarkMode={onToggleDarkMode}
         subtitle="Admin access is required"
         title="Access denied"
@@ -1651,9 +1657,12 @@ function AdminDashboardPage({
       currentUser={currentUser}
       isDarkMode={isDarkMode}
       language={language}
+      modules={modules}
       onLanguageChange={onLanguageChange}
       onLogout={onLogout}
       onNavigate={onNavigate}
+      onReturnToPlatform={onReturnToPlatform}
+      onSwitchCompany={onSwitchCompany}
       onToggleDarkMode={onToggleDarkMode}
       subtitle={subtitle}
       title={title}

@@ -4,6 +4,7 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveCompany } from "./middleware/company.js";
+import { enforceCompanyModuleAccess } from "./middleware/moduleAccess.js";
 import { sanitizeTenantRequestBody } from "./middleware/tenantInput.js";
 import adminRoutes from "./routes/admin.js";
 import authRoutes from "./routes/auth.js";
@@ -108,6 +109,7 @@ app.use("/uploads", express.static(uploadsDir));
 app.use(express.json({ limit: "1mb" }));
 app.use(sanitizeTenantRequestBody);
 app.use(resolveCompany);
+app.use(enforceCompanyModuleAccess);
 app.use((req, res, next) => {
   if (req.path.startsWith("/api")) {
     res.setHeader("Content-Type", "application/json; charset=utf-8");

@@ -4,15 +4,19 @@ import AdminDashboardPage from "./pages/AdminDashboardPage.jsx";
 import AdminEmployeesPage from "./pages/AdminEmployeesPage.jsx";
 import AdminLoginPage from "./pages/AdminLoginPage.jsx";
 import AdminDropshippingPage from "./pages/AdminDropshippingPage.jsx";
+import AdminFeaturePage, { featurePageKeys } from "./pages/AdminFeaturePage.jsx";
 import { hasPermission } from "./data/permissions.js";
 import { createTranslator } from "./data/translations.js";
 import {
   fetchCurrentUser,
   getCurrentUser,
+  enterCompanyScope,
+  exitCompanyScope,
   loginUser,
   logoutUser,
   setCurrentUser as persistCurrentUser,
 } from "./utils/auth.js";
+import { moduleAllowsPage, pageKeyForModule } from "./utils/moduleRegistry.js";
 import { protectedApiErrorEvent } from "./utils/api.js";
 import { assignOrderEmployee, deleteOrder, getOrders, updateOrderStatus } from "./utils/orders.js";
 import {
@@ -87,6 +91,7 @@ const pagePaths = {
   "admin-store-locator": "/admin/store-locator",
   "admin-store-locator-new": "/admin/store-locator/new",
   "admin-website-media": "/admin/website-media",
+  "admin-website-texts": "/admin/website-texts",
   "admin-orders": "/admin/orders",
   "admin-reviews": "/admin/reviews",
   "admin-inventory": "/admin/inventory",
@@ -95,6 +100,12 @@ const pagePaths = {
   "admin-staff-new": "/admin/staff/new",
   "admin-employees": "/admin/staff",
   "admin-settings": "/admin/settings",
+  "admin-product-settings": "/admin/product-settings",
+  "admin-invoices": "/admin/invoices",
+  "admin-delivery": "/admin/delivery",
+  "admin-reports": "/admin/reports",
+  "admin-activity-log": "/admin/activity-log",
+  "admin-unit-creator": "/admin/unit-creator",
   "admin-dropshipping": "/admin/dropshipping",
   "admin-dropshipping-marketers": "/admin/dropshipping/marketers",
   "admin-dropshipping-products": "/admin/dropshipping/products",
@@ -130,6 +141,7 @@ function CPanelApp() {
     resolvePage(window.location.pathname, storedUser),
   );
   const [currentUser, setUser] = React.useState(storedUser);
+  const modules = company?.modules || [];
   const [products, setProducts] = React.useState([]);
   const [categories, setCategories] = React.useState([]);
   const [brands, setBrands] = React.useState([]);
@@ -156,9 +168,15 @@ function CPanelApp() {
     const authorizationRole = Object.prototype.hasOwnProperty.call(options, "role")
       ? options.role
       : currentUser?.role;
-    const safePage = pagePaths[page] && canAccessAdminPage(authorizationRole, page)
+    const navigationCompany = Object.prototype.hasOwnProperty.call(options, "company") ? options.company : company;
+    const navigationModules = options.modules || modules;
+    const roleAllowed = pagePaths[page] && canAccessAdminPage(authorizationRole, page);
+    const moduleAllowed = !navigationCompany || page === "admin-platform-companies" || page === "admin-login"
+      || moduleAllowsPage(navigationModules, page);
+    const firstModulePage = pageKeyForModule(navigationModules[0]) || "admin";
+    const safePage = roleAllowed && moduleAllowed
       ? page
-      : landingPage({ role: authorizationRole });
+      : navigationCompany ? firstModulePage : landingPage({ role: authorizationRole });
     setAdminMessage("");
     if (!options.preserveLoginMessage) setAdminLoginMessage("");
     setActivePage(safePage);
@@ -274,6 +292,13 @@ function CPanelApp() {
   }, [activePage, currentUser, t]);
 
   React.useEffect(() => {
+    if (!company || !currentUser || activePage === "admin-login") return;
+    if (!moduleAllowsPage(modules, activePage)) {
+      navigate(pageKeyForModule(modules[0]) || "admin", { replace: true });
+    }
+  }, [activePage, company?.id, modules.length]);
+
+  React.useEffect(() => {
     localStorage.setItem("epChemicalLanguage", language);
     document.documentElement.lang = language;
     document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
@@ -284,15 +309,15 @@ function CPanelApp() {
   }, [isDarkMode]);
 
   React.useEffect(() => {
-    if (!isAdminRole(currentUser?.role) || isPlatformAdmin(currentUser.role)) return;
-    void refreshProducts();
-    void refreshCategories();
-    void refreshBrands();
-    void refreshOrders(currentUser);
-    void refreshEmployees(currentUser);
-    void refreshAdminContent(currentUser);
-    void refreshWebsiteMedia(currentUser);
-  }, [currentUser]);
+    if (!isAdminRole(currentUser?.role) || isPlatformAdmin(currentUser.role) || !company) return;
+    if (moduleAllowsPage(modules, "admin-products")) void refreshProducts();
+    if (moduleAllowsPage(modules, "admin-categories")) void refreshCategories();
+    if (moduleAllowsPage(modules, "admin-brands")) void refreshBrands();
+    if (moduleAllowsPage(modules, "admin-orders")) void refreshOrders(currentUser);
+    if (moduleAllowsPage(modules, "admin-staff")) void refreshEmployees(currentUser);
+    if (moduleAllowsPage(modules, "admin-reviews")) void refreshAdminContent(currentUser);
+    if (moduleAllowsPage(modules, "admin-website-media")) void refreshWebsiteMedia(currentUser);
+  }, [currentUser, company?.id]);
 
   async function refreshProducts() {
     try {
@@ -433,6 +458,33 @@ function CPanelApp() {
     setWebsiteMedia([]);
     setWebsiteMediaError("");
     navigate("admin-login", { role: null });
+  }
+
+  async function handleSwitchCompany(companyId) {
+    try {
+      const user = await enterCompanyScope(companyId);
+      setUser(user);
+      setCompany(user.activeCompany);
+      navigate(pageKeyForModule(user.activeCompany?.modules?.[0]) || "admin", {
+        company: user.activeCompany,
+        modules: user.activeCompany?.modules || [],
+        role: user.role,
+        replace: true,
+      });
+    } catch (error) {
+      handleApiError(error);
+    }
+  }
+
+  async function handleReturnToPlatform() {
+    try {
+      const user = await exitCompanyScope();
+      setUser(user);
+      setCompany(null);
+      navigate("admin-platform-companies", { role: "super_admin", replace: true });
+    } catch (error) {
+      setAdminMessage(error.message || "Unable to return to the platform.");
+    }
   }
 
   async function handleSaveCategory(category) {
@@ -668,9 +720,12 @@ function CPanelApp() {
     currentUser,
     isDarkMode,
     language,
+    modules,
     onLanguageChange: () => setLanguage((value) => (value === "en" ? "ar" : "en")),
     onLogout: handleLogout,
     onNavigate: navigate,
+    onReturnToPlatform: handleReturnToPlatform,
+    onSwitchCompany: handleSwitchCompany,
     onToggleDarkMode: () => setIsDarkMode((value) => !value),
   };
 
@@ -684,6 +739,7 @@ function CPanelApp() {
         {adminPageKeys.includes(activePage) &&
           activePage !== "admin-platform-companies" &&
           !dropshippingPageKeys.includes(activePage) &&
+          !featurePageKeys.includes(activePage) &&
           !staffPageKeys.includes(activePage) && (
             <AdminDashboardPage
               activePage={activePage}
@@ -725,6 +781,7 @@ function CPanelApp() {
 
         {activePage === "admin-platform-companies" && <AdminCompaniesPage {...sharedLayoutProps} />}
         {dropshippingPageKeys.includes(activePage) && <AdminDropshippingPage activePage={activePage} {...sharedLayoutProps} />}
+        {featurePageKeys.includes(activePage) && <AdminFeaturePage activePage={activePage} {...sharedLayoutProps} />}
 
         {staffPageKeys.includes(activePage) && (
           <AdminEmployeesPage

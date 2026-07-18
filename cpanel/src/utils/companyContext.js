@@ -31,6 +31,24 @@ export function sanitizeCompanyContext(company) {
   const slug = String(company.slug || "").trim().toLowerCase();
   if (!id || !slug) return null;
 
+  const modules = Array.isArray(company.modules)
+    ? company.modules.filter((module) => module && typeof module === "object" && module.enabled !== false).map((module) => ({
+      module_key: String(module.module_key || ""),
+      group_key: String(module.group_key || ""),
+      label_en: String(module.label_en || ""),
+      label_ar: String(module.label_ar || ""),
+      description_en: String(module.description_en || ""),
+      description_ar: String(module.description_ar || ""),
+      icon_key: String(module.icon_key || ""),
+      route: String(module.route || ""),
+      sort_order: Number(module.sort_order || 0),
+      enabled: true,
+      configuration: module.configuration && typeof module.configuration === "object"
+        ? module.configuration
+        : {},
+    })).filter((module) => module.module_key && module.route)
+    : [];
+
   return {
     id,
     slug,
@@ -40,6 +58,7 @@ export function sanitizeCompanyContext(company) {
     faviconUrl: resolveApiAssetUrl(safeUrl(company.faviconUrl ?? settings.faviconUrl)),
     storefrontUrl: safeUrl(company.storefrontUrl ?? settings.storefrontUrl),
     storefrontPath: String(company.storefrontPath ?? settings.storefrontPath ?? ""),
+    modules,
     settings: {
       currency: typeof settings.currency === "string" ? settings.currency : null,
       direction: ["ltr", "rtl"].includes(settings.direction) ? settings.direction : null,

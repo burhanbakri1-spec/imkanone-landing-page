@@ -6,7 +6,20 @@ import {
   companyRepository,
   platformUserRepository,
 } from "../data/store.js";
-import { requireAuth, requireSuperAdmin } from "../middleware/auth.js";
+import {
+  COMPANY_SCOPE_EXPIRY_SECONDS,
+  publicUser,
+  requireAuth,
+  requireSuperAdmin,
+  signCompanyScopeToken,
+} from "../middleware/auth.js";
+import { recordActivityLog } from "../activityLog/logger.js";
+import {
+  listCompanyModules,
+  modulesVisibleToUser,
+  replaceCompanyModules,
+  restoreCompanyModuleDefaults,
+} from "../moduleRegistry.js";
 import {
   ADMIN_MODULE_KEYS,
   COMPANY_STATUSES,
@@ -389,6 +402,20 @@ function membershipCompanyOr404(companyId) {
   return company;
 }
 
+function moduleAudit(req, company, action, beforeData, afterData, summary) {
+  return recordActivityLog({
+    req,
+    companyId: company.id,
+    action,
+    entityType: "company_modules",
+    entityId: company.id,
+    entityLabel: company.name,
+    summary,
+    beforeData,
+    afterData,
+  });
+}
+
 router.get("/users", async (_req, res) => {
   try {
     const users = await platformUserRepository.listUsers();
@@ -511,6 +538,117 @@ router.patch("/companies/:companyId/memberships/:userId/disable", async (req, re
 
 router.get("/companies", (_req, res) => {
   res.json(companyRepository.listCompanies().map(createPlatformCompanySummary));
+});
+
+router.get("/companies/:companyId/modules", async (req, res) => {
+  try {
+    const company = membershipCompanyOr404(req.params.companyId);
+    return res.json({ company: createPlatformCompanySummary(company), modules: await listCompanyModules(company.id) });
+  } catch (error) {
+    return sendCompanyError(res, error);
+  }
+});
+
+router.put("/companies/:companyId/modules", async (req, res) => {
+  try {
+    const company = membershipCompanyOr404(req.params.companyId);
+    const before = await listCompanyModules(company.id);
+    await replaceCompanyModules(company.id, req.body?.modules);
+    const modules = await listCompanyModules(company.id);
+    const beforeByKey = new Map(before.map((item) => [item.module_key, item]));
+    const changed = modules.filter((item) => {
+      const previous = beforeByKey.get(item.module_key);
+      return !previous || previous.enabled !== item.enabled || previous.sort_order !== item.sort_order
+        || previous.label_en !== item.label_en || previous.label_ar !== item.label_ar
+        || JSON.stringify(previous.configuration || {}) !== JSON.stringify(item.configuration || {});
+    });
+    for (const item of changed) {
+      const previous = beforeByKey.get(item.module_key);
+      const action = previous?.enabled !== item.enabled
+        ? `platform.company_module.${item.enabled ? "enabled" : "disabled"}`
+        : previous?.sort_order !== item.sort_order
+          ? "platform.company_module.reordered"
+          : "platform.company_module.configured";
+      await moduleAudit(req, company, action, previous, item, `Updated ${item.label_en} for ${company.name}.`);
+    }
+    return res.json({ company: createPlatformCompanySummary(company), modules });
+  } catch (error) {
+    return sendCompanyError(res, error);
+  }
+});
+
+router.post("/companies/:companyId/modules/restore-defaults", async (req, res) => {
+  try {
+    const company = membershipCompanyOr404(req.params.companyId);
+    const before = await listCompanyModules(company.id);
+    await restoreCompanyModuleDefaults(company.id);
+    const modules = await listCompanyModules(company.id);
+    await moduleAudit(req, company, "platform.company_modules.defaults_restored", before, modules, "Restored default company modules.");
+    return res.json({ company: createPlatformCompanySummary(company), modules });
+  } catch (error) {
+    return sendCompanyError(res, error);
+  }
+});
+
+router.post("/companies/:companyId/scope", async (req, res) => {
+  try {
+    const company = membershipCompanyOr404(req.params.companyId);
+    if (company.status !== "active") throw Object.assign(new Error("Only active companies can be opened."), { statusCode: 409 });
+    const previousCompanyId = req.tenantScope?.companyId || null;
+    const modules = modulesVisibleToUser(await listCompanyModules(company.id), req.user);
+    const action = previousCompanyId && previousCompanyId !== company.id
+      ? "platform.company_scope.switched"
+      : "platform.company_scope.entered";
+    if (previousCompanyId && previousCompanyId !== company.id) {
+      const previousCompany = companyRepository.getCompanyById(previousCompanyId);
+      await recordActivityLog({
+        req,
+        companyId: previousCompanyId,
+        action: "platform.company_scope.exited",
+        entityType: "company_scope",
+        entityId: previousCompanyId,
+        entityLabel: previousCompany?.name || previousCompanyId,
+        summary: `Exited company scope to switch to ${company.name}.`,
+        metadata: { nextCompanyId: company.id },
+      });
+    }
+    await recordActivityLog({
+      req,
+      companyId: company.id,
+      action,
+      entityType: "company_scope",
+      entityId: company.id,
+      entityLabel: company.name,
+      summary: previousCompanyId ? `Switched company scope from ${previousCompanyId}.` : "Entered company scope.",
+      metadata: { previousCompanyId, scopeExpiresInSeconds: COMPANY_SCOPE_EXPIRY_SECONDS },
+    });
+    return res.json({
+      token: signCompanyScopeToken(req.user, company),
+      user: { ...publicUser(req.user), role: "company_admin", globalRole: "super_admin", isCompanyScope: true },
+      activeCompany: createPlatformCompanySummary(company),
+      activeMembership: null,
+      modules,
+      scope: { expiresInSeconds: COMPANY_SCOPE_EXPIRY_SECONDS },
+    });
+  } catch (error) {
+    return sendCompanyError(res, error);
+  }
+});
+
+router.post("/company-scope/exit", async (req, res) => {
+  if (req.tenantScope?.companyId) {
+    const company = companyRepository.getCompanyById(req.tenantScope.companyId);
+    await recordActivityLog({
+      req,
+      companyId: req.tenantScope.companyId,
+      action: "platform.company_scope.exited",
+      entityType: "company_scope",
+      entityId: req.tenantScope.companyId,
+      entityLabel: company?.name || req.tenantScope.companyId,
+      summary: "Exited company scope.",
+    });
+  }
+  return res.status(204).end();
 });
 
 router.get("/companies/:id", (req, res) => {

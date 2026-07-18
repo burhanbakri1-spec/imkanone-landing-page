@@ -235,7 +235,9 @@ router.get("/me", requireAuth, asyncHandler(async (req, res) => {
   const memberships = user.globalRole === "super_admin"
     ? []
     : await companyMembershipRepository.listActiveMembershipsForUser(user.id);
-  const safeUser = publicUser(user);
+  const safeUser = req.tenantScope
+    ? { ...publicUser(user), role: "company_admin", globalRole: "super_admin", isCompanyScope: true }
+    : publicUser(user);
   res.json({
     ...safeUser,
     user: safeUser,

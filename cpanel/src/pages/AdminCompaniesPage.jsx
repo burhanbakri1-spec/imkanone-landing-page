@@ -1,11 +1,14 @@
 import React from "react";
-import { Building2, Pencil, Plus, ShieldAlert, Users } from "lucide-react";
+import { Building2, ExternalLink, Pencil, Plus, Settings, ShieldAlert, Users } from "lucide-react";
 import AdminLayout from "../components/AdminLayout.jsx";
 import CompanyMembershipsPanel from "../components/CompanyMembershipsPanel.jsx";
 import {
   createPlatformCompany,
   disablePlatformCompany,
+  fetchCompanyModules,
   fetchPlatformCompanies,
+  restoreCompanyModules,
+  updateCompanyModules,
   updatePlatformCompany,
 } from "../utils/platformCompaniesApi.js";
 
@@ -25,6 +28,76 @@ const emptyForm = {
 };
 
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+function CompanyModulesPanel({ company, onClose, onError, onSuccess }) {
+  const [modules, setModules] = React.useState([]);
+  const [busy, setBusy] = React.useState(true);
+  React.useEffect(() => {
+    let active = true;
+    setBusy(true);
+    fetchCompanyModules(company.id)
+      .then((response) => active && setModules((response.modules || []).map((module) => ({ ...module, configurationText: JSON.stringify(module.configuration_override || module.configuration || {}) }))))
+      .catch(onError)
+      .finally(() => active && setBusy(false));
+    return () => { active = false; };
+  }, [company.id]);
+
+  async function save() {
+    setBusy(true);
+    try {
+      const normalized = modules.map((module) => {
+        let configuration;
+        try { configuration = JSON.parse(module.configurationText || "{}"); }
+        catch { throw new Error(`${module.label_en} configuration must be valid JSON.`); }
+        if (!configuration || typeof configuration !== "object" || Array.isArray(configuration)) throw new Error(`${module.label_en} configuration must be a JSON object.`);
+        return {
+          module_key: module.module_key,
+          enabled: module.enabled !== false,
+          sort_order: Number(module.sort_order || 0),
+          label_en_override: module.label_en_override || null,
+          label_ar_override: module.label_ar_override || null,
+          configuration_override: configuration,
+        };
+      });
+      const response = await updateCompanyModules(company.id, normalized);
+      setModules((response.modules || []).map((module) => ({ ...module, configurationText: JSON.stringify(module.configuration_override || module.configuration || {}) })));
+      onSuccess("Company modules updated.");
+    } catch (error) { onError(error); } finally { setBusy(false); }
+  }
+
+  async function restore() {
+    if (!window.confirm(`Restore the default module set for ${company.name}?`)) return;
+    setBusy(true);
+    try {
+      const response = await restoreCompanyModules(company.id);
+      setModules((response.modules || []).map((module) => ({ ...module, configurationText: JSON.stringify(module.configuration_override || module.configuration || {}) })));
+      onSuccess("Default modules restored.");
+    } catch (error) { onError(error); } finally { setBusy(false); }
+  }
+
+  return (
+    <section className="admin-panel-card">
+      <div className="admin-section-head">
+        <div><h2>Manage modules — {company.name}</h2><p>Disabled modules disappear from navigation and are blocked by server-side API guards.</p></div>
+        <button className="secondary-action" onClick={onClose} type="button">Close</button>
+      </div>
+      {busy && !modules.length ? <p>Loading modules...</p> : (
+        <div className="admin-table-wrap"><table className="admin-table">
+          <thead><tr><th>Enabled</th><th>Group</th><th>Module</th><th>Route</th><th>Order</th><th>Company configuration</th></tr></thead>
+          <tbody>{modules.map((module, index) => (
+            <tr key={module.module_key}>
+              <td><input aria-label={`Enable ${module.label_en}`} checked={module.enabled !== false} onChange={(event) => setModules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, enabled: event.target.checked } : item))} type="checkbox" /></td>
+              <td>{module.group_key}</td><td><strong>{module.label_en}</strong><br /><small>{module.label_ar}</small></td><td><code>{module.route}</code></td>
+              <td><input aria-label={`Order ${module.label_en}`} min="0" onChange={(event) => setModules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, sort_order: Number(event.target.value) } : item))} type="number" value={module.sort_order} /></td>
+              <td><textarea aria-label={`Configuration ${module.label_en}`} onChange={(event) => setModules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, configurationText: event.target.value } : item))} rows="2" value={module.configurationText || "{}"} /></td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+      )}
+      <div className="form-actions"><button className="secondary-action" disabled={busy} onClick={restore} type="button">Restore defaults</button><button className="admin-primary-button" disabled={busy} onClick={save} type="button">{busy ? "Saving..." : "Save modules"}</button></div>
+    </section>
+  );
+}
 
 function cloneForm(company = emptyForm) {
   return {
@@ -212,6 +285,7 @@ function AdminCompaniesPage({
   onLanguageChange,
   onLogout,
   onNavigate,
+  onSwitchCompany,
   onToggleDarkMode,
 }) {
   const [companies, setCompanies] = React.useState([]);
@@ -222,6 +296,7 @@ function AdminCompaniesPage({
   const [accessDenied, setAccessDenied] = React.useState(currentUser?.role !== "super_admin");
   const [editorCompany, setEditorCompany] = React.useState(null);
   const [selectedCompanyId, setSelectedCompanyId] = React.useState("");
+  const [modulesCompany, setModulesCompany] = React.useState(null);
   const [form, setForm] = React.useState(cloneForm());
   const onLogoutRef = React.useRef(onLogout);
 
@@ -464,6 +539,12 @@ function AdminCompaniesPage({
                       </td>
                       <td>
                         <div className="company-row-actions">
+                          <button className="text-action" disabled={company.status !== "active"} onClick={() => onSwitchCompany(company.id)} type="button">
+                            <ExternalLink size={14} /> Open CPanel
+                          </button>
+                          <button className="text-action" onClick={() => setModulesCompany(company)} type="button">
+                            <Settings size={14} /> Manage Modules
+                          </button>
                           <button
                             className="text-action"
                             onClick={() => beginEdit(company)}
@@ -510,6 +591,13 @@ function AdminCompaniesPage({
             onUnauthorized={() => void onLogout()}
             selectedCompanyId={selectedCompanyId}
           />
+
+          {modulesCompany && <CompanyModulesPanel
+            company={modulesCompany}
+            onClose={() => setModulesCompany(null)}
+            onError={(requestError) => setError(requestError.message || "Unable to manage modules.")}
+            onSuccess={(message) => { setError(""); setSuccess(message); }}
+          />}
 
           <CompanyForm
             company={editorCompany}

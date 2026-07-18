@@ -1,174 +1,66 @@
 import React from "react";
 import {
-  Archive,
-  Building2,
-  Boxes,
-  ChevronDown,
-  ClipboardList,
-  Cuboid,
-  Film,
-  FolderTree,
-  Grid3X3,
-  Images,
-  Languages,
-  MapPin,
-  Moon,
-  Package,
-  Settings,
-  ShieldCheck,
-  ShoppingCart,
-  Star,
-  Store,
-  Sun,
-  Tag,
-  UserCircle,
-  Users,
-  HandCoins,
+  Activity, Archive, Boxes, Building2, ChevronDown, ClipboardList, Cuboid,
+  FileText, Film, FolderTree, Grid3X3, HandCoins, Images, Languages, MapPin,
+  Moon, Package, Settings, ShieldCheck, ShoppingCart, Star, Store, Sun, Tag,
+  UserCircle, Users, WalletCards,
 } from "lucide-react";
-import { hasPermission } from "../data/permissions.js";
+import { fetchPlatformCompanies } from "../utils/platformCompaniesApi.js";
+import { groupCompanyModules, normalizedModulePage } from "../utils/moduleRegistry.js";
 
-const navSections = [
-  {
-    id: "dropshipping",
-    icon: HandCoins,
-    label: { en: "Dropshipping", ar: "الدروبشيبينغ" },
-    permission: "dropshipping.reports.read",
-    items: [
-      { key: "admin-dropshipping", icon: Grid3X3, label: { en: "Overview", ar: "نظرة عامة" } },
-      { key: "admin-dropshipping-marketers", icon: Users, label: { en: "Marketers", ar: "المسوقون" } },
-      { key: "admin-dropshipping-products", icon: Package, label: { en: "Products", ar: "المنتجات" } },
-      { key: "admin-dropshipping-orders", icon: ShoppingCart, label: { en: "Orders", ar: "الطلبات" } },
-      { key: "admin-dropshipping-earnings", icon: HandCoins, label: { en: "Earnings", ar: "الأرباح" } },
-      { key: "admin-dropshipping-withdrawals", icon: Archive, label: { en: "Withdrawals", ar: "السحوبات" } },
-      { key: "admin-dropshipping-reports", icon: ClipboardList, label: { en: "Reports", ar: "التقارير" } },
-      { key: "admin-dropshipping-settings", icon: Settings, label: { en: "Settings", ar: "الإعدادات" } },
-    ],
-  },
-  {
-    id: "platform",
-    icon: Building2,
-    label: { en: "Platform", ar: "المنصة" },
-    roles: ["super_admin"],
-    items: [{ key: "admin-platform-companies", icon: Building2, label: { en: "Companies", ar: "الشركات" } }],
-  },
-  {
-    id: "dashboard",
-    icon: Grid3X3,
-    label: { en: "Dashboard", ar: "لوحة التحكم" },
-    items: [{ key: "admin", icon: Grid3X3, label: { en: "Dashboard", ar: "لوحة التحكم" } }],
-  },
-  {
-    id: "catalog",
-    icon: Cuboid,
-    label: { en: "Catalog", ar: "الكتالوج" },
-    items: [
-      { key: "admin-products", icon: Package, label: { en: "Products", ar: "المنتجات" } },
-      { key: "admin-categories", icon: FolderTree, label: { en: "Categories", ar: "الأقسام" } },
-      { key: "admin-brands", icon: Tag, label: { en: "Brands", ar: "العلامات التجارية" } },
-    ],
-  },
-  {
-    id: "storefront",
-    icon: Store,
-    label: { en: "Storefront", ar: "واجهة المتجر" },
-    items: [
-      { key: "admin-vlogs", icon: Film, label: { en: "Vlogs", ar: "الفيديوهات" } },
-      { key: "admin-store-locator", icon: MapPin, label: { en: "Store Locator", ar: "مواقع المتاجر" } },
-      { key: "admin-website-media", icon: Images, label: { en: "Website Media", ar: "صور الموقع" } },
-    ],
-  },
-  {
-    id: "operations",
-    icon: ClipboardList,
-    label: { en: "Operations", ar: "العمليات" },
-    items: [
-      { key: "admin-orders", icon: ShoppingCart, label: { en: "Orders", ar: "الطلبات" } },
-      { key: "admin-reviews", icon: Star, label: { en: "Reviews", ar: "التقييمات" } },
-      { key: "admin-inventory", icon: Boxes, label: { en: "Inventory", ar: "المخزون" } },
-    ],
-  },
-  {
-    id: "people",
-    icon: Users,
-    label: { en: "People", ar: "الأشخاص" },
-    items: [
-      { key: "admin-customers", icon: UserCircle, label: { en: "Customers", ar: "العملاء" } },
-      { key: "admin-staff", icon: ShieldCheck, label: { en: "Staff", ar: "الموظفون" } },
-    ],
-  },
-  {
-    id: "configuration",
-    icon: Settings,
-    label: { en: "Configuration", ar: "الإعدادات" },
-    items: [{ key: "admin-settings", icon: Settings, label: { en: "Settings", ar: "الإعدادات" } }],
-  },
-];
-
-const childAliases = {
-  "admin-products-new": "admin-products",
-  "admin-categories-new": "admin-categories",
-  "admin-brands-new": "admin-brands",
-  "admin-vlogs-new": "admin-vlogs",
-  "admin-store-locator-new": "admin-store-locator",
-  "admin-staff-new": "admin-staff",
+const icons = {
+  activity: Activity, brands: Tag, categories: FolderTree, dashboard: Grid3X3,
+  delivery: ShoppingCart, earnings: HandCoins, employees: Users, inventory: Boxes,
+  invoices: FileText, locations: MapPin, media: Images, orders: ClipboardList,
+  products: Package, reports: ClipboardList, settings: Settings, texts: FileText,
+  units: Cuboid, videos: Film, withdrawals: WalletCards,
+};
+const groupIcons = { catalog: Cuboid, dashboard: Grid3X3, dropshipping: HandCoins, operations: ClipboardList, people: Users, settings: Settings, storefront: Store };
+const groupLabels = {
+  catalog: { en: "Catalog", ar: "الكتالوج" }, dashboard: { en: "Dashboard", ar: "لوحة التحكم" },
+  dropshipping: { en: "Dropshipping", ar: "الدروبشيبينغ" }, operations: { en: "Operations", ar: "العمليات" },
+  people: { en: "People", ar: "الأشخاص" }, settings: { en: "Configuration", ar: "الإعدادات" },
+  storefront: { en: "Storefront", ar: "واجهة المتجر" },
 };
 
-function localize(value, language) {
-  return value?.[language] || value?.en || "";
-}
-
-function normalizedActive(activePage) {
-  return childAliases[activePage] || activePage;
-}
-
 function AdminLayout({
-  activePage,
-  children,
-  company,
-  currentUser,
-  language = "en",
-  onLogout,
-  onNavigate,
-  onLanguageChange,
-  subtitle,
-  title,
-  isDarkMode = false,
-  onToggleDarkMode,
+  activePage, children, company, currentUser, language = "en", modules = [], onLogout,
+  onNavigate, onLanguageChange, onReturnToPlatform, onSwitchCompany, subtitle, title,
+  isDarkMode = false, onToggleDarkMode,
 }) {
-  const companyName = company?.name || "Company";
+  const companyName = company?.name || "Platform";
   const companyMark = companyName.slice(0, 2).toUpperCase();
-  const activeKey = normalizedActive(activePage);
-  const visibleNavSections = React.useMemo(
-    () => navSections.filter((section) =>
-      (!section.roles || section.roles.includes(currentUser?.role)) && (!section.permission || hasPermission(currentUser, section.permission))
-    ),
-    [currentUser?.role]
-  );
+  const activeKey = normalizedModulePage(activePage);
+  const isSuperAdmin = (currentUser?.globalRole || currentUser?.role) === "super_admin";
+  const sections = React.useMemo(() => {
+    if (!company && isSuperAdmin) return [{ id: "platform", items: [{ pageKey: "admin-platform-companies", label_en: "Companies", label_ar: "الشركات", icon_key: "companies" }] }];
+    return groupCompanyModules(modules);
+  }, [company, isSuperAdmin, modules]);
   const [mobileOpen, setMobileOpen] = React.useState(false);
-  const [openSections, setOpenSections] = React.useState(() => {
-    const defaults = {};
-    visibleNavSections.forEach((section) => {
-      defaults[section.id] = section.items.some((item) => item.key === activeKey) || section.id === "dashboard";
-    });
-    return defaults;
-  });
+  const [openSections, setOpenSections] = React.useState({});
+  const [companies, setCompanies] = React.useState([]);
 
   React.useEffect(() => {
     setOpenSections((current) => {
       const next = { ...current };
-      visibleNavSections.forEach((section) => {
-        if (section.items.some((item) => item.key === activeKey)) {
-          next[section.id] = true;
-        }
+      sections.forEach((section) => {
+        if (section.items.some((item) => item.pageKey === activeKey) || section.id === "dashboard") next[section.id] = true;
       });
       return next;
     });
-  }, [activeKey, visibleNavSections]);
+  }, [activeKey, sections]);
+
+  React.useEffect(() => {
+    if (!isSuperAdmin || !company || !onSwitchCompany) return;
+    fetchPlatformCompanies().then(setCompanies).catch(() => setCompanies([]));
+  }, [company?.id, isSuperAdmin, onSwitchCompany]);
 
   const labels = {
     admin: language === "ar" ? "الإدارة" : "Admin",
     menu: language === "ar" ? "القائمة" : "Menu",
     signOut: language === "ar" ? "تسجيل الخروج" : "Sign Out",
+    returnPlatform: language === "ar" ? "العودة للمنصة" : "Return to platform",
+    switchCompany: language === "ar" ? "تبديل الشركة" : "Switch company",
     language: language === "ar" ? "English" : "العربية",
     darkMode: language === "ar" ? "الوضع الليلي" : "Dark mode",
     lightMode: language === "ar" ? "الوضع الفاتح" : "Light mode",
@@ -176,116 +68,45 @@ function AdminLayout({
 
   return (
     <section className={`admin-layout ${isDarkMode ? "admin-dark" : ""}`} dir={language === "ar" ? "rtl" : "ltr"}>
-      <button className="admin-mobile-menu" onClick={() => setMobileOpen(true)} type="button">
-        <Archive size={16} />
-        {labels.menu}
-      </button>
-
+      <button className="admin-mobile-menu" onClick={() => setMobileOpen(true)} type="button"><Archive size={16} />{labels.menu}</button>
       <aside className={`admin-sidebar ${mobileOpen ? "open" : ""}`}>
         <div className="admin-sidebar-brand">
-          {company?.logoUrl ? (
-            <img className="admin-logo-mark" src={company.logoUrl} alt={`${companyName} logo`} />
-          ) : (
-            <span className="admin-logo-mark">{companyMark}</span>
-          )}
-          <div>
-            <strong>{companyName}</strong>
-            <small>{labels.admin}</small>
-          </div>
+          {company?.logoUrl ? <img className="admin-logo-mark" src={company.logoUrl} alt={`${companyName} logo`} /> : <span className="admin-logo-mark">{companyMark}</span>}
+          <div><strong>{companyName}</strong><small>{labels.admin}</small></div>
         </div>
-
         <nav className="admin-nav" aria-label="Admin navigation">
-          {visibleNavSections.map((section) => {
-            const SectionIcon = section.icon;
-            const isSingle = section.items.length === 1 && section.id === "dashboard";
+          {sections.map((section) => {
+            const SectionIcon = section.id === "platform" ? Building2 : groupIcons[section.id] || Settings;
+            const sectionActive = section.items.some((item) => item.pageKey === activeKey);
             const isOpen = openSections[section.id];
-            const sectionActive = section.items.some((item) => item.key === activeKey);
-
-            return (
-              <div className="admin-nav-group" key={section.id}>
-                {isSingle ? (
-                  <button
-                    className={`admin-nav-button ${sectionActive ? "active" : ""}`}
-                    onClick={() => {
-                      onNavigate(section.items[0].key);
-                      setMobileOpen(false);
-                    }}
-                    type="button"
-                  >
-                    <SectionIcon size={16} />
-                    {localize(section.label, language)}
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      className={`admin-nav-section ${sectionActive ? "active" : ""}`}
-                      onClick={() =>
-                        setOpenSections((current) => ({
-                          ...current,
-                          [section.id]: !current[section.id],
-                        }))
-                      }
-                      type="button"
-                    >
-                      <span>
-                        <SectionIcon size={16} />
-                        {localize(section.label, language)}
-                      </span>
-                      <ChevronDown className={isOpen ? "open" : ""} size={15} />
-                    </button>
-                    {isOpen && (
-                      <div className="admin-nav-items">
-                        {section.items.map((item) => {
-                          const ItemIcon = item.icon;
-                          return (
-                            <button
-                              className={`admin-nav-button ${activeKey === item.key ? "active" : ""}`}
-                              key={item.key}
-                              onClick={() => {
-                                onNavigate(item.key);
-                                setMobileOpen(false);
-                              }}
-                              type="button"
-                            >
-                              <ItemIcon size={15} />
-                              {localize(item.label, language)}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            );
+            const single = section.items.length === 1 && ["dashboard", "platform"].includes(section.id);
+            const sectionLabel = section.id === "platform" ? { en: "Platform", ar: "المنصة" } : groupLabels[section.id] || { en: section.id, ar: section.id };
+            const renderItem = (item) => {
+              const ItemIcon = item.icon_key === "companies" ? Building2 : icons[item.icon_key] || Settings;
+              return <button className={`admin-nav-button ${activeKey === item.pageKey ? "active" : ""}`} key={item.module_key || item.pageKey} onClick={() => { onNavigate(item.pageKey); setMobileOpen(false); }} type="button"><ItemIcon size={15} />{language === "ar" ? item.label_ar || item.label_en : item.label_en}</button>;
+            };
+            return <div className="admin-nav-group" key={section.id}>
+              {single ? renderItem(section.items[0]) : <><button className={`admin-nav-section ${sectionActive ? "active" : ""}`} onClick={() => setOpenSections((current) => ({ ...current, [section.id]: !current[section.id] }))} type="button"><span><SectionIcon size={16} />{sectionLabel[language] || sectionLabel.en}</span><ChevronDown className={isOpen ? "open" : ""} size={15} /></button>{isOpen && <div className="admin-nav-items">{section.items.map(renderItem)}</div>}</>}
+            </div>;
           })}
         </nav>
       </aside>
-
       {mobileOpen && <button aria-label="Close menu" className="admin-sidebar-backdrop" onClick={() => setMobileOpen(false)} type="button" />}
-
       <div className="admin-workspace">
         <header className="admin-topbar">
-          <div>
-            <h1>{title}</h1>
-            {subtitle && <p>{subtitle}</p>}
-          </div>
+          <div><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div>
           <div className="admin-userbar">
-            <button className="admin-icon-button admin-language-button" aria-label={labels.language} onClick={onLanguageChange} type="button">
-              <Languages size={15} />
-              <span>{language === "ar" ? "EN" : "AR"}</span>
-            </button>
-            <button className="admin-icon-button" aria-label={isDarkMode ? labels.lightMode : labels.darkMode} onClick={onToggleDarkMode} type="button">
-              {isDarkMode ? <Sun size={15} /> : <Moon size={15} />}
-            </button>
+            {isSuperAdmin && company && <>
+              <select aria-label={labels.switchCompany} onChange={(event) => event.target.value && onSwitchCompany?.(event.target.value)} value={company.id}>
+                {companies.length ? companies.filter((item) => item.status === "active").map((item) => <option key={item.id} value={item.id}>{item.name}</option>) : <option value={company.id}>{company.name}</option>}
+              </select>
+              <button className="text-action" onClick={onReturnToPlatform} type="button">{labels.returnPlatform}</button>
+            </>}
+            <button className="admin-icon-button admin-language-button" aria-label={labels.language} onClick={onLanguageChange} type="button"><Languages size={15} /><span>{language === "ar" ? "EN" : "AR"}</span></button>
+            <button className="admin-icon-button" aria-label={isDarkMode ? labels.lightMode : labels.darkMode} onClick={onToggleDarkMode} type="button">{isDarkMode ? <Sun size={15} /> : <Moon size={15} />}</button>
             <span className="admin-user-avatar">{currentUser?.name?.charAt(0) || "A"}</span>
-            <div>
-              <strong>{currentUser?.name || "admin"}</strong>
-              <small>{currentUser?.role || "admin"}</small>
-            </div>
-            <button className="admin-signout-button" onClick={onLogout} type="button">
-              {labels.signOut}
-            </button>
+            <div><strong>{currentUser?.name || "admin"}</strong><small>{currentUser?.role || "admin"}</small></div>
+            <button className="admin-signout-button" onClick={onLogout} type="button">{labels.signOut}</button>
           </div>
         </header>
         <main className="admin-content">{children}</main>

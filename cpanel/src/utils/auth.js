@@ -11,6 +11,12 @@ import {
   sanitizeCompanyContext,
   setStoredCompanyContext,
 } from "./companyContext.js";
+import {
+  recordCompanyScopeExit,
+  requestCompanyScope,
+} from "./platformCompaniesApi.js";
+
+const platformSessionKey = "cpanelPlatformSession";
 
 function authenticatedUser(session) {
   if (!session) return null;
@@ -40,6 +46,7 @@ export function setCurrentUser(user) {
 }
 
 export async function loginUser(email, password) {
+  sessionStorage.removeItem(platformSessionKey);
   const session = await apiRequest("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
@@ -95,7 +102,49 @@ export async function logoutUser() {
       method: "POST",
     });
   } finally {
+    sessionStorage.removeItem(platformSessionKey);
     clearTenantCaches();
     clearAuthSession();
   }
+}
+
+export async function enterCompanyScope(companyId) {
+  const currentToken = getToken();
+  const currentUser = getStoredUser();
+  if (!currentToken || (currentUser?.globalRole || currentUser?.role) !== "super_admin") {
+    throw new Error("A Super Admin session is required.");
+  }
+  if (!sessionStorage.getItem(platformSessionKey)) {
+    sessionStorage.setItem(platformSessionKey, JSON.stringify({ token: currentToken, user: currentUser }));
+  }
+
+  const session = await requestCompanyScope(companyId);
+  clearTenantCaches();
+  setAuthSession(session);
+  const companyContext = await apiRequest("/company/context");
+  const activeCompany = setStoredCompanyContext({
+    ...session.activeCompany,
+    ...companyContext,
+  });
+  const user = authenticatedUser({ ...session, activeCompany });
+  localStorage.setItem("epChemicalUser", JSON.stringify(user));
+  return user;
+}
+
+export async function exitCompanyScope() {
+  const stored = sessionStorage.getItem(platformSessionKey);
+  if (!stored) throw new Error("The original platform session is unavailable. Please sign in again.");
+  try {
+    await recordCompanyScopeExit();
+  } catch {
+    // Audit failure must not trap the user in a tenant scope.
+  }
+  const session = JSON.parse(stored);
+  clearTenantCaches();
+  setAuthSession(session);
+  setStoredCompanyContext(null);
+  sessionStorage.removeItem(platformSessionKey);
+  const user = { ...session.user, activeCompany: null };
+  localStorage.setItem("epChemicalUser", JSON.stringify(user));
+  return user;
 }
