@@ -14,9 +14,17 @@ export function resolveApiAssetUrl(value) {
   return new URL(value, `${new URL(apiBaseUrl).origin}/`).toString();
 }
 
-function createUploadError(message, status) {
-  const error = new Error(message);
+function uploadMessage(code, fallback) {
+  if (code !== "MEDIA_STORAGE_UNAVAILABLE") return fallback;
+  return document.documentElement.lang === "ar"
+    ? "تخزين الوسائط الدائم غير مهيأ على خادم الاختبار. حاول مجددًا بعد تهيئة التخزين."
+    : "Persistent media storage is unavailable on staging. Retry after storage is configured.";
+}
+
+function createUploadError(message, status, code = "") {
+  const error = new Error(uploadMessage(code, message));
   error.status = status;
+  error.code = code;
 
   if ((status === 401 || status === 403) && typeof window !== "undefined") {
     window.dispatchEvent(
@@ -40,6 +48,26 @@ export function setAuthSession({ token, user }) {
   }
   localStorage.setItem(tokenStorageKey, token);
   localStorage.setItem(userStorageKey, JSON.stringify(user));
+}
+
+const productImageTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const productVideoTypes = new Set(["video/mp4", "video/webm"]);
+
+export function validateProductMediaFile(file, { allowVideo = true } = {}) {
+  const isVideo = productVideoTypes.has(file?.type);
+  const isImage = productImageTypes.has(file?.type);
+  if (!isImage && !(allowVideo && isVideo)) {
+    throw createUploadError(
+      allowVideo ? "Use JPG, PNG, WEBP, GIF, MP4, or WEBM media." : "Use a JPG, PNG, WEBP, or GIF image.",
+      400,
+      "UNSUPPORTED_MEDIA_TYPE",
+    );
+  }
+  const maximum = isVideo ? 50 * 1024 * 1024 : 8 * 1024 * 1024;
+  if (Number(file.size || 0) > maximum) {
+    throw createUploadError(isVideo ? "Video exceeds the 50 MB limit." : "Image exceeds the 8 MB limit.", 413, "MEDIA_TOO_LARGE");
+  }
+  return { isVideo, maximum };
 }
 
 export function clearAuthSession() {
@@ -99,6 +127,7 @@ export async function apiRequest(path, options = {}) {
 }
 
 export async function uploadImage(file) {
+  validateProductMediaFile(file, { allowVideo: false });
   const token = getToken();
 
   if (!token) {
@@ -119,7 +148,7 @@ export async function uploadImage(file) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw createUploadError(data.message || "Image upload failed.", response.status);
+    throw createUploadError(data.message || "Image upload failed.", response.status, data.code);
   }
 
   const url = data.url || data.path || "";
@@ -135,6 +164,7 @@ export async function uploadImages(files = []) {
   if (!fileList.length) {
     return [];
   }
+  fileList.forEach((file) => validateProductMediaFile(file, { allowVideo: false }));
 
   const token = getToken();
 
@@ -156,7 +186,7 @@ export async function uploadImages(files = []) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw createUploadError(data.message || "Images upload failed.", response.status);
+    throw createUploadError(data.message || "Images upload failed.", response.status, data.code);
   }
 
   const uploaded = data.files || (data.path || data.url ? [data] : []);
@@ -171,6 +201,8 @@ export async function uploadImages(files = []) {
 }
 
 export function uploadProductMedia(file, productId, onProgress = () => {}) {
+  try { validateProductMediaFile(file); }
+  catch (error) { return Promise.reject(error); }
   const token = getToken();
   if (!token) return Promise.reject(createUploadError("Authentication required.", 401));
   if (!productId) return Promise.reject(createUploadError("Save the product before uploading media.", 400));
@@ -183,7 +215,7 @@ export function uploadProductMedia(file, productId, onProgress = () => {}) {
     });
     request.addEventListener("load", () => {
       const data = (() => { try { return JSON.parse(request.responseText || "{}"); } catch { return {}; } })();
-      if (request.status < 200 || request.status >= 300) return reject(createUploadError(data.message || "Media upload failed.", request.status));
+      if (request.status < 200 || request.status >= 300) return reject(createUploadError(data.message || "Media upload failed.", request.status, data.code));
       const url = data.url || data.path || "";
       return resolve({ ...data, url, path: data.path || url });
     });

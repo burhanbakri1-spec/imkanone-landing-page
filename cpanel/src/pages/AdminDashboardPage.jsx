@@ -10,6 +10,7 @@ import {
   getSelectableAdminCategories,
 } from "../utils/adminCategories.js";
 import { tenantStorageKey } from "../utils/companyContext.js";
+import { parseRequiredStock, preserveLegacySingleVariantStock } from "../utils/productStock.js";
 import { isCompanyAdmin, isTenantOperator, tenantAccessNotice } from "../utils/roles.js";
 import { hasPermission } from "../data/permissions.js";
 
@@ -167,7 +168,8 @@ function cleanupDuplicateVariants(variants) {
 function normalizeProductVariantsForForm(product = {}) {
   product = product || {};
   if (Array.isArray(product.variants) && product.variants.length) {
-    return product.variants.map((variant, index) => normalizeFormVariant(variant, index, product));
+    const normalized = product.variants.map((variant, index) => normalizeFormVariant(variant, index, product));
+    return preserveLegacySingleVariantStock(product, normalized);
   }
 
   const variants = (product.sizes || []).map((sizeOption, index) =>
@@ -273,7 +275,7 @@ function createProductFromForm(form) {
       ...normalizeFormVariant(variant, index, form),
       id: variant.id || `${id}-variant-${index}`,
       price: Number(variant.price || 0),
-      stock: Math.max(0, Number(variant.stock || 0)),
+      stock: parseRequiredStock(variant.stock, `Variant ${index + 1} stock`),
       sort_order: index,
     }));
 
@@ -318,12 +320,12 @@ function createProductFromForm(form) {
     isNewArrival: form.newArrival,
     isBestseller: form.bestseller,
     stockQty: variants.length
-      ? variants.reduce((sum, variant) => sum + Number(variant.stock || 0), 0)
-      : Number(form.stockQty || 0) || 0,
+      ? variants.reduce((sum, variant) => sum + variant.stock, 0)
+      : parseRequiredStock(form.stockQty, "Product stock"),
     stockStatus:
       (variants.length
-        ? variants.reduce((sum, variant) => sum + Number(variant.stock || 0), 0)
-        : Number(form.stockQty || 0)) > 0
+        ? variants.reduce((sum, variant) => sum + variant.stock, 0)
+        : parseRequiredStock(form.stockQty, "Product stock")) > 0
         ? "In Stock"
         : "Out of Stock",
     metaTitle: form.metaTitle,
@@ -593,7 +595,7 @@ function ProductsListPage({ brands, canCreate = true, canDelete = true, canUpdat
   );
 }
 
-export function ProductWizard({ brands = [], categories = [], editingProduct, onCancel, onSave, canManageContent = true, canManageMedia = true }) {
+export function ProductWizard({ brands = [], categories = [], editingProduct, onCancel, onSave, canManageContent = true, canManageMedia = true, language = "en" }) {
   const [step, setStep] = React.useState("basic");
   const initialCategoryOptions = getSelectableAdminCategories(categories, editingProduct?.categoryId);
   const [uploadError, setUploadError] = React.useState("");
@@ -603,6 +605,7 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
   const [videoProgress, setVideoProgress] = React.useState(0);
   const [tenantDefinitions, setTenantDefinitions] = React.useState([]);
   const [tenantValues, setTenantValues] = React.useState({});
+  const [contentRetryId, setContentRetryId] = React.useState("");
   const [variantGenerator, setVariantGenerator] = React.useState({
     colorsText: "Default|#1db7d8",
     sizesText: "500ml, 1L, 5L",
@@ -893,16 +896,43 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
 
   async function submit(event) {
     event.preventDefault();
-    const result = await onSave(createProductFromForm(form));
+    setUploadError("");
+    let productPayload;
+    try {
+      productPayload = createProductFromForm(form);
+    } catch (error) {
+      setUploadError(error.message || "Product stock is invalid.");
+      return;
+    }
+    const result = await onSave(productPayload);
+    if (!result?.ok) {
+      setUploadError(result?.message || "Product could not be saved.");
+      return;
+    }
+    setForm((current) => ({ ...current, id: result.product.id }));
+    setContentRetryId("");
     if (result?.ok && usesTenantDefinitions && canManageContent) {
       try {
         await productFieldApi.saveValues(result.product.id, fieldStateToValues(tenantDefinitions, tenantValues));
       } catch (error) {
-        setUploadError(error.message || "Product content could not be saved.");
+        setContentRetryId(result.product.id);
+        setUploadError(`Product saved, but its content fields were not saved: ${error.message || "Unknown error."}`);
         return;
       }
     }
-    if (result?.ok) onCancel();
+    if (result?.ok) onCancel({ preserveStatusMessage: true });
+  }
+
+  async function retryContentSave() {
+    if (!contentRetryId) return;
+    setUploadError("");
+    try {
+      await productFieldApi.saveValues(contentRetryId, fieldStateToValues(tenantDefinitions, tenantValues));
+      setContentRetryId("");
+      onCancel({ preserveStatusMessage: true });
+    } catch (error) {
+      setUploadError(`Content fields still could not be saved: ${error.message || "Unknown error."}`);
+    }
   }
 
   async function uploadVideo(event) {
@@ -951,6 +981,7 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
         ))}
       </div>
       <form className="admin-form admin-wizard-form" onSubmit={submit}>
+        {uploadError && <div className="message-panel error full-field" role="alert">{uploadError}{contentRetryId && <button className="secondary-action" onClick={retryContentSave} type="button">{language === "ar" ? "إعادة محاولة حفظ المحتوى" : "Retry content save"}</button>}</div>}
         {step === "basic" && (
           <>
             <label>Product Name *<input name="nameEn" required value={form.nameEn} onChange={change} /></label>
@@ -1056,7 +1087,6 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
                 </div>
               ))}
             </div>
-            {uploadError && <div className="message-panel error full-field">{uploadError}</div>}
           </div>
         )}
         {step === "media" && (
@@ -1106,7 +1136,6 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
                   </figure>
                 ))}
               </div>
-              {uploadError && <div className="message-panel error full-field">{uploadError}</div>}
             </div>
             {usesTenantDefinitions && <TenantProductFields definitions={additionalMediaDefinitions} section="media" value={tenantValues} onChange={updateTenantValue} />}
             {!usesTenantDefinitions && <>
@@ -1218,15 +1247,15 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
         <div className="form-actions full-field">
           <button className="secondary-action" disabled={tabs.indexOf(step) === 0} onClick={() => setStep(tabs[tabs.indexOf(step) - 1])} type="button">Previous</button>
           <button className="secondary-action" disabled={tabs.indexOf(step) === tabs.length - 1} onClick={() => setStep(tabs[tabs.indexOf(step) + 1])} type="button">Next</button>
-          <button className="secondary-action" onClick={onCancel} type="button">Cancel</button>
-          <button className="admin-primary-button" type="submit">{editingProduct ? "Save Product" : "Create Product"}</button>
+          <button className="secondary-action" onClick={() => onCancel()} type="button">{language === "ar" ? "إلغاء" : "Cancel"}</button>
+          <button className="admin-primary-button" type="submit">{language === "ar" ? (editingProduct ? "حفظ التغييرات" : "إنشاء") : (editingProduct ? "Save changes" : "Create")}</button>
         </div>
       </form>
     </section>
   );
 }
 
-function GenericEntityForm({ fields, initial, onCancel, onSave, title }) {
+function GenericEntityForm({ fields, initial, isEditing = false, language = "en", onCancel, onSave, title }) {
   const [form, setForm] = React.useState(initial);
   function change(event) {
     const { checked, name, type, value } = event.target;
@@ -1244,8 +1273,8 @@ function GenericEntityForm({ fields, initial, onCancel, onSave, title }) {
           return <label key={field.name}>{field.label}<input name={field.name} required={field.required} value={form[field.name] || ""} onChange={change} /></label>;
         })}
         <div className="form-actions full-field">
-          <button className="secondary-action" onClick={onCancel} type="button">Cancel</button>
-          <button className="admin-primary-button" type="submit">Create</button>
+          <button className="secondary-action" onClick={onCancel} type="button">{language === "ar" ? "إلغاء" : "Cancel"}</button>
+          <button className="admin-primary-button" type="submit">{language === "ar" ? (isEditing ? "حفظ التغييرات" : "إنشاء") : (isEditing ? "Save changes" : "Create")}</button>
         </div>
       </form>
     </section>
@@ -1415,6 +1444,7 @@ function AdminDashboardPage({
   products,
   reviews,
   statusMessage,
+  statusMessageType = "success",
   t,
   websiteMedia = [],
   websiteMediaError = "",
@@ -1534,7 +1564,7 @@ function AdminDashboardPage({
                 ) : kind === "vlogs" ? (
                   <><td>{row.thumbnail ? <img className="admin-thumb" src={row.thumbnail} alt="" /> : "-"}</td><td>{row.title}</td><td>{row.featured ? "Featured" : "Standard"}</td><td><Badge>{row.active === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>-</td></>
                 ) : (
-                  <><td>{row.imageUrl ? <img className="admin-thumb" src={row.imageUrl} alt="" /> : <span className="admin-logo-mini">C</span>}</td><td>{getText(row.name)}</td><td>{row.parentId || "None"}</td><td><Badge>{row.isActive === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>{formatDate(row.updatedAt)}</td><td>{!readOnly && <div className="row-actions"><button className="text-action" onClick={() => { setEditingCategory(row); onNavigate("admin-categories-new"); }} type="button">Edit</button><button className="text-action danger" onClick={() => onDeleteCategory(row.id)} type="button">Delete</button></div>}</td></>
+                  <><td>{row.imageUrl ? <img className="admin-thumb" src={row.imageUrl} alt="" /> : <span className="admin-logo-mini">C</span>}</td><td>{getText(row.name, language)}</td><td>{row.parentId ? getText(adminCategories.find((category) => String(category.id) === String(row.parentId))?.name, language) || (language === "ar" ? "غير متاح" : "Not available") : "—"}</td><td><Badge>{row.isActive === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>{formatDate(row.updatedAt)}</td><td>{!readOnly && <div className="row-actions"><button className="text-action" onClick={() => { setEditingCategory(row); onNavigate("admin-categories-new"); }} type="button">Edit</button><button className="text-action danger" onClick={() => onDeleteCategory(row.id)} type="button">Delete</button></div>}</td></>
                 )}
               </tr>
             )) : <tr><td colSpan="7"><EmptyState title={kind === "vlogs" ? "No vlogs yet" : "No records yet"} description={kind === "vlogs" ? "Create your first vlog entry for the storefront." : ""} /></td></tr>}
@@ -1548,15 +1578,15 @@ function AdminDashboardPage({
     if (!canEdit) return <EmptyState title="View-only access" description="You do not have permission to create records." />;
     if (kind === "category") {
       const current = editingCategory;
-      return <GenericEntityForm title={current ? "Edit Category" : "New Category"} initial={{ active: current?.isActive !== false, description: getText(current?.description), image: current?.imageUrl || "", name: getText(current?.name), parentId: current?.parentId || "", slug: current?.slug || "" }} fields={[
+      return <GenericEntityForm isEditing={Boolean(current)} language={language} title={current ? "Edit Category" : "New Category"} initial={{ active: current?.isActive !== false, description: getText(current?.description, language), image: current?.imageUrl || "", name: getText(current?.name, language), parentId: current?.parentId || "", slug: current?.slug || "" }} fields={[
         { name: "name", label: "Category Name *", required: true }, { name: "slug", label: "Slug" }, { name: "description", label: "Description", type: "textarea" }, { name: "image", label: "Category Image", type: "media" }, { name: "parentId", label: "Parent Category", type: "select", options: [{ value: "", label: "None (top-level)" }, ...adminCategories.map((category) => ({ value: category.id, label: getText(category.name) }))] }, { name: "active", label: "Active", type: "checkbox" }, { name: "metaTitle", label: "Meta Title" }, { name: "metaDescription", label: "Meta Description", type: "textarea" },
-      ]} onCancel={() => { setEditingCategory(null); onNavigate("admin-categories"); }} onSave={async (form) => { await onSaveCategory({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.name), name: createLocalizedCopy(form.name, form.name), description: form.description ? createLocalizedCopy(form.description, form.description) : null, imageUrl: form.image || null, parentId: form.parentId || null, isActive: form.active }); setEditingCategory(null); onNavigate("admin-categories"); }} />;
+      ]} onCancel={() => { setEditingCategory(null); onNavigate("admin-categories"); }} onSave={async (form) => { await onSaveCategory({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.name), name: createLocalizedCopy(form.name, form.name), description: form.description ? createLocalizedCopy(form.description, form.description) : null, imageUrl: form.image || null, parentId: form.parentId || null, isActive: form.active }); setEditingCategory(null); onNavigate("admin-categories", { preserveStatusMessage: true }); }} />;
     }
     if (kind === "brand") {
       const current = editingBrand;
-      return <GenericEntityForm title={current ? "Edit Brand" : "New Brand"} initial={{ active: current?.isActive !== false, country: current?.country || "", logo: current?.logoUrl || "", name: current?.name || "", slug: current?.slug || "" }} fields={[
+      return <GenericEntityForm isEditing={Boolean(current)} language={language} title={current ? "Edit Brand" : "New Brand"} initial={{ active: current?.isActive !== false, country: current?.country || "", logo: current?.logoUrl || "", name: current?.name || "", slug: current?.slug || "" }} fields={[
         { name: "name", label: "Brand Name *", required: true }, { name: "slug", label: "Slug" }, { name: "description", label: "Description", type: "textarea" }, { name: "country", label: "Country" }, { name: "website", label: "Website" }, { name: "logo", label: "Brand Logo", type: "media" }, { name: "active", label: "Active", type: "checkbox" }, { name: "metaTitle", label: "Meta Title" }, { name: "metaDescription", label: "Meta Description", type: "textarea" },
-      ]} onCancel={() => { setEditingBrand(null); onNavigate("admin-brands"); }} onSave={async (form) => { await onSaveBrand({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.name), name: form.name, country: form.country || null, logoUrl: form.logo || null, isActive: form.active }); setEditingBrand(null); onNavigate("admin-brands"); }} />;
+      ]} onCancel={() => { setEditingBrand(null); onNavigate("admin-brands"); }} onSave={async (form) => { await onSaveBrand({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.name), name: form.name, country: form.country || null, logoUrl: form.logo || null, isActive: form.active }); setEditingBrand(null); onNavigate("admin-brands", { preserveStatusMessage: true }); }} />;
     }
     if (kind === "vlog") {
       return <GenericEntityForm title="New Vlog" initial={{ active: true, featured: false }} fields={[
@@ -1615,7 +1645,7 @@ function AdminDashboardPage({
         return <ProductsListPage brands={brands} canCreate={canCreateProducts} canDelete={canDeleteProducts} canUpdate={canUpdateProducts} categories={adminCategories} filters={filters} onAdd={() => { setEditingProduct(null); onNavigate("admin-products-new"); }} onDeleteProduct={onDeleteProduct} onEdit={(product) => { setEditingProduct(product); onNavigate("admin-products-new"); }} products={products} setFilters={setFilters} />;
       case "admin-products-new":
         if ((editingProduct && !canUpdateProducts) || (!editingProduct && !canCreateProducts)) return <EmptyState title="View-only access" description="You do not have permission to save products." />;
-        return <ProductWizard brands={brands} categories={adminCategories} canManageContent={canManageProductContent} canManageMedia={canManageProductMedia} editingProduct={editingProduct} onCancel={() => onNavigate("admin-products")} onSave={onSaveProduct} />;
+        return <ProductWizard brands={brands} categories={adminCategories} canManageContent={canManageProductContent} canManageMedia={canManageProductMedia} editingProduct={editingProduct} language={language} onCancel={(options) => onNavigate("admin-products", options)} onSave={onSaveProduct} />;
       case "admin-categories":
         return renderSimpleTable("categories");
       case "admin-categories-new":
@@ -1668,7 +1698,7 @@ function AdminDashboardPage({
       title={title}
     >
       <PermissionNotice role={role} />
-      {statusMessage && <div className="message-panel success">{statusMessage}</div>}
+      {statusMessage && <div className={`message-panel ${statusMessageType}`} role={statusMessageType === "error" ? "alert" : "status"}>{statusMessage}</div>}
       {renderActivePage()}
     </AdminLayout>
   );

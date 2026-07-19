@@ -140,6 +140,14 @@ function hasLocalPersistentStorage() {
   return Boolean(process.env.UPLOADS_DIR?.trim());
 }
 
+function storageUnavailableResponse(req, res, mediaLabel = "media") {
+  const isArabic = String(req.headers["accept-language"] || "").toLowerCase().startsWith("ar");
+  const message = isArabic
+    ? "تخزين الوسائط الدائم غير مهيأ على الخادم. يرجى المحاولة بعد تهيئة التخزين."
+    : `Persistent ${mediaLabel} storage is not configured. Configure UPLOADS_DIR on a mounted persistent volume or configure Supabase Storage.`;
+  return res.status(503).json({ code: "MEDIA_STORAGE_UNAVAILABLE", message });
+}
+
 router.post(
   "/",
   requireAuth,
@@ -156,12 +164,16 @@ router.post(
       return res.status(400).json({ message: "No image file was uploaded." });
     }
 
+    for (const upload of uploads) {
+      if (!imageTypes.has(upload.contentType)) {
+        return res.status(400).json({ message: "Only JPG, PNG, WEBP, and GIF images are allowed." });
+      }
+    }
+
     const useSupabaseStorage = isSupabaseStorageConfigured();
 
     if (!useSupabaseStorage && requiresPersistentStorage() && !hasLocalPersistentStorage()) {
-      return res.status(500).json({
-        message: "Persistent image storage is not configured. Set UPLOADS_DIR for VPS local storage or configure remote storage.",
-      });
+      return storageUnavailableResponse(req, res, "image");
     }
 
     const companyUploadDir = path.join(uploadsDir, companyStorageSegment(req.companyId));
@@ -170,10 +182,6 @@ router.post(
     const savedFiles = [];
 
     for (const upload of uploads) {
-      if (!imageTypes.has(upload.contentType)) {
-        return res.status(400).json({ message: "Only JPG, PNG, WEBP, and GIF images are allowed." });
-      }
-
       const filename = safeFilename(upload.filename, upload.contentType);
       if (!filename) {
         return res.status(400).json({ message: "Unsupported image file type." });
@@ -216,16 +224,24 @@ router.post(
       const boundary = getBoundary(req.headers["content-type"]);
       const uploads = boundary ? parseMultipartImages(req.body, boundary) : [];
       if (!uploads.length) return res.status(400).json({ message: "No media file was uploaded." });
+      const validatedUploads = [];
+      for (const upload of uploads) {
+        try {
+          validatedUploads.push({
+            upload,
+            validation: validateProductMediaUpload({ contentType: upload.contentType, size: upload.data.length }),
+          });
+        } catch (error) {
+          return res.status(error.statusCode || 400).json({ message: error.message });
+        }
+      }
       const useSupabaseStorage = isSupabaseStorageConfigured();
-      if (!useSupabaseStorage && requiresPersistentStorage() && !hasLocalPersistentStorage()) return res.status(500).json({ message: "Persistent media storage is not configured." });
+      if (!useSupabaseStorage && requiresPersistentStorage() && !hasLocalPersistentStorage()) return storageUnavailableResponse(req, res);
       const relativeDirectory = productMediaRelativeDirectory(req.companyId, req.params.productId);
       const localDirectory = path.join(uploadsDir, ...relativeDirectory.split("/"));
       if (!useSupabaseStorage) fs.mkdirSync(localDirectory, { recursive: true });
       const savedFiles = [];
-      for (const upload of uploads) {
-        let validation;
-        try { validation = validateProductMediaUpload({ contentType: upload.contentType, size: upload.data.length }); }
-        catch (error) { return res.status(error.statusCode || 400).json({ message: error.message }); }
+      for (const { upload, validation } of validatedUploads) {
         const { isVideo } = validation;
         const filename = safeFilename(upload.filename, upload.contentType, productMediaTypes);
         if (!filename) return res.status(400).json({ message: "Unsupported media file type." });
@@ -283,9 +299,7 @@ router.post(
     const useSupabaseStorage = isSupabaseStorageConfigured();
 
     if (!useSupabaseStorage && requiresPersistentStorage() && !hasLocalPersistentStorage()) {
-      return res.status(500).json({
-        message: "Persistent image storage is not configured.",
-      });
+      return storageUnavailableResponse(req, res, "image");
     }
 
     const companyUploadDir = path.join(uploadsDir, companyStorageSegment(req.companyId));

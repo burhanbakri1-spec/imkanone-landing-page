@@ -4,6 +4,7 @@ import test from "node:test";
 import { productMediaRelativeDirectory, validateProductMediaUpload } from "../src/productSchema/productMedia.js";
 
 const uploadRoutes = fs.readFileSync(new URL("../src/routes/uploads.js", import.meta.url), "utf8");
+const cpanelApi = fs.readFileSync(new URL("../../cpanel/src/utils/api.js", import.meta.url), "utf8");
 
 test("product media paths are tenant and product specific", () => {
   assert.equal(productMediaRelativeDirectory("icare", "product-1"), "icare/products/product-1");
@@ -30,4 +31,18 @@ test("product media upload and deletion enforce tenant product ownership", () =>
   assert.match(uploadRoutes, /companyStoragePath\(req\.companyId, "products", req\.params\.productId\)/);
   assert.match(uploadRoutes, /Media does not belong to this tenant and product/);
   assert.match(uploadRoutes, /target\.startsWith\(`\$\{expectedRoot\}\$\{path\.sep\}`\)/);
+});
+
+test("CPanel rejects invalid or oversized product media before starting upload", () => {
+  assert.match(cpanelApi, /validateProductMediaFile\(file\)/);
+  assert.match(cpanelApi, /50 \* 1024 \* 1024/);
+  assert.match(cpanelApi, /8 \* 1024 \* 1024/);
+  assert.match(cpanelApi, /UNSUPPORTED_MEDIA_TYPE/);
+});
+
+test("storage-unavailable responses are retryable and localized without creating media rows", () => {
+  assert.match(uploadRoutes, /MEDIA_STORAGE_UNAVAILABLE/);
+  assert.match(uploadRoutes, /status\(503\)/);
+  assert.match(uploadRoutes, /UPLOADS_DIR/);
+  assert.doesNotMatch(uploadRoutes, /product_media.*(?:insert|create)/i);
 });

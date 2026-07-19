@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
-import { validateTenantFieldValue } from "../src/productSchema/fieldValues.js";
+import { replaceTenantProductFieldValuesWithClient, validateTenantFieldValue } from "../src/productSchema/fieldValues.js";
 
 const migration = fs.readFileSync(new URL("../supabase/migrations/011_tenant_product_content.sql", import.meta.url), "utf8");
 const defaultSchema = fs.readFileSync(new URL("../src/productSchema/schema.js", import.meta.url), "utf8");
@@ -75,4 +75,55 @@ test("migration seed is repeatable and uses neutral structured FAQ values", () =
   assert.match(migration, /on conflict\(company_id,field_key\) do update/i);
   assert.match(migration, /'product_faqs'[\s\S]*'faqs'\)/);
   assert.match(migration, /'showcase_units'[\s\S]*false,'showcaseUnits'/);
+});
+
+function fieldValueClient(definitions) {
+  const values = new Map();
+  let inserts = 0;
+  return {
+    get inserts() { return inserts; },
+    values,
+    async query(sql, params) {
+      if (sql.includes("from public.products")) return { rows: [{ id: params[1] }] };
+      if (sql.includes("from public.product_field_definitions")) return { rows: definitions };
+      if (sql.startsWith("update public.product_field_values")) {
+        const identity = params.slice(0, 4).join(":");
+        if (!values.has(identity)) return { rows: [] };
+        const row = { ...values.get(identity), value: JSON.parse(params[4]) };
+        values.set(identity, row);
+        return { rows: [row] };
+      }
+      if (sql.includes("insert into public.product_field_values")) {
+        inserts += 1;
+        const identity = params.slice(1, 5).join(":");
+        const row = { id: params[0], locale: params[4], value: JSON.parse(params[5]) };
+        values.set(identity, row);
+        return { rows: [row] };
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+  };
+}
+
+test("structured bilingual, FAQ, and showcase values persist idempotently", async () => {
+  const definitions = [
+    { id: "benefits", field_key: "benefits", field_type: "repeatable_list", translatable: true, is_required: false, validation: {} },
+    { id: "faqs", field_key: "product_faqs", field_type: "key_value", translatable: false, is_required: false, validation: {} },
+    { id: "showcase", field_key: "showcase_units", field_type: "repeatable_list", translatable: false, is_required: false, validation: {} },
+  ];
+  const entries = [
+    { key: "benefits", locale: "en", value: ["Hydrates"] },
+    { key: "benefits", locale: "ar", value: ["يرطب"] },
+    { key: "product_faqs", locale: "neutral", value: [{ question: { en: "Q", ar: "س" }, answer: { en: "A", ar: "ج" }, sort_order: 0, is_active: true }] },
+    { key: "showcase_units", locale: "neutral", value: [{ title: { en: "Title", ar: "عنوان" }, body: { en: "Body", ar: "نص" }, sort_order: 0, is_active: true }] },
+  ];
+  const client = fieldValueClient(definitions);
+
+  const first = await replaceTenantProductFieldValuesWithClient(client, "icare", "product-1", entries);
+  const second = await replaceTenantProductFieldValuesWithClient(client, "icare", "product-1", entries);
+
+  assert.equal(first.length, 4);
+  assert.equal(second.length, 4);
+  assert.equal(client.inserts, 4, "the repeated save updates the same four rows");
+  assert.equal(client.values.size, 4);
 });

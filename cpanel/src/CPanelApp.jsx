@@ -155,6 +155,7 @@ function CPanelApp() {
   const [websiteMediaError, setWebsiteMediaError] = React.useState("");
   const [adminLoginMessage, setAdminLoginMessage] = React.useState("");
   const [adminMessage, setAdminMessage] = React.useState("");
+  const [adminMessageType, setAdminMessageType] = React.useState("success");
   const [language, setLanguage] = React.useState(
     () => localStorage.getItem("epChemicalLanguage") || "en",
   );
@@ -177,7 +178,7 @@ function CPanelApp() {
     const safePage = roleAllowed && moduleAllowed
       ? page
       : navigationCompany ? firstModulePage : landingPage({ role: authorizationRole });
-    setAdminMessage("");
+    if (!options.preserveStatusMessage) setAdminMessage("");
     if (!options.preserveLoginMessage) setAdminLoginMessage("");
     setActivePage(safePage);
     if (window.location.pathname !== pagePaths[safePage]) {
@@ -205,6 +206,7 @@ function CPanelApp() {
       navigate("admin-login", { preserveLoginMessage: true, replace: true, role: null });
       return;
     }
+    setAdminMessageType("error");
     setAdminMessage(error?.status === 403 ? "Access denied." : error?.message || "Request failed.");
   }
 
@@ -493,6 +495,8 @@ function CPanelApp() {
         ? await updateCategory(category)
         : await createCategory(category);
       await refreshCategories();
+      setAdminMessageType("success");
+      setAdminMessage(category.id ? "Category changes saved." : "Category created.");
       return saved;
     } catch (error) {
       handleApiError(error);
@@ -505,6 +509,8 @@ function CPanelApp() {
     try {
       await deleteCategory(id);
       await refreshCategories();
+      setAdminMessageType("success");
+      setAdminMessage("Category deleted.");
     } catch (error) {
       handleApiError(error);
     }
@@ -516,6 +522,8 @@ function CPanelApp() {
         ? await updateBrand(brand)
         : await createBrand(brand);
       await refreshBrands();
+      setAdminMessageType("success");
+      setAdminMessage(brand.id ? "Brand changes saved." : "Brand created.");
       return saved;
     } catch (error) {
       handleApiError(error);
@@ -528,6 +536,8 @@ function CPanelApp() {
     try {
       await deleteBrand(id);
       await refreshBrands();
+      setAdminMessageType("success");
+      setAdminMessage("Brand deleted.");
     } catch (error) {
       handleApiError(error);
     }
@@ -551,6 +561,8 @@ function CPanelApp() {
         ? await updateProductApi(product)
         : await createProductApi(product);
       await refreshProducts();
+      setAdminMessageType("success");
+      setAdminMessage(t("admin.productSaved"));
       return { ok: true, message: t("admin.productSaved"), product: saved };
     } catch (error) {
       handleApiError(error);
@@ -563,6 +575,8 @@ function CPanelApp() {
     try {
       await deleteProductApi(id);
       await refreshProducts();
+      setAdminMessageType("success");
+      setAdminMessage(t("admin.productDeleted"));
       return { ok: true, message: t("admin.productDeleted") };
     } catch (error) {
       handleApiError(error);
@@ -698,6 +712,8 @@ function CPanelApp() {
     try {
       const saved = await saveWebsiteMediaApi(item);
       await refreshWebsiteMedia();
+      setAdminMessageType("success");
+      setAdminMessage(item.id ? "Website media changes saved." : "Website media created.");
       return saved;
     } catch (error) {
       handleApiError(error);
@@ -709,6 +725,8 @@ function CPanelApp() {
     try {
       await deleteWebsiteMediaApi(id);
       await refreshWebsiteMedia();
+      setAdminMessageType("success");
+      setAdminMessage("Website media deleted.");
     } catch (error) {
       handleApiError(error);
       throw error;
@@ -772,6 +790,7 @@ function CPanelApp() {
               products={products}
               reviews={reviews}
               statusMessage={adminMessage}
+              statusMessageType={adminMessageType}
               t={t}
               websiteMedia={websiteMedia}
               websiteMediaError={websiteMediaError}

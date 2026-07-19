@@ -68,30 +68,46 @@ export async function listTenantProductFieldValues(companyId, productId) {
 
 export async function replaceTenantProductFieldValues(companyId, productId, entries) {
   if (!Array.isArray(entries)) throw Object.assign(new Error("values must be an array."), { statusCode: 400 });
-  return withDropshippingTransaction(async (client) => {
-    const owned = await client.query("select id from public.products where company_id=$1 and id=$2 for update", [companyId, productId]);
-    if (!owned.rows[0]) throw Object.assign(new Error("Product not found."), { statusCode: 404 });
-    const definitions = await client.query("select * from public.product_field_definitions where company_id=$1 and is_active=true", [companyId]);
-    const byKey = new Map(definitions.rows.map((row) => [row.field_key, row]));
-    const seen = new Set();
-    const saved = [];
-    for (const entry of entries) {
-      const definition = byKey.get(String(entry?.key || ""));
-      if (!definition) throw Object.assign(new Error(`Unknown or inactive field key: ${entry?.key || ""}.`), { statusCode: 400 });
-      const locale = definition.translatable ? String(entry.locale || "").toLowerCase() : "neutral";
-      if (definition.translatable && !["en", "ar"].includes(locale)) throw Object.assign(new Error(`${definition.field_key} requires en or ar locale.`), { statusCode: 400 });
-      const identity = `${definition.id}:${locale}`;
-      if (seen.has(identity)) throw Object.assign(new Error(`Duplicate value for ${definition.field_key}/${locale}.`), { statusCode: 400 });
-      seen.add(identity);
-      const value = validateTenantFieldValue(definition, entry.value);
-      const result = await client.query(
+  return withDropshippingTransaction((client) => replaceTenantProductFieldValuesWithClient(client, companyId, productId, entries));
+}
+
+/**
+ * The product row lock serializes field saves for one tenant/product. Updating
+ * first and inserting only when absent keeps saves idempotent without relying
+ * on PostgreSQL being able to infer a particular ON CONFLICT index shape.
+ */
+export async function replaceTenantProductFieldValuesWithClient(client, companyId, productId, entries) {
+  if (!Array.isArray(entries)) throw Object.assign(new Error("values must be an array."), { statusCode: 400 });
+  const owned = await client.query("select id from public.products where company_id=$1 and id=$2 for update", [companyId, productId]);
+  if (!owned.rows[0]) throw Object.assign(new Error("Product not found."), { statusCode: 404 });
+  const definitions = await client.query("select * from public.product_field_definitions where company_id=$1 and is_active=true", [companyId]);
+  const byKey = new Map(definitions.rows.map((row) => [row.field_key, row]));
+  const seen = new Set();
+  const saved = [];
+  for (const entry of entries) {
+    const definition = byKey.get(String(entry?.key || ""));
+    if (!definition) throw Object.assign(new Error(`Unknown or inactive field key: ${entry?.key || ""}.`), { statusCode: 400 });
+    const locale = definition.translatable ? String(entry.locale || "").toLowerCase() : "neutral";
+    if (definition.translatable && !["en", "ar"].includes(locale)) throw Object.assign(new Error(`${definition.field_key} requires en or ar locale.`), { statusCode: 400 });
+    const identity = `${definition.id}:${locale}`;
+    if (seen.has(identity)) throw Object.assign(new Error(`Duplicate value for ${definition.field_key}/${locale}.`), { statusCode: 400 });
+    seen.add(identity);
+    const value = validateTenantFieldValue(definition, entry.value);
+    const serializedValue = JSON.stringify(value);
+    let result = await client.query(
+      `update public.product_field_values set value=$5::jsonb,updated_at=now()
+       where company_id=$1 and product_id=$2 and field_definition_id=$3 and locale=$4
+       returning id,locale,value`,
+      [companyId, productId, definition.id, locale, serializedValue],
+    );
+    if (!result.rows[0]) {
+      result = await client.query(
         `insert into public.product_field_values(id,company_id,product_id,field_definition_id,locale,value)
-         values($1,$2,$3,$4,$5,$6::jsonb) on conflict(company_id,product_id,field_definition_id,locale)
-         do update set value=excluded.value,updated_at=now() returning id,locale,value`,
-        [crypto.randomUUID(), companyId, productId, definition.id, locale, JSON.stringify(value)],
+         values($1,$2,$3,$4,$5,$6::jsonb) returning id,locale,value`,
+        [crypto.randomUUID(), companyId, productId, definition.id, locale, serializedValue],
       );
-      saved.push({ key: definition.field_key, ...result.rows[0] });
     }
-    return saved;
-  });
+    saved.push({ key: definition.field_key, ...result.rows[0] });
+  }
+  return saved;
 }

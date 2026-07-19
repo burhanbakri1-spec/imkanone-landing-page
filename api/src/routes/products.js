@@ -6,6 +6,7 @@ import {
   saveProductWithTenantCatalogLock,
 } from "../data/store.js";
 import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
+import { normalizeStockValue, preserveOmittedVariantStock } from "../products/productStock.js";
 import { recordActivityLog } from "../activityLog/logger.js";
 import { defaultProductSchema, sanitizeProductSchemaData } from "../productSchema/schema.js";
 import { effectiveTenantRole, optionalAuth, requireAuth } from "../middleware/auth.js";
@@ -62,7 +63,10 @@ function normalizeVariants(product) {
         size: variant.size || "500ml",
         price: Number(variant.price || 0),
         wholesalePrice: variant.wholesalePrice != null ? Number(variant.wholesalePrice) : undefined,
-        stock: Math.max(0, Number(variant.stock ?? variant.stockQty ?? product.stockQty ?? 0)),
+        stock: normalizeStockValue(variant.stock ?? variant.stockQty ?? product.stockQty, {
+          fallback: 0,
+          label: `Variant ${index + 1} stock`,
+        }),
         image_url: variant.image_url || variant.imageUrl || variant.image || "",
         sort_order: Number(variant.sort_order ?? variant.sortOrder ?? index),
       }))
@@ -76,7 +80,7 @@ function normalizeVariants(product) {
     size: sizeOption.size || "500ml",
     price: Number(sizeOption.price || 0),
     wholesalePrice: sizeOption.wholesalePrice != null ? Number(sizeOption.wholesalePrice) : undefined,
-    stock: Math.max(0, Number(product.stockQty ?? 24)),
+    stock: normalizeStockValue(product.stockQty, { fallback: 24, label: `Variant ${index + 1} stock` }),
     image_url: product.image || "",
     sort_order: index,
   }));
@@ -139,17 +143,17 @@ function mergeVariantImageUrls(existingProduct, incomingVariants) {
   const existingBySignature = new Map(existingVariants.map((variant) => [variantSignature(variant), variant]));
 
   return incomingVariants.map((variant) => {
-    const incomingImage = variant.image_url || variant.imageUrl || variant.image || "";
-    if (isRealImageUrl(incomingImage)) {
-      return variant;
-    }
-
     const existing =
       existingById.get(variant.id) ||
       existingBySignature.get(variantSignature(variant));
-    const existingImage = existing?.image_url || existing?.imageUrl || existing?.image || "";
+    const withStock = preserveOmittedVariantStock(existing || {}, variant);
+    const incomingImage = variant.image_url || variant.imageUrl || variant.image || "";
+    if (isRealImageUrl(incomingImage)) {
+      return withStock;
+    }
 
-    return existingImage ? { ...variant, image_url: existingImage } : variant;
+    const existingImage = existing?.image_url || existing?.imageUrl || existing?.image || "";
+    return existingImage ? { ...withStock, image_url: existingImage } : withStock;
   });
 }
 
