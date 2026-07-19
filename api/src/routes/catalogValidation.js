@@ -84,14 +84,15 @@ export function validateSortOrder(value) {
 
 export function requireTenantPermission(resource, action) {
   return (req, res, next) => {
-    if (!req.membership) {
+    const isScopedSuperAdmin = req.tenantScope && req.membershipRole === "super_admin";
+    if (!req.membership && !isScopedSuperAdmin) {
       return res.status(403).json({ message: "An active company membership is required." });
     }
-    const permissions = Array.isArray(req.membership._permissions)
+    const permissions = Array.isArray(req.membership?._permissions)
       ? req.membership._permissions
       : req.user?.permissions || [];
     if (
-      ["admin", "company_admin"].includes(req.membershipRole)
+      ["admin", "company_admin", "super_admin"].includes(req.membershipRole)
       || permissions.includes(`${resource}.${action}`)
       || permissions.includes(`${resource}.manage`)
     ) {

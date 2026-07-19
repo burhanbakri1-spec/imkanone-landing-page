@@ -4,10 +4,10 @@ import {
   websiteMediaHiddenKeysRepository,
   websiteMediaRepository,
 } from "../data/store.js";
-import { optionalAuth, requireAuth } from "../middleware/auth.js";
+import { effectiveTenantRole, optionalAuth, requireAuth } from "../middleware/auth.js";
 
 const router = Router();
-const allowedRoles = new Set(["admin", "company_admin", "manager", "employee", "staff"]);
+const allowedRoles = new Set(["admin", "company_admin", "super_admin", "manager", "employee", "staff"]);
 const mediaPermission = "website_media.manage";
 
 router.use((_req, res, next) => {
@@ -18,11 +18,12 @@ router.use((_req, res, next) => {
 });
 
 function requireMediaEditor(req, res, next) {
-  if (!allowedRoles.has(req.user?.role)) {
+  const role = effectiveTenantRole(req);
+  if (!allowedRoles.has(role)) {
     return res.status(403).json({ message: "Admin or employee access required." });
   }
 
-  if (!["admin", "company_admin"].includes(req.user?.role) && !req.user?.permissions?.includes(mediaPermission)) {
+  if (!["admin", "company_admin", "super_admin"].includes(role) && !req.user?.permissions?.includes(mediaPermission)) {
     return res.status(403).json({ message: "Website media permission required." });
   }
 

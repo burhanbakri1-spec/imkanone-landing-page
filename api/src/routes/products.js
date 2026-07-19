@@ -8,7 +8,7 @@ import {
 import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
 import { recordActivityLog } from "../activityLog/logger.js";
 import { defaultProductSchema, sanitizeProductSchemaData } from "../productSchema/schema.js";
-import { optionalAuth, requireAuth } from "../middleware/auth.js";
+import { effectiveTenantRole, optionalAuth, requireAuth } from "../middleware/auth.js";
 import { listTenantProductFieldValues } from "../productSchema/fieldValues.js";
 
 const router = Router();
@@ -17,7 +17,7 @@ const placeholderImage = "/images/products/product-placeholder.svg";
 function requireProductPermission(permission) {
   return (req, res, next) => {
     if (
-      ["admin", "company_admin"].includes(req.membershipRole)
+      ["admin", "company_admin", "super_admin"].includes(effectiveTenantRole(req))
       || req.user?.permissions?.includes(permission)
     ) {
       return next();

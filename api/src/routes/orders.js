@@ -6,7 +6,7 @@ import {
   productRepository,
   userRepository,
 } from "../data/store.js";
-import { optionalAuth, publicUser, requireAuth } from "../middleware/auth.js";
+import { effectiveTenantRole, optionalAuth, publicUser, requireAuth } from "../middleware/auth.js";
 import { findEnabledZone } from "../delivery/schema.js";
 import { isVariantVisible } from "../products/variantVisibility.js";
 import { recordActivityLog } from "../activityLog/logger.js";
@@ -20,7 +20,7 @@ function isStaffRole(role) {
 function requireOrderPermission(permission) {
   return (req, res, next) => {
     if (
-      ["admin", "company_admin"].includes(req.membershipRole)
+      ["admin", "company_admin", "super_admin"].includes(effectiveTenantRole(req))
       || req.user?.permissions?.includes(permission)
     ) {
       return next();
@@ -242,7 +242,7 @@ async function safePersist(companyId) {
 router.get("/", requireAuth, (req, res) => {
   const orders = orderRepository.getByCompany(req.companyId);
   if (
-    ["admin", "company_admin"].includes(req.membershipRole)
+    ["admin", "company_admin", "super_admin"].includes(effectiveTenantRole(req))
     || req.user.permissions?.includes("orders.view")
   ) {
     const isRestrictedStaff = isStaffRole(req.membershipRole) && !req.user.permissions?.includes("orders.view");
@@ -424,7 +424,7 @@ router.post("/", optionalAuth, async (req, res) => {
 
 router.put("/:id/status", requireAuth, async (req, res) => {
   try {
-    if (!["admin", "company_admin"].includes(req.user.role) && !req.user.permissions?.includes("orders.updateStatus")) {
+    if (!["admin", "company_admin", "super_admin"].includes(effectiveTenantRole(req)) && !req.user.permissions?.includes("orders.updateStatus")) {
       return res.status(403).json({ message: "Order status permission required." });
     }
     const order = orderRepository.findByCompany(req.companyId, req.params.id);

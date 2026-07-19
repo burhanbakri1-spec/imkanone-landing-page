@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { orderRepository, persistCompanyStore, reviewRepository } from "../data/store.js";
-import { optionalAuth, requireAuth } from "../middleware/auth.js";
+import { effectiveTenantRole, optionalAuth, requireAuth } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -53,7 +53,7 @@ router.get("/employee/:employeeId", optionalAuth, (req, res) => {
 
 router.get("/all", requireAuth, (req, res) => {
   const reviews = reviewRepository.getByCompany(req.companyId);
-  if (isStaffRole(req.user.role)) {
+  if (isStaffRole(effectiveTenantRole(req))) {
     return res.json(reviews.filter((review) => review.employeeId === req.user.id));
   }
   return res.json(reviews);
@@ -108,7 +108,7 @@ router.post("/", requireAuth, async (req, res) => {
 
 router.put("/:id/status", requireAuth, async (req, res) => {
   try {
-    if (req.user.role !== "admin") {
+    if (!["admin", "company_admin", "super_admin"].includes(effectiveTenantRole(req))) {
       return res.status(403).json({ message: "Admin access required." });
     }
 
@@ -130,7 +130,7 @@ router.put("/:id/status", requireAuth, async (req, res) => {
 });
 
 router.put("/:id", requireAuth, async (req, res) => {
-  if (req.user.role !== "admin") {
+  if (!["admin", "company_admin", "super_admin"].includes(effectiveTenantRole(req))) {
     return res.status(403).json({ message: "Admin access required." });
   }
 
@@ -152,7 +152,7 @@ router.put("/:id", requireAuth, async (req, res) => {
 
 router.delete("/:id", requireAuth, async (req, res) => {
   try {
-    if (req.user.role !== "admin") {
+    if (!["admin", "company_admin", "super_admin"].includes(effectiveTenantRole(req))) {
       return res.status(403).json({ message: "Admin access required." });
     }
 

@@ -18,6 +18,7 @@ test("pending marketer access is guarded by approved profile",()=>assert.match(p
 test("products query only returns enabled products",()=>assert.match(portal,/enabled=true/));
 test("own orders are scoped by dropshipper derived from the profile",()=>assert.match(portal,/dropshipper_id=\$2/));
 test("tenant is sourced from req.companyId",()=>{assert.doesNotMatch(portal,/req\.body\.company/);assert.match(portal,/req\.companyId/)});
+test("Super Admin company scope is authorized through its effective tenant role",()=>{assert.match(admin,/effectiveTenantRole\(req\)/);assert.match(admin,/"super_admin"/)});
 test("browser profit is not accepted",()=>{assert.doesNotMatch(portal,/req\.body\.(profit|marketerProfit)/);assert.match(portal,/calculateLine/)});
 test("selling price bounds are server enforced",()=>assert.match(portal,/customerPrice < minimum \|\| customerPrice > maximum/));
 test("stock is locked and validated",()=>{assert.match(portal,/for update/);assert.match(portal,/exceeds available stock/)});

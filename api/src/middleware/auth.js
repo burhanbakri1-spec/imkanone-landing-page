@@ -231,6 +231,10 @@ export function requireAdmin(req, res, next) {
   return next();
 }
 
+export function effectiveTenantRole(req) {
+  return req.membershipRole || req.user?.role || null;
+}
+
 export function requireSuperAdmin(req, res, next) {
   if (!isSuperAdmin({ role: req.user?.globalRole || req.user?.role })) {
     return res.status(403).json({ message: "Super Admin access required." });

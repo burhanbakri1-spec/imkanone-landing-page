@@ -27,6 +27,7 @@ router.use((req, res, next) => {
 });
 
 function requestCompanyId(req) {
+  if (req.tenantScope) return req.companyId;
   if (req.user?.role !== "super_admin") return req.companyId;
   const requested = normalizeCompanyId(req.query.companyId || req.body?.companyId || req.companyId);
   if (!companyRepository.getCompanyById(requested)) {

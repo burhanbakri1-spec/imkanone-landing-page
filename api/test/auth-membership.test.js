@@ -447,6 +447,108 @@ test("membership-aware authentication and authenticated tenant context", async (
     assert.equal(deleteResult.response.status, 403);
   });
 
+  await t.test("Super Admin company scope can administer only the selected tenant", async () => {
+    const platform = await login("super@test.local");
+    const entered = await request("/platform/companies/icare/scope", {
+      token: platform.body.token,
+      method: "POST",
+    });
+    assert.equal(entered.response.status, 200);
+    assert.equal(entered.body.activeCompany.id, "icare");
+    assert.equal(entered.body.user.role, "company_admin");
+    assert.equal(entered.body.user.globalRole, "super_admin");
+    const payload = tokenPayload(entered.body.token);
+    assert.equal(payload.tokenType, "company_scope");
+    assert.equal(payload.companyId, "icare");
+    assert.equal("membershipId" in payload, false);
+
+    const media = await request("/website-media/all", { token: entered.body.token });
+    assert.equal(media.response.status, 200);
+    assert.deepEqual(media.body.items.map((item) => item.id), ["icare-media"]);
+
+    const texts = await request("/admin/website-texts", { token: entered.body.token });
+    assert.equal(texts.response.status, 200);
+    assert.deepEqual(texts.body.map((item) => item.id), ["icare-text"]);
+
+    const products = await request("/products", { token: entered.body.token });
+    assert.equal(products.response.status, 200);
+    assert.deepEqual(products.body.map((item) => item.id).sort(), ["icare-product-1", "icare-product-2"]);
+
+    const category = await request("/categories", {
+      token: entered.body.token,
+      body: { slug: "scoped-qa-category", name: { en: "Scoped QA Category", ar: "" }, isActive: true },
+    });
+    assert.equal(category.response.status, 201);
+    const brand = await request("/brands", {
+      token: entered.body.token,
+      body: { slug: "scoped-qa-brand", name: "Scoped QA Brand", country: "QA", isActive: true },
+    });
+    assert.equal(brand.response.status, 201);
+    const product = await request("/products", {
+      token: entered.body.token,
+      body: {
+        id: "icare-scoped-qa-product",
+        slug: "icare-scoped-qa-product",
+        name: { en: "Scoped QA Product", ar: "" },
+        categoryId: category.body.id,
+        brandId: brand.body.id,
+      },
+    });
+    assert.equal(product.response.status, 201);
+    assert.equal((await request(`/products/${product.body.id}`, {
+      token: entered.body.token,
+      method: "PUT",
+      body: { name: { en: "Scoped QA Product Updated", ar: "" } },
+    })).response.status, 200);
+    assert.equal((await request(`/products/${product.body.id}`, {
+      token: entered.body.token,
+      method: "DELETE",
+    })).response.status, 204);
+    assert.equal((await request(`/brands/${brand.body.id}`, {
+      token: entered.body.token,
+      method: "DELETE",
+    })).response.status, 204);
+    assert.equal((await request(`/categories/${category.body.id}`, {
+      token: entered.body.token,
+      method: "DELETE",
+    })).response.status, 204);
+
+    const changedOrder = await request("/orders/icare-order-assign/status", {
+      token: entered.body.token,
+      method: "PUT",
+      body: { status: "Processing" },
+    });
+    assert.equal(changedOrder.response.status, 200);
+    assert.equal(changedOrder.body.status, "Processing");
+    assert.equal((await request("/orders/eb-order-assign/status", {
+      token: entered.body.token,
+      method: "PUT",
+      body: { status: "Processing" },
+    })).response.status, 404);
+
+    const ebScope = await request("/platform/companies/eb-chemical/scope", {
+      token: platform.body.token,
+      method: "POST",
+    });
+    assert.equal(ebScope.response.status, 200);
+    const review = await request("/reviews", {
+      token: ebScope.body.token,
+      body: { type: "website", customerName: "Scoped QA", status: "pending", isActive: false },
+    });
+    assert.equal(review.response.status, 201);
+    const moderated = await request(`/reviews/${review.body.id}/status`, {
+      token: ebScope.body.token,
+      method: "PUT",
+      body: { status: "approved", isActive: true },
+    });
+    assert.equal(moderated.response.status, 200);
+    assert.equal(moderated.body.status, "approved");
+    assert.equal((await request(`/reviews/${review.body.id}`, {
+      token: ebScope.body.token,
+      method: "DELETE",
+    })).response.status, 204);
+  });
+
   await t.test("zero or inactive memberships are rejected", async () => {
     const noMembership = await login("none@test.local");
     assert.equal(noMembership.response.status, 403);

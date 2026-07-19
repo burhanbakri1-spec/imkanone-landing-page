@@ -24,6 +24,8 @@ test("product media validation rejects bad MIME types and oversized files", () =
 });
 
 test("product media upload and deletion enforce tenant product ownership", () => {
+  assert.match(uploadRoutes, /effectiveTenantRole\(req\)/);
+  assert.match(uploadRoutes, /"super_admin"/);
   assert.match(uploadRoutes, /productRepository\.findByCompany\(req\.companyId, req\.params\.productId\)/);
   assert.match(uploadRoutes, /companyStoragePath\(req\.companyId, "products", req\.params\.productId\)/);
   assert.match(uploadRoutes, /Media does not belong to this tenant and product/);

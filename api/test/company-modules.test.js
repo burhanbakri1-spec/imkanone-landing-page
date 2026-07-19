@@ -85,6 +85,9 @@ test("direct API paths resolve to their server-enforced module", () => {
   assert.equal(moduleForRequest(req("/api/admin/invoices")), "operations.invoices");
   assert.equal(moduleForRequest(req("/api/admin/custom-modules")), "settings.unit_creator");
   assert.equal(moduleForRequest(req("/api/admin/activity-log?limit=10")), "settings.activity_log");
+  assert.equal(moduleForRequest(req("/api/admin/product-field-definitions")), "catalog.products");
+  assert.equal(moduleForRequest(req("/api/admin/products/icare-product/field-values")), "catalog.products");
+  assert.equal(moduleForRequest(req("/api/admin/product-schema")), "settings.product_settings");
   assert.equal(moduleForRequest(req("/api/platform/companies")), null);
 });
 
@@ -135,4 +138,9 @@ test("CPanel wiring includes dynamic modules, guarded routes, scope switch, and 
   assert.match(companies, /Manage Modules/);
   assert.match(companies, /Open CPanel/);
   assert.match(feature, /admin-website-texts/);
+});
+
+test("custom modules cannot override a temporary Super Admin tenant scope", () => {
+  const route = fs.readFileSync(path.join(root, "api/src/routes/customModules.js"), "utf8");
+  assert.match(route, /if \(req\.tenantScope\) return req\.companyId/);
 });

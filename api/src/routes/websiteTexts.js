@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { persistCompanyStore, websiteTextsRepository } from "../data/store.js";
-import { optionalAuth, requireAuth } from "../middleware/auth.js";
+import { effectiveTenantRole, optionalAuth, requireAuth } from "../middleware/auth.js";
 
 export const publicWebsiteTextsRouter = Router();
 export const adminWebsiteTextsRouter = Router();
-const allowedRoles = new Set(["admin", "company_admin", "manager", "employee", "staff"]);
+const allowedRoles = new Set(["admin", "company_admin", "super_admin", "manager", "employee", "staff"]);
 const textsPermissions = ["website_media.manage", "website_texts.manage"];
 
 function noStore(_req, res, next) {
@@ -18,11 +18,12 @@ publicWebsiteTextsRouter.use(noStore, optionalAuth);
 adminWebsiteTextsRouter.use(noStore, requireAuth, requireTextsEditor);
 
 function requireTextsEditor(req, res, next) {
-  if (!allowedRoles.has(req.user?.role)) {
+  const role = effectiveTenantRole(req);
+  if (!allowedRoles.has(role)) {
     return res.status(403).json({ message: "Admin or employee access required." });
   }
 
-  if (!["admin", "company_admin"].includes(req.user?.role) && !textsPermissions.some((p) => req.user?.permissions?.includes(p))) {
+  if (!["admin", "company_admin", "super_admin"].includes(role) && !textsPermissions.some((p) => req.user?.permissions?.includes(p))) {
     return res.status(403).json({ message: "Website texts permission required." });
   }
 

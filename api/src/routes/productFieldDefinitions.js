@@ -4,7 +4,7 @@ import { listTenantFieldDefinitions, listTenantProductFieldValues, replaceTenant
 
 const router = Router();
 router.use(requireAuth);
-const can = (req, permission) => ["admin", "company_admin"].includes(req.membershipRole) || req.user?.permissions?.includes(permission);
+const can = (req, permission) => ["admin", "company_admin", "super_admin"].includes(req.membershipRole) || req.user?.permissions?.includes(permission);
 
 router.get("/product-field-definitions", async (req, res, next) => {
   if (!["products.read", "products.view", "products.manage", "product_content.manage"].some((permission) => can(req, permission))) return res.status(403).json({ message: "Product permission required." });

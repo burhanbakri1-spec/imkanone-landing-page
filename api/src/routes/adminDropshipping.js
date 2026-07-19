@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { Router } from "express";
-import { requireAuth } from "../middleware/auth.js";
+import { effectiveTenantRole, requireAuth } from "../middleware/auth.js";
 import { assertTransition, csvCell } from "../dropshipping/domain.js";
 import { upsertDropshippingProductConfiguration } from "../dropshipping/adminProducts.js";
 import {
@@ -27,7 +27,7 @@ const permissions = {
 };
 function authorize(area, { read = false } = {}) {
   return (req, res, next) => {
-    if (["admin", "company_admin"].includes(req.membershipRole)) return next();
+    if (["admin", "company_admin", "super_admin"].includes(effectiveTenantRole(req))) return next();
     const required = read
       ? permissions[area].replace(/\.manage$/, ".read")
       : permissions[area];
@@ -729,7 +729,7 @@ router.get(
       `select w.id,w.dropshipper_id,w.amount,w.payment_method,w.status,w.requested_at,w.approved_at,w.paid_at,w.rejected_at,w.rejection_reason,w.reference_number,p.full_name,w.payment_details from public.withdrawal_requests w join public.dropshipper_profiles p on p.company_id=w.company_id and p.id=w.dropshipper_id where w.company_id=$1 order by w.requested_at desc`,
       [req.companyId],
     );
-    const canViewPaymentDetails = ["admin", "company_admin"].includes(req.membershipRole)
+    const canViewPaymentDetails = ["admin", "company_admin", "super_admin"].includes(effectiveTenantRole(req))
       || req.user.permissions?.includes("dropshipping.withdrawals.manage");
     res.json(canViewPaymentDetails ? rows : rows.map(({ payment_details, ...row }) => row));
   }),
