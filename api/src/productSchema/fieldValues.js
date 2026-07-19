@@ -93,6 +93,15 @@ export async function replaceTenantProductFieldValuesWithClient(client, companyI
     if (seen.has(identity)) throw Object.assign(new Error(`Duplicate value for ${definition.field_key}/${locale}.`), { statusCode: 400 });
     seen.add(identity);
     const value = validateTenantFieldValue(definition, entry.value);
+    if (value === null) {
+      await client.query(
+        `delete from public.product_field_values
+         where company_id=$1 and product_id=$2 and field_definition_id=$3 and locale=$4`,
+        [companyId, productId, definition.id, locale],
+      );
+      saved.push({ key: definition.field_key, locale, value: null, deleted: true });
+      continue;
+    }
     const serializedValue = JSON.stringify(value);
     let result = await client.query(
       `update public.product_field_values set value=$5::jsonb,updated_at=now()
