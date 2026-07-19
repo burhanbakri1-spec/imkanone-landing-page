@@ -1199,10 +1199,10 @@ export const tenantBrandRepository = {
 export async function saveProductWithTenantCatalogLock(companyId, product, { isCreate = false } = {}) {
   const normalized = normalizeCompanyId(companyId);
   if (isSupabaseConfigured()) {
-    await saveProductWithTenantCatalogLockInSupabase(normalized, product, { isCreate });
+    const persistedProduct = await saveProductWithTenantCatalogLockInSupabase(normalized, product, { isCreate });
     return isCreate
-      ? productRepository.createForCompany(normalized, product, { prepend: true })
-      : productRepository.updateForCompany(normalized, product.id, product);
+      ? productRepository.createForCompany(normalized, persistedProduct, { prepend: true })
+      : productRepository.updateForCompany(normalized, persistedProduct.id, persistedProduct);
   }
   for (const [field, repository, label] of [
     ["categoryId", categoryRepository, "Category"],

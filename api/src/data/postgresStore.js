@@ -6,6 +6,7 @@ import {
   selectPreferredCompanyDomains,
 } from "../tenancy/company.js";
 import { Pool } from "pg";
+import crypto from "node:crypto";
 import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
 
 let pool;
@@ -2119,6 +2120,56 @@ async function insertTenantRowWithClient(client, table, row, { upsert = false } 
   );
 }
 
+export async function reconcileProductVariantsWithClient(client, companyId, product, { isCreate = false, trustedNewIds = false } = {}) {
+  const existingResult = await client.query(
+    `select id from public.product_variants
+     where company_id = $1 and product_id = $2 for update`,
+    [companyId, product.id],
+  );
+  const existingIds = new Set(existingResult.rows.map((row) => String(row.id)));
+  const persistedVariants = (product.variants || []).map((variant) => {
+    const requestedId = variant?.id ? String(variant.id) : "";
+    const id = requestedId && (trustedNewIds || (!isCreate && existingIds.has(requestedId)))
+      ? requestedId
+      : crypto.randomUUID();
+    return { ...variant, id };
+  });
+  const rows = variantRows({ ...product, variants: persistedVariants }, companyId);
+
+  for (const row of rows) {
+    if (existingIds.has(row.id)) {
+      const columns = Object.keys(row).filter((column) => !["id", "company_id", "product_id"].includes(column));
+      const values = [companyId, product.id, row.id];
+      const assignments = columns.map((column) => {
+        values.push(toPgColumnValue(column, row[column]));
+        return `${quoteIdent(column)}=$${values.length}`;
+      });
+      await client.query(
+        `update public.product_variants set ${assignments.join(", ")}
+         where company_id=$1 and product_id=$2 and id=$3`,
+        values,
+      );
+    } else {
+      await insertTenantRowWithClient(client, "product_variants", row);
+    }
+  }
+
+  const retainedIds = rows.map((row) => row.id);
+  if (retainedIds.length) {
+    await client.query(
+      `delete from public.product_variants
+       where company_id=$1 and product_id=$2 and not (id=any($3::text[]))`,
+      [companyId, product.id, retainedIds],
+    );
+  } else {
+    await client.query(
+      "delete from public.product_variants where company_id=$1 and product_id=$2",
+      [companyId, product.id],
+    );
+  }
+  return { ...product, variants: persistedVariants };
+}
+
 async function validateProductCatalogReferencesWithClient(client, companyId, product) {
   for (const [field, table, label] of [
     ["categoryId", "company_categories", "Category"],
@@ -2138,7 +2189,21 @@ async function validateProductCatalogReferencesWithClient(client, companyId, pro
 export function saveProductWithTenantCatalogLockInSupabase(companyId, product, { isCreate = false } = {}) {
   return withTenantCatalogWriteLock(companyId, async (client, normalized) => {
     await validateProductCatalogReferencesWithClient(client, normalized, product);
-    const row = productRow(product, normalized);
+    const existingVariants = await client.query(
+      "select id from public.product_variants where company_id=$1 and product_id=$2",
+      [normalized, product.id],
+    );
+    const existingIds = new Set(existingVariants.rows.map((row) => String(row.id)));
+    const persistedProduct = {
+      ...product,
+      variants: (product.variants || []).map((variant) => ({
+        ...variant,
+        id: !isCreate && variant?.id && existingIds.has(String(variant.id))
+          ? String(variant.id)
+          : crypto.randomUUID(),
+      })),
+    };
+    const row = productRow(persistedProduct, normalized);
     let persisted;
     if (isCreate) {
       persisted = await insertTenantRowWithClient(client, "products", row);
@@ -2157,20 +2222,14 @@ export function saveProductWithTenantCatalogLockInSupabase(companyId, product, {
     }
     if (!persisted.rows[0]) throw tenantCatalogError("Product not found.", 404);
     await client.query(
-      `delete from public.product_variants where company_id = $1 and product_id = $2`,
-      [normalized, product.id],
-    );
-    await client.query(
       `delete from public.product_gallery_images where company_id = $1 and product_id = $2`,
       [normalized, product.id],
     );
-    for (const row of variantRows(product, normalized)) {
-      await insertTenantRowWithClient(client, "product_variants", row);
-    }
-    for (const row of galleryRows(product, normalized)) {
+    const reconciledProduct = await reconcileProductVariantsWithClient(client, normalized, persistedProduct, { isCreate: false, trustedNewIds: true });
+    for (const row of galleryRows(reconciledProduct, normalized)) {
       await insertTenantRowWithClient(client, "product_gallery_images", row);
     }
-    return product;
+    return reconciledProduct;
   });
 }
 

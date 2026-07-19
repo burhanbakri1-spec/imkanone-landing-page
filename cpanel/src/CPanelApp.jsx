@@ -129,6 +129,9 @@ function landingPage(user) {
 }
 
 function resolvePage(pathname, user) {
+  if (/^\/admin\/products\/[^/]+\/edit$/.test(pathname)) {
+    return canAccessAdminPage(user?.role, "admin-products-new") ? "admin-products-new" : landingPage(user);
+  }
   return resolveAdminPage(pathname, user?.role, pagePaths);
 }
 
@@ -181,8 +184,9 @@ function CPanelApp() {
     if (!options.preserveStatusMessage) setAdminMessage("");
     if (!options.preserveLoginMessage) setAdminLoginMessage("");
     setActivePage(safePage);
-    if (window.location.pathname !== pagePaths[safePage]) {
-      window.history[options.replace ? "replaceState" : "pushState"]({}, "", pagePaths[safePage]);
+    const destinationPath = options.path || pagePaths[safePage];
+    if (window.location.pathname !== destinationPath) {
+      window.history[options.replace ? "replaceState" : "pushState"]({}, "", destinationPath);
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -212,7 +216,8 @@ function CPanelApp() {
 
   React.useEffect(() => {
     const canonicalPath = pagePaths[activePage];
-    if (canonicalPath && canonicalPath !== window.location.pathname) {
+    const isProductEditPath = activePage === "admin-products-new" && /^\/admin\/products\/[^/]+\/edit$/.test(window.location.pathname);
+    if (canonicalPath && canonicalPath !== window.location.pathname && !isProductEditPath) {
       window.history.replaceState({}, "", canonicalPath);
     }
   }, []);

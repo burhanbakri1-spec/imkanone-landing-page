@@ -129,6 +129,27 @@ function hasOwn(object, key) {
   return Object.prototype.hasOwnProperty.call(object, key);
 }
 
+function sendProductPersistenceError(req, res, error, operation) {
+  if (error?.statusCode) return res.status(error.statusCode).json({ message: error.message });
+  console.error(`Product ${operation} failed`, {
+    code: error?.code || "UNKNOWN",
+    constraint: error?.constraint || "",
+  });
+  const arabic = String(req.headers["accept-language"] || "").toLowerCase().startsWith("ar");
+  if (error?.code === "23505") {
+    return res.status(409).json({
+      code: "PRODUCT_VARIANT_CONFLICT",
+      message: arabic
+        ? "تعذر حفظ متغيرات المنتج بأمان. أعد تحميل المنتج وحاول مرة أخرى."
+        : "Product variants could not be saved safely. Reload the product and try again.",
+    });
+  }
+  return res.status(500).json({
+    code: "PRODUCT_SAVE_FAILED",
+    message: arabic ? "تعذر حفظ المنتج. يرجى المحاولة مرة أخرى." : "Product could not be saved. Please try again.",
+  });
+}
+
 function variantSignature(variant = {}) {
   return `${variant.color_name || variant.colorName || ""}__${variant.size || ""}`.toLowerCase();
 }
@@ -246,7 +267,7 @@ router.post("/", requireAuth, requireProductPermission("products.create"), async
     }, productSchemaForCompany(req.companyId)));
     product = await saveProductWithTenantCatalogLock(req.companyId, product, { isCreate: true });
   } catch (error) {
-    return res.status(error.statusCode || 400).json({ message: error.message });
+    return sendProductPersistenceError(req, res, error, "creation");
   }
   recordActivityLog({
     req,
@@ -276,7 +297,7 @@ router.put("/:id", requireAuth, requireProductPermission("products.update"), asy
     }), productSchemaForCompany(req.companyId)));
     normalizedUpdate = await saveProductWithTenantCatalogLock(req.companyId, normalizedUpdate);
   } catch (error) {
-    return res.status(error.statusCode || 400).json({ message: error.message });
+    return sendProductPersistenceError(req, res, error, "update");
   }
   const updated = normalizedUpdate;
   const updatedName = updated.name?.en || updated.slug || "";

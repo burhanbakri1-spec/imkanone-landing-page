@@ -122,7 +122,7 @@ function createLocalizedCopy(en, ar) {
 
 function normalizeFormVariant(variant = {}, index = 0, product = {}) {
   return {
-    id: variant.id || `${product.id || "product"}-variant-${index}`,
+    id: variant.id || "",
     color_name: variant.color_name || variant.colorName || "Default",
     color_value: variant.color_value || variant.colorValue || "",
     size: variant.size || product.size || "500ml",
@@ -273,7 +273,7 @@ function createProductFromForm(form) {
     .filter((variant) => variant.color_name && variant.size)
     .map((variant, index) => ({
       ...normalizeFormVariant(variant, index, form),
-      id: variant.id || `${id}-variant-${index}`,
+      id: variant.id || undefined,
       price: Number(variant.price || 0),
       stock: parseRequiredStock(variant.stock, `Variant ${index + 1} stock`),
       sort_order: index,
@@ -595,7 +595,7 @@ function ProductsListPage({ brands, canCreate = true, canDelete = true, canUpdat
   );
 }
 
-export function ProductWizard({ brands = [], categories = [], editingProduct, onCancel, onSave, canManageContent = true, canManageMedia = true, language = "en" }) {
+export function ProductWizard({ brands = [], categories = [], editingProduct, onCancel, onPersisted, onSave, canManageContent = true, canManageMedia = true, language = "en" }) {
   const [step, setStep] = React.useState("basic");
   const initialCategoryOptions = getSelectableAdminCategories(categories, editingProduct?.categoryId);
   const [uploadError, setUploadError] = React.useState("");
@@ -910,6 +910,7 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
       return;
     }
     setForm((current) => ({ ...current, id: result.product.id }));
+    onPersisted?.(result.product);
     setContentRetryId("");
     if (result?.ok && usesTenantDefinitions && canManageContent) {
       try {
@@ -1248,7 +1249,7 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
           <button className="secondary-action" disabled={tabs.indexOf(step) === 0} onClick={() => setStep(tabs[tabs.indexOf(step) - 1])} type="button">Previous</button>
           <button className="secondary-action" disabled={tabs.indexOf(step) === tabs.length - 1} onClick={() => setStep(tabs[tabs.indexOf(step) + 1])} type="button">Next</button>
           <button className="secondary-action" onClick={() => onCancel()} type="button">{language === "ar" ? "إلغاء" : "Cancel"}</button>
-          <button className="admin-primary-button" type="submit">{language === "ar" ? (editingProduct ? "حفظ التغييرات" : "إنشاء") : (editingProduct ? "Save changes" : "Create")}</button>
+          <button className="admin-primary-button" type="submit">{language === "ar" ? ((editingProduct || form.id) ? "حفظ التغييرات" : "إنشاء") : ((editingProduct || form.id) ? "Save changes" : "Create")}</button>
         </div>
       </form>
     </section>
@@ -1467,6 +1468,15 @@ function AdminDashboardPage({
   const [stockModalOpen, setStockModalOpen] = React.useState(false);
 
   React.useEffect(() => {
+    if (activePage !== "admin-products-new") return;
+    const match = window.location.pathname.match(/^\/admin\/products\/([^/]+)\/edit$/);
+    if (!match) return;
+    const id = decodeURIComponent(match[1]);
+    const product = products.find((item) => String(item.id) === id);
+    if (product) setEditingProduct(product);
+  }, [activePage, products]);
+
+  React.useEffect(() => {
     if (!companyId) {
       setVlogs([]);
       setVlogHero({ image: "", title: "" });
@@ -1642,10 +1652,17 @@ function AdminDashboardPage({
   function renderActivePage() {
     switch (activePage) {
       case "admin-products":
-        return <ProductsListPage brands={brands} canCreate={canCreateProducts} canDelete={canDeleteProducts} canUpdate={canUpdateProducts} categories={adminCategories} filters={filters} onAdd={() => { setEditingProduct(null); onNavigate("admin-products-new"); }} onDeleteProduct={onDeleteProduct} onEdit={(product) => { setEditingProduct(product); onNavigate("admin-products-new"); }} products={products} setFilters={setFilters} />;
-      case "admin-products-new":
-        if ((editingProduct && !canUpdateProducts) || (!editingProduct && !canCreateProducts)) return <EmptyState title="View-only access" description="You do not have permission to save products." />;
-        return <ProductWizard brands={brands} categories={adminCategories} canManageContent={canManageProductContent} canManageMedia={canManageProductMedia} editingProduct={editingProduct} language={language} onCancel={(options) => onNavigate("admin-products", options)} onSave={onSaveProduct} />;
+        return <ProductsListPage brands={brands} canCreate={canCreateProducts} canDelete={canDeleteProducts} canUpdate={canUpdateProducts} categories={adminCategories} filters={filters} onAdd={() => { setEditingProduct(null); onNavigate("admin-products-new"); }} onDeleteProduct={onDeleteProduct} onEdit={(product) => { setEditingProduct(product); onNavigate("admin-products-new", { path: `/admin/products/${encodeURIComponent(product.id)}/edit` }); }} products={products} setFilters={setFilters} />;
+      case "admin-products-new": { // A dynamic edit URL intentionally shares the product-wizard page key.
+        const match = window.location.pathname.match(/^\/admin\/products\/([^/]+)\/edit$/);
+        const routeProductId = match ? decodeURIComponent(match[1]) : "";
+        const productToEdit = routeProductId
+          ? products.find((item) => String(item.id) === routeProductId)
+          : editingProduct;
+        if (routeProductId && !productToEdit) return <section className="admin-panel-card">Loading product...</section>;
+        if ((productToEdit && !canUpdateProducts) || (!productToEdit && !canCreateProducts)) return <EmptyState title="View-only access" description="You do not have permission to save products." />;
+        return <ProductWizard brands={brands} categories={adminCategories} canManageContent={canManageProductContent} canManageMedia={canManageProductMedia} editingProduct={productToEdit} language={language} onCancel={(options) => onNavigate("admin-products", options)} onPersisted={(product) => { setEditingProduct(product); onNavigate("admin-products-new", { path: `/admin/products/${encodeURIComponent(product.id)}/edit`, preserveStatusMessage: true, replace: true }); }} onSave={onSaveProduct} />;
+      }
       case "admin-categories":
         return renderSimpleTable("categories");
       case "admin-categories-new":
