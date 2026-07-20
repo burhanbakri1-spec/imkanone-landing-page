@@ -20,7 +20,7 @@ begin
     select constraint_row.conname
     from (
       select c.conname,
-             array_agg(a.attname order by a.attname) as columns
+             array_agg(a.attname order by a.attname)::text[] as columns
       from pg_constraint c
       join unnest(c.conkey) with ordinality as key(attnum, position) on true
       join pg_attribute a on a.attrelid=c.conrelid and a.attnum=key.attnum
@@ -37,7 +37,7 @@ begin
     select index_row.index_name
     from (
       select index_class.relname as index_name,
-             array_agg(attribute.attname order by attribute.attname) as columns
+             array_agg(attribute.attname order by attribute.attname)::text[] as columns
       from pg_index index_meta
       join pg_class index_class on index_class.oid=index_meta.indexrelid
       join unnest(index_meta.indkey::smallint[]) as key(attnum) on key.attnum > 0

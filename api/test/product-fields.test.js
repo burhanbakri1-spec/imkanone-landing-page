@@ -185,8 +185,19 @@ test("migration 013 is additive, repeatable, and removes legacy uniqueness by co
   assert.match(localeMigration, /^begin;/i);
   assert.match(localeMigration, /pg_constraint/);
   assert.match(localeMigration, /pg_index/);
+  assert.match(localeMigration, /array_agg\(.*attname.*\)::text\[\]/i, "array_agg must cast name columns to text[] to avoid name[] = text[] error");
+  assert.match(localeMigration, /columns = array\[.*\]::text\[\]/i, "comparison must use text[] typed array literal");
   assert.match(localeMigration, /having count\(\*\) > 1/i);
   assert.match(localeMigration, /create unique index if not exists uq_product_field_values_tenant_product_field_locale/i);
   assert.match(localeMigration, /commit;/i);
   assert.doesNotMatch(localeMigration, /drop table|delete from public\.product_field_values/i);
+});
+
+test("migration 013 uses ::text[] on both array_agg calls (constraint and index discovery)", () => {
+  const constraintAggMatch = localeMigration.match(/array_agg\(a\.attname order by a\.attname\)::text\[\]/);
+  assert.ok(constraintAggMatch, "constraint column aggregation must cast to text[]");
+  const indexAggMatch = localeMigration.match(/array_agg\(attribute\.attname order by attribute\.attname\)::text\[\]/);
+  assert.ok(indexAggMatch, "index column aggregation must cast to text[]");
+  const leftSideCasts = localeMigration.match(/array_agg\(.*attname.*\)::text\[\]/g);
+  assert.equal(leftSideCasts.length, 2, "exactly two array_agg must carry ::text[] casts");
 });
