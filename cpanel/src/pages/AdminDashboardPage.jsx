@@ -4,7 +4,7 @@ import AdminLayout from "../components/AdminLayout.jsx";
 import AdminOrdersTable from "../components/AdminOrdersTable.jsx";
 import WebsiteMediaManager from "../components/WebsiteMediaManager.jsx";
 import TenantProductFields from "../components/TenantProductFields.jsx";
-import { deleteProductMedia, uploadImage, uploadImages, uploadProductMedia } from "../utils/api.js";
+import { deleteProductMedia, uploadImage, uploadImages, uploadProductMedia, validateProductMediaFile } from "../utils/api.js";
 import { fieldStateToValues, productFieldApi, valuesToFieldState } from "../utils/productFields.js";
 import {
   getSelectableAdminCategories,
@@ -303,8 +303,8 @@ function createProductFromForm(form) {
     benefits: form.benefits,
     skinTypes: form.skinTypes,
     concerns: form.concerns,
-    image: form.image || "/images/products/product-placeholder.svg",
-    hoverImage: form.hoverImage || form.image || "/images/products/product-placeholder.svg",
+    image: form.image || "",
+    hoverImage: form.hoverImage || "",
     productsPageImage: form.productsPageImage || "",
     productsPageHoverImage: form.productsPageHoverImage || "",
     fallbackImage: "/images/products/product-placeholder.svg",
@@ -392,6 +392,97 @@ function AdminTable({ children }) {
 
 function Badge({ tone = "active", children }) {
   return <span className={`admin-status-pill ${tone}`}>{children}</span>;
+}
+
+function CardImageUpload({ label, helperText, buttonLabel, name, value, onChange, productId, tenantSpecific = false, variant = "primary" }) {
+  const [isUploading, setIsUploading] = React.useState(false);
+  const [uploadError, setUploadError] = React.useState("");
+  const inputRef = React.useRef(null);
+  const uploadingRef = React.useRef(false);
+  const uploadBlocked = tenantSpecific && !productId;
+
+  async function handleUpload(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (uploadBlocked) {
+      setUploadError("Save the product before uploading card images.");
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
+    if (uploadingRef.current) return;
+    uploadingRef.current = true;
+    setIsUploading(true);
+    setUploadError("");
+    try {
+      validateProductMediaFile(file, { allowVideo: false });
+      const uploaded = productId ? await uploadProductMedia(file, productId) : await uploadImage(file);
+      if (!uploaded?.url && !uploaded?.path) {
+        throw new Error("Upload succeeded but no URL was returned. Storage may not be configured.");
+      }
+      onChange({ target: { name, value: uploaded.url || uploaded.path } });
+      setUploadError("");
+    } catch (error) {
+      const message = error?.message || "Image upload failed.";
+      setUploadError(message);
+    } finally {
+      setIsUploading(false);
+      uploadingRef.current = false;
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  function handleRemove() {
+    onChange({ target: { name, value: "" } });
+    setUploadError("");
+  }
+
+  const borderClass = variant === "hover" ? "admin-card-image-upload-hover" : "admin-card-image-upload-primary";
+
+  return (
+    <div className={`admin-media-field ${borderClass}`}>
+      <div className="admin-card-image-header">
+        <span className="admin-card-image-label">{label}</span>
+        {helperText && <span className="admin-card-image-helper">{helperText}</span>}
+      </div>
+      <div className="admin-card-image-input-row">
+        <input
+          name={name}
+          placeholder="https://..."
+          value={value || ""}
+          onChange={onChange}
+        />
+        <label className="admin-upload-button">
+          <Upload size={14} />
+          {isUploading ? "Uploading..." : uploadBlocked ? "Save product first" : buttonLabel}
+          <input
+            ref={inputRef}
+            accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
+            disabled={isUploading || uploadBlocked}
+            hidden
+            type="file"
+            onChange={handleUpload}
+          />
+        </label>
+        {value && (
+          <button
+            className="text-action danger"
+            onClick={handleRemove}
+            type="button"
+            disabled={isUploading}
+          >
+            Remove
+          </button>
+        )}
+      </div>
+      {uploadError && <div className="message-panel error compact">{uploadError}</div>}
+      {isUploading && <div className="admin-upload-progress"><span>Uploading image...</span></div>}
+      {value && (
+        <div className="admin-media-preview">
+          <img alt="" src={value} />
+        </div>
+      )}
+    </div>
+  );
 }
 
 function MediaField({ label, name, value, onChange, productId, tenantSpecific = false }) {
@@ -632,8 +723,8 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
     benefits: editingProduct?.benefits || "",
     skinTypes: editingProduct?.skinTypes || "",
     concerns: editingProduct?.concerns || "",
-    image: editingProduct?.image || "",
-    hoverImage: editingProduct?.hoverImage || "",
+    image: editingProduct?.image || editingProduct?.primaryImage || "",
+    hoverImage: editingProduct?.hoverImage || editingProduct?.secondaryImage || "",
     productsPageImage: editingProduct?.productsPageImage || "",
     productsPageHoverImage: editingProduct?.productsPageHoverImage || "",
     galleryImages: normalizeGalleryImagesForForm(editingProduct),
@@ -1092,8 +1183,28 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
         )}
         {step === "media" && (
           <>
-            <MediaField label="Featured Image" name="image" productId={usesTenantDefinitions ? editingProduct?.id : undefined} tenantSpecific={usesTenantDefinitions} value={form.image} onChange={change} />
-            <MediaField label="Second / Hover Image" name="hoverImage" productId={usesTenantDefinitions ? editingProduct?.id : undefined} tenantSpecific={usesTenantDefinitions} value={form.hoverImage} onChange={change} />
+            <CardImageUpload
+              label="Primary product image"
+              helperText="Displayed by default on the product card"
+              buttonLabel="Upload primary image"
+              name="image"
+              productId={usesTenantDefinitions ? editingProduct?.id : undefined}
+              tenantSpecific={usesTenantDefinitions}
+              value={form.image}
+              onChange={change}
+              variant="primary"
+            />
+            <CardImageUpload
+              label="Hover product image"
+              helperText="Displayed when the customer hovers over the product card"
+              buttonLabel="Upload hover image"
+              name="hoverImage"
+              productId={usesTenantDefinitions ? editingProduct?.id : undefined}
+              tenantSpecific={usesTenantDefinitions}
+              value={form.hoverImage}
+              onChange={change}
+              variant="hover"
+            />
             <div className="admin-media-field">
               <label>Product video URL<input name="videoUrl" value={form.videoUrl} onChange={change} /></label>
               {usesTenantDefinitions && <label className="admin-upload-button"><Upload size={14} />{uploadingField === "videoUrl" ? `Uploading ${videoProgress}%` : editingProduct?.id ? "Upload MP4/WebM" : "Save product first"}<input accept="video/mp4,video/webm" disabled={!editingProduct?.id} hidden type="file" onChange={uploadVideo} /></label>}

@@ -24,3 +24,23 @@ test("product editing uses a reload-safe id route", () => {
   assert.match(app, /\/admin\\\/products\\\/\[\^\/\]\+\\\/edit/);
   assert.match(dashboard, /\/admin\/products\/\$\{encodeURIComponent\(product\.id\)\}\/edit/);
 });
+
+test("card image uploads use independent primary and hover controls", () => {
+  assert.match(dashboard, /function CardImageUpload/);
+  assert.match(dashboard, /buttonLabel="Upload primary image"/);
+  assert.match(dashboard, /buttonLabel="Upload hover image"/);
+  assert.match(dashboard, /name="image"/);
+  assert.match(dashboard, /name="hoverImage"/);
+});
+
+test("card image form bootstrap reads primary and secondary aliases", () => {
+  assert.match(dashboard, /image: editingProduct\?\.image \|\| editingProduct\?\.primaryImage/);
+  assert.match(dashboard, /hoverImage: editingProduct\?\.hoverImage \|\| editingProduct\?\.secondaryImage/);
+});
+
+test("tenant card image uploads require a saved product first", () => {
+  assert.match(dashboard, /tenantSpecific=\{usesTenantDefinitions\}/);
+  assert.match(dashboard, /uploadBlocked \? "Save product first"/);
+  assert.match(dashboard, /disabled=\{isUploading \|\| uploadBlocked\}/);
+  assert.match(dashboard, /validateProductMediaFile\(file, \{ allowVideo: false \}\)/);
+});

@@ -14,6 +14,7 @@ import { listTenantProductFieldValues } from "../productSchema/fieldValues.js";
 
 const router = Router();
 const placeholderImage = "/images/products/product-placeholder.svg";
+const emptyImage = "";
 
 function requireProductPermission(permission) {
   return (req, res, next) => {
@@ -28,11 +29,16 @@ function requireProductPermission(permission) {
 }
 
 function isRealImageUrl(value) {
-  return typeof value === "string" && value.trim() && value.trim() !== placeholderImage;
+  return typeof value === "string"
+    && value.trim()
+    && !value.trim().includes("/images/products/product-placeholder");
 }
 
 function preserveImageUrl(existingValue, incomingValue) {
-  return isRealImageUrl(incomingValue) ? incomingValue.trim() : existingValue || incomingValue || "";
+  if (incomingValue === null || incomingValue === "") return "";
+  if (isRealImageUrl(incomingValue)) return incomingValue.trim();
+  const existing = isRealImageUrl(existingValue) ? existingValue : "";
+  return existing || incomingValue || "";
 }
 
 function normalizeGalleryImages(product) {
@@ -99,15 +105,13 @@ function sizesFromVariants(variants, fallbackSizes = []) {
 }
 
 function normalizeProduct(product) {
-  const image = product.image || placeholderImage;
-  const hoverImage =
-    product.hoverImage ||
-    product.secondaryImage ||
-    product.gallery?.[1] ||
-    "";
+  const primarySource = product.image || product.primaryImage || product.primary_image || "";
+  const hoverSource = product.hoverImage || product.secondaryImage || product.secondary_image || "";
+  const image = isRealImageUrl(primarySource) ? primarySource.trim() : emptyImage;
+  const hoverImage = isRealImageUrl(hoverSource) ? hoverSource.trim() : emptyImage;
 
   const galleryImages = normalizeGalleryImages(product);
-  const variants = normalizeVariants({ ...product, image });
+  const variants = normalizeVariants({ ...product, image: image || placeholderImage });
 
   return {
     ...product,
@@ -182,10 +186,13 @@ function mergeProductUpdate(existingProduct, incomingProduct) {
   const merged = {
     ...existingProduct,
     ...incomingProduct,
-    image: preserveImageUrl(existingProduct.image, incomingProduct.image),
+    image: preserveImageUrl(
+      existingProduct.image || existingProduct.primaryImage || existingProduct.primary_image || "",
+      incomingProduct.image || incomingProduct.primaryImage || incomingProduct.primary_image || "",
+    ),
     hoverImage: preserveImageUrl(
-      existingProduct.hoverImage || existingProduct.secondaryImage,
-      incomingProduct.hoverImage || incomingProduct.secondaryImage,
+      existingProduct.hoverImage || existingProduct.secondaryImage || existingProduct.secondary_image || "",
+      incomingProduct.hoverImage || incomingProduct.secondaryImage || incomingProduct.secondary_image || "",
     ),
     updatedAt: new Date().toISOString(),
   };

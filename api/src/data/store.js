@@ -271,19 +271,22 @@ function sizesFromVariants(variants, fallbackSizes = []) {
   return variants.length ? [] : fallbackSizes;
 }
 
+function isRealUrl(value) {
+  return typeof value === "string" && value.trim() && !value.trim().includes("/images/products/product-placeholder");
+}
+
 function normalizeProduct(product, index = 0) {
-  const image = product.image || "/images/products/product-placeholder.svg";
+  const primarySource = product.image || product.primaryImage || product.primary_image || "";
+  const hoverSource = product.hoverImage || product.secondaryImage || product.secondary_image || "";
+  const image = isRealUrl(primarySource) ? primarySource.trim() : "";
+  const hoverImage = isRealUrl(hoverSource) ? hoverSource.trim() : "";
   const galleryImages = normalizeGalleryImages(product);
-  const variants = normalizeVariants({ ...product, image });
+  const variants = normalizeVariants({ ...product, image: image || "/images/products/product-placeholder.svg" });
   return {
     ...product,
     id: product.id || `product-${index}-${Date.now()}`,
     image,
-    hoverImage:
-      product.hoverImage ||
-      product.secondaryImage ||
-      product.gallery?.[1] ||
-      "",
+    hoverImage,
     variants,
     sizes: sizesFromVariants(variants, product.sizes || []),
     gallery_images: galleryImages,

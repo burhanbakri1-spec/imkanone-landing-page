@@ -25032,3 +25032,15 @@ html[dir="ltr"] .header-mega-panel.open,
 
 
 .dropshipping-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem}.dropshipping-metrics article,.dropshipping-settings,.dropshipping-empty{background:var(--card,#fff);border:1px solid rgba(128,128,128,.22);border-radius:14px;padding:1rem}.dropshipping-metrics span{display:block;text-transform:capitalize;color:#64748b;font-size:.78rem}.dropshipping-metrics strong{font-size:1.65rem}.dropshipping-table-wrap{overflow:auto;border-radius:12px;border:1px solid rgba(128,128,128,.22)}.dropshipping-table{width:100%;border-collapse:collapse;font-size:.82rem}.dropshipping-table th,.dropshipping-table td{padding:.7rem;text-align:start;border-bottom:1px solid rgba(128,128,128,.16);max-width:220px;overflow:hidden;text-overflow:ellipsis}.dropshipping-table th{text-transform:capitalize;background:rgba(128,128,128,.08)}.dropshipping-table button,.dropshipping-settings button{margin:.15rem;padding:.45rem .7rem;border:0;border-radius:8px;background:#0f766e;color:white}.dropshipping-settings{display:grid;gap:1rem;max-width:580px}.dropshipping-settings label{display:grid;gap:.35rem}.dropshipping-settings input{padding:.65rem;border:1px solid #cbd5e1;border-radius:8px}
+
+
+/* Card image upload controls - primary and hover variants */
+.admin-card-image-upload-primary { border: 2px solid var(--admin-accent, #1eabd2); border-radius: 12px; padding: 16px; background: rgba(30, 171, 210, 0.04); margin-bottom: 16px; }
+.admin-card-image-upload-hover { border: 2px dashed var(--admin-muted, #667785); border-radius: 12px; padding: 16px; background: rgba(102, 119, 133, 0.04); margin-bottom: 16px; }
+.admin-card-image-header { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.admin-card-image-label { font-weight: 600; font-size: 14px; color: var(--admin-text, #111827); }
+.admin-card-image-helper { font-size: 12px; color: var(--admin-muted, #667785); }
+.admin-card-image-input-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.admin-card-image-input-row input[type="text"],.admin-card-image-input-row input:not([type="file"]) { flex: 1; min-width: 200px; }
+.admin-upload-progress { display: flex; align-items: center; gap: 8px; padding: 8px 12px; margin-top: 8px; border-radius: 8px; background: var(--admin-primary-soft, #e8f7fb); color: var(--admin-primary, #0b2e4e); font-size: 13px; font-weight: 500; }
+.message-panel.error.compact { padding: 8px 12px; margin-top: 8px; font-size: 13px; }
