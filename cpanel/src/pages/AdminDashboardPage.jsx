@@ -11,7 +11,7 @@ import {
 } from "../utils/adminCategories.js";
 import { tenantStorageKey } from "../utils/companyContext.js";
 import { parseRequiredStock, preserveLegacySingleVariantStock } from "../utils/productStock.js";
-import { isCompanyAdmin, isTenantOperator, tenantAccessNotice } from "../utils/roles.js";
+import { canAccessAdminPage, isCompanyAdmin, isStaffRole, isTenantOperator, tenantAccessNotice } from "../utils/roles.js";
 import { hasPermission } from "../data/permissions.js";
 
 const storageKeys = {
@@ -1615,7 +1615,7 @@ function AdminDashboardPage({
   const customers = uniqueCustomersFromOrders(orders);
   const [title, subtitle] = pageMeta[activePage] || pageMeta.admin;
 
-  if (!isTenantOperator(role)) {
+  if (!isAdminPortalRole(role)) {
     return (
       <AdminLayout
         activePage={activePage}
@@ -1634,6 +1634,29 @@ function AdminDashboardPage({
         title="Access denied"
       >
         <EmptyState title="Access denied" description="This portal is for admin and staff only." />
+      </AdminLayout>
+    );
+  }
+
+  if (isStaffRole(role) && !canAccessAdminPage(currentUser, activePage)) {
+    return (
+      <AdminLayout
+        activePage={activePage}
+        company={company}
+        currentUser={currentUser}
+        isDarkMode={isDarkMode}
+        language={language}
+        modules={modules}
+        onLanguageChange={onLanguageChange}
+        onLogout={onLogout}
+        onNavigate={onNavigate}
+        onReturnToPlatform={onReturnToPlatform}
+        onSwitchCompany={onSwitchCompany}
+        onToggleDarkMode={onToggleDarkMode}
+        subtitle={subtitle}
+        title={title}
+      >
+        <EmptyState title="Access denied" description="You do not have permission to access this page." />
       </AdminLayout>
     );
   }

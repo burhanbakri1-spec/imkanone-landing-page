@@ -24,6 +24,7 @@ import {
   isCompanyAdmin,
   isPlatformAdmin,
   isTenantOperator,
+  isStaffRole,
   landingPageForRole,
   resolveAdminPage,
   tenantAccessNotice,
@@ -616,4 +617,49 @@ test("super_admin lands on admin-platform-companies", () => {
 test("null user falls back to role-based landing", () => {
   const result = landingPage(null);
   assert.equal(result, "admin-login");
+});
+
+// ── AdminDashboardPage guard logic tests ──────────────────────────────────
+
+test("isStaffRole returns true for employee, staff, and manager but false for company_admin, admin, and super_admin", () => {
+  assert.equal(isStaffRole("employee"), true);
+  assert.equal(isStaffRole("staff"), true);
+  assert.equal(isStaffRole("manager"), true);
+  assert.equal(isStaffRole("company_admin"), false);
+  assert.equal(isStaffRole("admin"), false);
+  assert.equal(isStaffRole("super_admin"), false);
+});
+
+test("employee with products.view can access admin-products through canAccessAdminPage", () => {
+  const user = { role: "employee", permissions: ["products.view"] };
+  assert.equal(isStaffRole(user.role), true);
+  assert.equal(canAccessAdminPage(user, "admin-products"), true);
+});
+
+test("employee without products.view is denied from admin-products through canAccessAdminPage", () => {
+  const user = { role: "employee", permissions: [] };
+  assert.equal(isStaffRole(user.role), true);
+  assert.equal(canAccessAdminPage(user, "admin-products"), false);
+});
+
+test("employee without orders permission is denied from admin-orders through canAccessAdminPage", () => {
+  const user = { role: "employee", permissions: ["products.view"] };
+  assert.equal(isStaffRole(user.role), true);
+  assert.equal(canAccessAdminPage(user, "admin-orders"), false);
+});
+
+test("company_admin, admin, and manager bypass canAccessAdminPage permission checks", () => {
+  const productUser = { role: "company_admin" };
+  assert.equal(isStaffRole(productUser.role), false);
+  assert.equal(canAccessAdminPage(productUser, "admin-products"), true);
+  assert.equal(canAccessAdminPage(productUser, "admin-orders"), true);
+  assert.equal(canAccessAdminPage(productUser, "admin-settings"), true);
+
+  const adminUser = { role: "admin" };
+  assert.equal(isStaffRole(adminUser.role), false);
+  assert.equal(canAccessAdminPage(adminUser, "admin-products"), true);
+
+  const managerUser = { role: "manager" };
+  assert.equal(isStaffRole(managerUser.role), true);
+  assert.equal(canAccessAdminPage(managerUser, "admin-products"), true);
 });
