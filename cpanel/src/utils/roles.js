@@ -18,7 +18,7 @@ export function isTenantOperator(role) {
 }
 
 export function isAdminPortalRole(role) {
-  return isPlatformAdmin(role) || isTenantOperator(role);
+  return isPlatformAdmin(role) || isTenantOperator(role) || isStaffRole(role);
 }
 
 export function isPlatformPage(page) {
@@ -27,17 +27,76 @@ export function isPlatformPage(page) {
 
 export function landingPageForRole(role) {
   if (isPlatformAdmin(role)) return "admin-platform-companies";
-  if (isTenantOperator(role)) return "admin";
+  if (isAdminPortalRole(role)) return "admin";
   return "admin-login";
 }
 
-export function canAccessAdminPage(role, page) {
-  if (page === "admin-login") return !isAdminPortalRole(role);
-  if (isPlatformPage(page)) return isPlatformAdmin(role);
-  return isTenantOperator(role);
+const PAGE_PERMISSIONS = {
+  admin: ["dashboard.view"],
+  "admin-products": ["products.view"],
+  "admin-products-new": ["products.create", "products.manage"],
+  "admin-products-edit": ["products.update", "products.manage"],
+  "admin-categories": null,
+  "admin-categories-new": null,
+  "admin-brands": null,
+  "admin-brands-new": null,
+  "admin-vlogs": null,
+  "admin-vlogs-new": null,
+  "admin-store-locator": null,
+  "admin-store-locator-new": null,
+  "admin-website-media": ["website_media.manage"],
+  "admin-website-texts": null,
+  "admin-orders": ["orders.view"],
+  "admin-reviews": null,
+  "admin-inventory": null,
+  "admin-customers": ["customers.view"],
+  "admin-staff": ["employees.view"],
+  "admin-staff-new": ["employees.view"],
+  "admin-employees": ["employees.view"],
+  "admin-settings": null,
+  "admin-product-settings": null,
+  "admin-invoices": null,
+  "admin-delivery": null,
+  "admin-reports": null,
+  "admin-activity-log": null,
+  "admin-unit-creator": null,
+  "admin-dropshipping": ["dropshipping.reports.read"],
+  "admin-dropshipping-marketers": ["dropshipping.marketers.read"],
+  "admin-dropshipping-products": ["dropshipping.products.read"],
+  "admin-dropshipping-orders": ["dropshipping.orders.read"],
+  "admin-dropshipping-earnings": ["dropshipping.earnings.read"],
+  "admin-dropshipping-withdrawals": ["dropshipping.withdrawals.read"],
+  "admin-dropshipping-reports": ["dropshipping.reports.read"],
+  "admin-dropshipping-settings": ["dropshipping.settings.manage"],
+};
+
+function roleFromUser(user) {
+  return user && typeof user === "object" ? user.role : user;
 }
 
-export function resolveAdminPage(pathname, role, pagePaths) {
+function permissionsFromUser(user) {
+  return user && typeof user === "object" ? user.permissions || [] : [];
+}
+
+function userHasPagePermission(user, page) {
+  const role = roleFromUser(user);
+  if (isTenantOperator(role)) return true;
+  if (!isStaffRole(role)) return false;
+  const required = PAGE_PERMISSIONS[page];
+  if (!required) return false;
+  const perms = permissionsFromUser(user);
+  return required.some((p) => perms.includes(p));
+}
+
+export function canAccessAdminPage(user, page) {
+  const role = roleFromUser(user);
+  if (page === "admin-login") return !isAdminPortalRole(role);
+  if (isPlatformPage(page)) return isPlatformAdmin(role);
+  return userHasPagePermission(user, page);
+}
+
+export function resolveAdminPage(pathname, user, pagePaths) {
+  const role = roleFromUser(user);
   if (pathname === "/" || pathname === "/admin" || pathname === adminDashboardPath) {
     return landingPageForRole(role);
   }
@@ -48,9 +107,11 @@ export function resolveAdminPage(pathname, role, pagePaths) {
     return isAdminPortalRole(role) ? landingPageForRole(role) : match[0];
   }
 
-  return canAccessAdminPage(role, match[0])
-    ? match[0]
-    : landingPageForRole(role);
+  return canAccessAdminPage(user, match[0]) ? match[0] : landingPageForRole(role);
+}
+
+export function filterAccessiblePages(user, pageKeys) {
+  return pageKeys.filter((page) => canAccessAdminPage(user, page));
 }
 
 export function tenantAccessNotice(role) {

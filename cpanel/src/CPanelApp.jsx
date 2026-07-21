@@ -65,6 +65,7 @@ import {
   fetchAllWebsiteMedia,
   saveWebsiteMedia as saveWebsiteMediaApi,
 } from "./utils/websiteMediaApi.js";
+import { isValidCpanelUser, landingPage, resolvePage } from "./utils/cpanelAccess.js";
 import {
   canAccessAdminPage,
   adminDashboardPath,
@@ -74,6 +75,7 @@ import {
   landingPageForRole,
   resolveAdminPage,
 } from "./utils/roles.js";
+
 import "./styles/global.css";
 
 const pagePaths = {
@@ -82,6 +84,7 @@ const pagePaths = {
   "admin-platform-companies": "/admin/platform/companies",
   "admin-products": "/admin/products",
   "admin-products-new": "/admin/products/new",
+  "admin-products-edit": "/admin/products/new",
   "admin-categories": "/admin/categories",
   "admin-categories-new": "/admin/categories/new",
   "admin-brands": "/admin/brands",
@@ -114,26 +117,12 @@ const pagePaths = {
   "admin-dropshipping-withdrawals": "/admin/dropshipping/withdrawals",
   "admin-dropshipping-reports": "/admin/dropshipping/reports",
   "admin-dropshipping-settings": "/admin/dropshipping/settings",
+  "admin-no-access": "/admin/no-access",
 };
 
 const adminPageKeys = Object.keys(pagePaths).filter((page) => page !== "admin-login");
 const staffPageKeys = ["admin-staff", "admin-staff-new", "admin-employees"];
 const dropshippingPageKeys = Object.keys(pagePaths).filter((key) => key.startsWith("admin-dropshipping"));
-
-function isAdminRole(role) {
-  return isAdminPortalRole(role);
-}
-
-function landingPage(user) {
-  return landingPageForRole(user?.role);
-}
-
-function resolvePage(pathname, user) {
-  if (/^\/admin\/products\/[^/]+\/edit$/.test(pathname)) {
-    return canAccessAdminPage(user?.role, "admin-products-new") ? "admin-products-new" : landingPage(user);
-  }
-  return resolveAdminPage(pathname, user?.role, pagePaths);
-}
 
 function CPanelApp() {
   const storedUser = React.useMemo(() => getCurrentUser(), []);
@@ -169,18 +158,17 @@ function CPanelApp() {
   const t = React.useMemo(() => createTranslator(language), [language]);
 
   function navigate(page, options = {}) {
-    const authorizationRole = Object.prototype.hasOwnProperty.call(options, "role")
-      ? options.role
-      : currentUser?.role;
+    const authorizationUser = Object.prototype.hasOwnProperty.call(options, "role")
+      ? (options.role ? { role: options.role } : null)
+      : currentUser;
     const navigationCompany = Object.prototype.hasOwnProperty.call(options, "company") ? options.company : company;
     const navigationModules = options.modules || modules;
-    const roleAllowed = pagePaths[page] && canAccessAdminPage(authorizationRole, page);
+    const roleAllowed = pagePaths[page] && canAccessAdminPage(authorizationUser, page);
     const moduleAllowed = !navigationCompany || page === "admin-platform-companies" || page === "admin-login"
       || moduleAllowsPage(navigationModules, page);
-    const firstModulePage = pageKeyForModule(navigationModules[0]) || "admin";
     const safePage = roleAllowed && moduleAllowed
       ? page
-      : navigationCompany ? firstModulePage : landingPage({ role: authorizationRole });
+      : landingPage(authorizationUser || {}, navigationModules);
     if (!options.preserveStatusMessage) setAdminMessage("");
     if (!options.preserveLoginMessage) setAdminLoginMessage("");
     setActivePage(safePage);
@@ -216,7 +204,7 @@ function CPanelApp() {
 
   React.useEffect(() => {
     const canonicalPath = pagePaths[activePage];
-    const isProductEditPath = activePage === "admin-products-new" && /^\/admin\/products\/[^/]+\/edit$/.test(window.location.pathname);
+    const isProductEditPath = ["admin-products-new", "admin-products-edit"].includes(activePage) && /^\/admin\/products\/[^/]+\/edit$/.test(window.location.pathname);
     if (canonicalPath && canonicalPath !== window.location.pathname && !isProductEditPath) {
       window.history.replaceState({}, "", canonicalPath);
     }
@@ -267,7 +255,7 @@ function CPanelApp() {
   React.useEffect(() => {
     fetchCurrentUser()
       .then((user) => {
-        if (user && !isAdminRole(user.role)) {
+        if (user && !isValidCpanelUser(user)) {
           persistCurrentUser(null);
           setUser(null);
           setAdminLoginMessage("Access denied. An administrator account is required.");
@@ -284,7 +272,7 @@ function CPanelApp() {
   }, []);
 
   React.useEffect(() => {
-    if (currentUser && !isAdminRole(currentUser.role)) {
+    if (currentUser && !isValidCpanelUser(currentUser)) {
       persistCurrentUser(null);
       setUser(null);
       navigate("admin-login", { preserveLoginMessage: true, replace: true });
@@ -294,16 +282,21 @@ function CPanelApp() {
       setAdminLoginMessage(t("adminLogin.loginRequired"));
       navigate("admin-login", { preserveLoginMessage: true, replace: true });
     } else if (currentUser && activePage === "admin-login") {
-      navigate(landingPage(currentUser), { replace: true });
+      navigate(landingPage(currentUser, modules), { replace: true });
     }
-  }, [activePage, currentUser, t]);
+  }, [activePage, currentUser, modules, t]);
 
   React.useEffect(() => {
-    if (!company || !currentUser || activePage === "admin-login") return;
-    if (!moduleAllowsPage(modules, activePage)) {
-      navigate(pageKeyForModule(modules[0]) || "admin", { replace: true });
+    if (!company || !currentUser || activePage === "admin-login" || activePage === "admin-no-access") return;
+    if (currentUser.role === "manager") return;
+    if (["company_admin", "admin"].includes(currentUser.role)) return;
+    const allowedByModule = !modules.length || moduleAllowsPage(modules, activePage);
+    const allowedByPermission = canAccessAdminPage(currentUser, activePage);
+    if (!allowedByModule || !allowedByPermission) {
+      const target = landingPage(currentUser, modules);
+      if (target !== activePage) navigate(target, { replace: true });
     }
-  }, [activePage, company?.id, modules.length]);
+  }, [activePage, company?.id, currentUser, modules, modules.length]);
 
   React.useEffect(() => {
     localStorage.setItem("epChemicalLanguage", language);
@@ -316,14 +309,14 @@ function CPanelApp() {
   }, [isDarkMode]);
 
   React.useEffect(() => {
-    if (!isAdminRole(currentUser?.role) || isPlatformAdmin(currentUser.role) || !company) return;
-    if (moduleAllowsPage(modules, "admin-products")) void refreshProducts();
-    if (moduleAllowsPage(modules, "admin-categories")) void refreshCategories();
-    if (moduleAllowsPage(modules, "admin-brands")) void refreshBrands();
-    if (moduleAllowsPage(modules, "admin-orders")) void refreshOrders(currentUser);
-    if (moduleAllowsPage(modules, "admin-staff")) void refreshEmployees(currentUser);
-    if (moduleAllowsPage(modules, "admin-reviews")) void refreshAdminContent(currentUser);
-    if (moduleAllowsPage(modules, "admin-website-media")) void refreshWebsiteMedia(currentUser);
+    if (!isAdminPortalRole(currentUser?.role) || isPlatformAdmin(currentUser.role) || !company) return;
+    if (moduleAllowsPage(modules, "admin-products") && canAccessAdminPage(currentUser, "admin-products")) void refreshProducts();
+    if (moduleAllowsPage(modules, "admin-categories") && canAccessAdminPage(currentUser, "admin-categories")) void refreshCategories();
+    if (moduleAllowsPage(modules, "admin-brands") && canAccessAdminPage(currentUser, "admin-brands")) void refreshBrands();
+    if (moduleAllowsPage(modules, "admin-orders") && canAccessAdminPage(currentUser, "admin-orders")) void refreshOrders(currentUser);
+    if (moduleAllowsPage(modules, "admin-staff") && canAccessAdminPage(currentUser, "admin-staff")) void refreshEmployees(currentUser);
+    if (moduleAllowsPage(modules, "admin-reviews") && canAccessAdminPage(currentUser, "admin-reviews")) void refreshAdminContent(currentUser);
+    if (moduleAllowsPage(modules, "admin-website-media") && canAccessAdminPage(currentUser, "admin-website-media")) void refreshWebsiteMedia(currentUser);
   }, [currentUser, company?.id]);
 
   async function refreshProducts() {
@@ -433,7 +426,7 @@ function CPanelApp() {
   async function handleAdminLogin(credentials) {
     try {
       const session = await loginUser(credentials.email, credentials.password);
-      if (!isAdminRole(session.user?.role)) {
+      if (!isValidCpanelUser(session.user)) {
         await logoutUser().catch(() => null);
         persistCurrentUser(null);
         setUser(null);
@@ -442,7 +435,7 @@ function CPanelApp() {
       }
       setUser(session.user);
       setCompany(session.activeCompany || null);
-      navigate(landingPage(session.user), { role: session.user.role });
+      navigate(landingPage(session.user, session.activeCompany?.modules), { role: session.user.role });
     } catch (error) {
       setAdminLoginMessage(error.message || t("auth.loginFailed"));
     }
@@ -759,7 +752,17 @@ function CPanelApp() {
           <AdminLoginPage company={company} message={adminLoginMessage} onLogin={handleAdminLogin} t={t} />
         )}
 
+        {activePage === "admin-no-access" && (
+          <AdminLayout activePage={activePage} company={company} currentUser={currentUser} isDarkMode={isDarkMode} language={language} modules={modules} onLanguageChange={() => setLanguage((value) => (value === "en" ? "ar" : "en"))} onLogout={handleLogout} onNavigate={navigate} onReturnToPlatform={handleReturnToPlatform} onSwitchCompany={handleSwitchCompany} onToggleDarkMode={() => setIsDarkMode((value) => !value)} title="No Access" subtitle="You do not have permission to access any admin section.">
+            <div className="admin-empty-state">
+              <strong>No Access</strong>
+              <span>Your account does not have permission to access any admin section. Contact your administrator to request the appropriate permissions.</span>
+            </div>
+          </AdminLayout>
+        )}
+
         {adminPageKeys.includes(activePage) &&
+          activePage !== "admin-no-access" &&
           activePage !== "admin-platform-companies" &&
           !dropshippingPageKeys.includes(activePage) &&
           !featurePageKeys.includes(activePage) &&

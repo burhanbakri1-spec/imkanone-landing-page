@@ -29,6 +29,12 @@ const users = [
   ["icare-employee", "employee@icare.test", "employee", "icare"],
   ["eb-employee", "employee@eb.test", "employee", "eb-chemical"],
   ["super-user", "super@test.local", "super_admin", "eb-chemical"],
+  ["icare-product-employee", "product@icare.test", "employee", "icare"],
+  ["icare-view-employee", "view@icare.test", "employee", "icare"],
+  ["icare-create-employee", "create@icare.test", "employee", "icare"],
+  ["icare-update-employee", "update@icare.test", "employee", "icare"],
+  ["icare-media-employee", "media@icare.test", "employee", "icare"],
+  ["icare-manager-user", "manager@icare.test", "manager", "icare"],
 ].map(([id, email, role, companyId]) => ({
   id,
   name: id,
@@ -52,13 +58,25 @@ const memberships = [
   ["icare:icare-customer", "icare", "icare-customer", "customer", "active"],
   ["icare:icare-employee", "icare", "icare-employee", "employee", "active"],
   ["eb-chemical:eb-employee", "eb-chemical", "eb-employee", "employee", "active"],
+  ["icare:icare-product-employee", "icare", "icare-product-employee", "employee", "active"],
+  ["icare:icare-view-employee", "icare", "icare-view-employee", "employee", "active"],
+  ["icare:icare-create-employee", "icare", "icare-create-employee", "employee", "active"],
+  ["icare:icare-update-employee", "icare", "icare-update-employee", "employee", "active"],
+  ["icare:icare-media-employee", "icare", "icare-media-employee", "employee", "active"],
+  ["icare:icare-manager-user", "icare", "icare-manager-user", "manager", "active"],
 ].map(([id, companyId, userId, role, status]) => ({
   id,
   companyId,
   userId,
   role,
   status,
-  permissions: [],
+  permissions: ({
+    "icare-product-employee": ["products.view", "products.create", "products.update", "products.delete", "product_media.manage"],
+    "icare-view-employee": ["products.view"],
+    "icare-create-employee": ["products.create"],
+    "icare-update-employee": ["products.update"],
+    "icare-media-employee": ["products.view", "product_media.manage"],
+  })[userId] || [],
   createdAt: now,
   updatedAt: now,
 }));
@@ -113,6 +131,9 @@ process.env.SUPABASE_URL = "";
 process.env.SUPABASE_SERVICE_ROLE_KEY = "";
 process.env.JWT_SECRET = "focused-auth-test-secret";
 process.env.NODE_ENV = "test";
+const uploadTestDir = path.join(dataStoreDir, "uploads");
+fs.mkdirSync(uploadTestDir, { recursive: true });
+process.env.UPLOADS_DIR = uploadTestDir;
 
 const { app } = await import("../src/server.js");
 const {
@@ -282,7 +303,10 @@ test("membership-aware authentication and authenticated tenant context", async (
 
     const employeesResult = await request("/employees", { token: icareSession.token });
     assert.equal(employeesResult.response.status, 200);
-    assert.deepEqual(employeesResult.body.map((employee) => employee.id), ["icare-employee"]);
+    assert.deepEqual(
+      employeesResult.body.map((employee) => employee.id).sort(),
+      ["icare-create-employee", "icare-employee", "icare-media-employee", "icare-product-employee", "icare-update-employee", "icare-view-employee"],
+    );
     assert.equal(employeesResult.body.some((employee) => employee.id === "eb-employee"), false);
 
     const sessionsResult = await request("/work-sessions/employees", {
@@ -732,6 +756,325 @@ test("temporary password support for company member creation", async (t) => {
       body: { email: "admin@eb.test", password },
     });
     assert.equal(loginResult.response.status, 200);
+  });
+});
+
+test("employee product permission enforcement", async (t) => {
+  const productEmp = await login("product@icare.test");
+  const viewEmp = await login("view@icare.test");
+  const createEmp = await login("create@icare.test");
+  const updateEmp = await login("update@icare.test");
+  const mediaEmp = await login("media@icare.test");
+  const managerEmp = await login("manager@icare.test");
+  const noPermEmp = await login("employee@icare.test");
+
+  assert.equal(productEmp.response.status, 200, "product employee login ok");
+  assert.equal(viewEmp.response.status, 200, "view employee login ok");
+  assert.equal(createEmp.response.status, 200, "create employee login ok");
+  assert.equal(updateEmp.response.status, 200, "update employee login ok");
+  assert.equal(mediaEmp.response.status, 200, "media employee login ok");
+  assert.equal(managerEmp.response.status, 200, "manager login ok");
+  assert.equal(noPermEmp.response.status, 200, "no-permission employee login ok");
+
+  const icareCompanyAdmin = await login("admin@icare.com");
+
+  await t.test("product view permission allows GET products", async () => {
+    const result = await request("/products", { token: viewEmp.body.token });
+    assert.equal(result.response.status, 200);
+  });
+
+  await t.test("missing view permission returns 403 on GET products", async () => {
+    const result = await request("/products", { token: noPermEmp.body.token });
+    assert.equal(result.response.status, 403);
+    assert.equal(result.body.message, "Product view permission required.");
+  });
+
+  await t.test("view-only employee cannot create products", async () => {
+    const result = await request("/products", {
+      token: viewEmp.body.token,
+      method: "POST",
+      body: { name: { en: "Test" } },
+    });
+    assert.equal(result.response.status, 403);
+    assert.equal(result.body.message, "Access denied.");
+  });
+
+  await t.test("view-only employee cannot update products", async () => {
+    const result = await request("/products/icare-product-1", {
+      token: viewEmp.body.token,
+      method: "PUT",
+      body: { name: { en: "Updated" } },
+    });
+    assert.equal(result.response.status, 403);
+    assert.equal(result.body.message, "Access denied.");
+  });
+
+  await t.test("view-only employee cannot delete products", async () => {
+    const result = await request("/products/icare-product-1", {
+      token: viewEmp.body.token,
+      method: "DELETE",
+    });
+    assert.equal(result.response.status, 403);
+    assert.equal(result.body.message, "Access denied.");
+  });
+
+  let uploadedMediaPath = "";
+
+  await t.test("unauthorized employee receives 403 on product media upload", async () => {
+    const result = await request("/uploads/products/icare-product-1", {
+      token: viewEmp.body.token,
+      method: "POST",
+    });
+    assert.equal(result.response.status, 403, "must be exactly 403, not 400");
+  });
+
+  await t.test("authorized employee can upload product media", async () => {
+    const boundary = "----TestBoundary" + Date.now();
+    const header = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="test.jpg"\r\nContent-Type: image/jpeg\r\n\r\n`;
+    const footer = `\r\n--${boundary}--\r\n`;
+    const bodyBuffer = Buffer.concat([Buffer.from(header), Buffer.alloc(200, 0x42), Buffer.from(footer)]);
+    const result = await fetch(`${baseUrl}/uploads/products/icare-product-1`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${mediaEmp.body.token}`,
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+      },
+      body: bodyBuffer,
+    });
+    assert.equal(result.status, 201, "upload succeeds with 201");
+    const json = await result.json();
+    assert.ok(json.path, "response includes media path");
+    assert.ok(json.path.startsWith("/uploads/icare/products/icare-product-1/"), "media path is product-scoped");
+    uploadedMediaPath = json.path;
+  });
+
+  await t.test("unauthorized employee receives exactly HTTP 403 on product media deletion", async () => {
+    assert.ok(uploadedMediaPath, "uploadedMediaPath must be set from the upload test");
+    const result = await request("/uploads/products/icare-product-1", {
+      token: viewEmp.body.token,
+      method: "DELETE",
+      body: { path: uploadedMediaPath },
+    });
+    assert.equal(result.response.status, 403, "must be exactly 403");
+  });
+
+  await t.test("authorized employee can delete uploaded product media using the exact returned path", async () => {
+    assert.ok(uploadedMediaPath, "uploadedMediaPath must be set from the upload test");
+    const result = await request("/uploads/products/icare-product-1", {
+      token: mediaEmp.body.token,
+      method: "DELETE",
+      body: { path: uploadedMediaPath },
+    });
+    assert.equal(result.response.status, 204, "deletion succeeds with 204");
+    const relativePath = uploadedMediaPath.replace("/uploads/", "");
+    const resolved = path.resolve(uploadTestDir, ...relativePath.split("/"));
+    assert.equal(fs.existsSync(resolved), false, "uploaded file must no longer exist on disk");
+  });
+
+  await t.test("create-only employee cannot update", async () => {
+    const result = await request("/products/icare-product-1", {
+      token: createEmp.body.token,
+      method: "PUT",
+      body: { name: { en: "Updated" } },
+    });
+    assert.equal(result.response.status, 403);
+    assert.equal(result.body.message, "Access denied.");
+  });
+
+  await t.test("create-only employee cannot delete", async () => {
+    const result = await request("/products/icare-product-1", {
+      token: createEmp.body.token,
+      method: "DELETE",
+    });
+    assert.equal(result.response.status, 403);
+    assert.equal(result.body.message, "Access denied.");
+  });
+
+  await t.test("update-only employee cannot create", async () => {
+    const result = await request("/products", {
+      token: updateEmp.body.token,
+      method: "POST",
+      body: { name: { en: "Test" } },
+    });
+    assert.equal(result.response.status, 403);
+    assert.equal(result.body.message, "Access denied.");
+  });
+
+  await t.test("update-only employee cannot delete", async () => {
+    const result = await request("/products/icare-product-1", {
+      token: updateEmp.body.token,
+      method: "DELETE",
+    });
+    assert.equal(result.response.status, 403);
+    assert.equal(result.body.message, "Access denied.");
+  });
+
+  await t.test("product media permission is independently enforced", async () => {
+    const result = await request("/uploads", {
+      token: mediaEmp.body.token,
+      method: "POST",
+    });
+    assert.ok(result.response.status === 403 || result.response.status === 400, "uploads rejects or expects multipart");
+  });
+
+  await t.test("employee without product permissions cannot access orders, customers, employees, settings, reports, memberships, or platform APIs", async () => {
+    const token = noPermEmp.body.token;
+    const restricted = [
+      "/orders",
+      "/employees",
+      "/admin/customers",
+      "/admin/reports",
+      "/admin/activity-log",
+      "/admin/export-store",
+      "/admin/delivery-zones",
+      "/admin/invoices",
+    ];
+    for (const path of restricted) {
+      const result = await request(path, { token });
+      assert.equal(result.response.status, 403, `${path} should be 403 for no-permission employee`);
+    }
+  });
+
+  await t.test("product-only employee cannot access non-product admin pages", async () => {
+    const token = viewEmp.body.token;
+    const restricted = [
+      "/orders",
+      "/employees",
+      "/admin/customers",
+      "/admin/reports",
+      "/admin/export-store",
+      "/admin/delivery-zones",
+    ];
+    for (const path of restricted) {
+      const result = await request(path, { token });
+      assert.equal(result.response.status, 403, `${path} should be 403 for product-only employee`);
+    }
+  });
+
+  await t.test("every product operation remains restricted to the authenticated employee's company", async () => {
+    const token = productEmp.body.token;
+    const productResult = await request("/products", { token });
+    assert.equal(productResult.response.status, 200);
+    assert.equal(productResult.body.every((p) => p.id && !p.id.startsWith("eb-")), true, "only iCare products returned");
+  });
+
+  await t.test("manager retains full product access without permission check", async () => {
+    const token = managerEmp.body.token;
+    const getResult = await request("/products", { token });
+    assert.equal(getResult.response.status, 200, "manager can list products");
+
+    const postResult = await request("/products", {
+      token, method: "POST",
+      body: { id: "manager-test-product", name: { en: "Manager Product" } },
+    });
+    assert.equal(postResult.response.status, 201, "manager can create products");
+
+    const putResult = await request("/products/icare-product-1", {
+      token, method: "PUT",
+      body: { name: { en: "Updated By Manager" } },
+    });
+    assert.equal(putResult.response.status, 200, "manager can update products");
+
+    const delResult = await request("/products/manager-test-product", {
+      token, method: "DELETE",
+    });
+    assert.equal(delResult.response.status, 204, "manager can delete products");
+  });
+
+  await t.test("company_admin retains full product access without permission check", async () => {
+    const token = icareCompanyAdmin.body.token;
+    const getResult = await request("/products", { token });
+    assert.equal(getResult.response.status, 200);
+    const postResult = await request("/products", {
+      token, method: "POST",
+      body: { id: "admin-test-product", name: { en: "Admin Product" } },
+    });
+    assert.equal(postResult.response.status, 201);
+    const delResult = await request("/products/admin-test-product", { token, method: "DELETE" });
+    assert.equal(delResult.response.status, 204);
+  });
+
+  await t.test("iCare employee cannot update EB Chemical product", async () => {
+    const result = await request("/products/eb-product", {
+      token: productEmp.body.token,
+      method: "PUT",
+      body: { name: { en: "Hacked" } },
+    });
+    assert.ok(result.response.status === 403 || result.response.status === 404, "cross-tenant update blocked");
+  });
+
+  await t.test("iCare employee cannot delete EB Chemical product", async () => {
+    const result = await request("/products/eb-product", {
+      token: productEmp.body.token,
+      method: "DELETE",
+    });
+    assert.ok(result.response.status === 403 || result.response.status === 404, "cross-tenant delete blocked");
+  });
+
+  await t.test("companyId in body cannot change tenant context for employee product create", async () => {
+    const result = await request("/products", {
+      token: createEmp.body.token,
+      method: "POST",
+      body: { id: "cross-tenant-test", name: { en: "Cross Tenant" }, companyId: "eb-chemical", tenantId: "eb-chemical", company_id: "eb-chemical", tenant_id: "eb-chemical" },
+    });
+    assert.equal(result.response.status, 201, "body companyId is ignored; product created in employee's company");
+    assert.equal(result.body.id, "cross-tenant-test", "product id matches");
+
+    const icareLookup = await request("/products", { token: icareCompanyAdmin.body.token });
+    assert.equal(icareLookup.response.status, 200);
+    assert.ok(icareLookup.body.some((p) => p.id === "cross-tenant-test"), "product exists in iCare");
+
+    const ebLookup = await request("/products", { headers: { "X-Company-Id": "eb-chemical" } });
+    assert.equal(ebLookup.response.status, 200);
+    assert.equal(ebLookup.body.some((p) => p.id === "cross-tenant-test"), false, "product is absent from EB Chemical");
+  });
+
+  await t.test("login response includes activeMembership with status, companyId, role, and permissions", async () => {
+    const emp = productEmp.body;
+    assert.ok(emp.activeMembership, "login response has activeMembership");
+    assert.equal(emp.activeMembership.status, "active");
+    assert.equal(emp.activeMembership.companyId, "icare");
+    assert.equal(emp.activeMembership.role, "employee");
+    assert.deepEqual(emp.activeMembership.permissions, ["products.view", "products.create", "products.update", "products.delete", "product_media.manage"]);
+    assert.ok(emp.activeCompany, "login response has activeCompany");
+    assert.equal(emp.activeCompany.id, "icare");
+  });
+
+  await t.test("/auth/me returns activeMembership with status, companyId, role, and permissions for employee", async () => {
+    const result = await request("/auth/me", { token: productEmp.body.token });
+    assert.equal(result.response.status, 200);
+    assert.ok(result.body.activeMembership, "/auth/me has activeMembership");
+    assert.equal(result.body.activeMembership.status, "active");
+    assert.equal(result.body.activeMembership.companyId, "icare");
+    assert.equal(result.body.activeMembership.role, "employee");
+    assert.ok(Array.isArray(result.body.activeMembership.permissions), "permissions is an array");
+    assert.ok(result.body.activeCompany, "/auth/me has activeCompany");
+    assert.equal(result.body.activeCompany.id, "icare");
+  });
+
+  await t.test("/auth/me returns activeMembership with status, companyId, and role for company_admin", async () => {
+    const result = await request("/auth/me", { token: icareCompanyAdmin.body.token });
+    assert.equal(result.response.status, 200);
+    assert.ok(result.body.activeMembership, "/auth/me has activeMembership");
+    assert.equal(result.body.activeMembership.status, "active");
+    assert.equal(result.body.activeMembership.companyId, "icare");
+    assert.equal(result.body.activeMembership.role, "company_admin");
+    assert.equal(result.body.activeCompany.id, "icare");
+  });
+
+  await t.test("employee with inactive membership is rejected", async () => {
+    const result = await request("/auth/login", {
+      body: { email: "inactive@test.local", password },
+    });
+    assert.equal(result.response.status, 403);
+  });
+
+  await t.test("employee work-session self-only: another employee's ID returns 403", async () => {
+    const otherEmployeeResult = await request("/work-sessions/employees/eb-employee", {
+      token: productEmp.body.token,
+    });
+    assert.equal(otherEmployeeResult.response.status, 403);
+    assert.equal(otherEmployeeResult.body.message, "Work session access denied.");
   });
 });
 

@@ -231,6 +231,15 @@ export function requireAdmin(req, res, next) {
   return next();
 }
 
+export function requirePermission(permission) {
+  return (req, res, next) => {
+    const role = effectiveTenantRole(req);
+    if (["admin", "company_admin", "super_admin", "manager"].includes(role)) return next();
+    if (["employee", "staff"].includes(role) && req.user?.permissions?.includes(permission)) return next();
+    return res.status(403).json({ message: "Access denied." });
+  };
+}
+
 export function effectiveTenantRole(req) {
   return req.membershipRole || req.user?.role || null;
 }

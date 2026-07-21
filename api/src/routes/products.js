@@ -9,24 +9,12 @@ import { isVariantVisible, withVariantVisibility } from "../products/variantVisi
 import { normalizeStockValue, preserveOmittedVariantStock } from "../products/productStock.js";
 import { recordActivityLog } from "../activityLog/logger.js";
 import { defaultProductSchema, sanitizeProductSchemaData } from "../productSchema/schema.js";
-import { effectiveTenantRole, optionalAuth, requireAuth } from "../middleware/auth.js";
+import { effectiveTenantRole, optionalAuth, requireAuth, requirePermission } from "../middleware/auth.js";
 import { listTenantProductFieldValues } from "../productSchema/fieldValues.js";
 
 const router = Router();
 const placeholderImage = "/images/products/product-placeholder.svg";
 const emptyImage = "";
-
-function requireProductPermission(permission) {
-  return (req, res, next) => {
-    if (
-      ["admin", "company_admin", "super_admin"].includes(effectiveTenantRole(req))
-      || req.user?.permissions?.includes(permission)
-    ) {
-      return next();
-    }
-    return res.status(403).json({ message: "Product permission required." });
-  };
-}
 
 function isRealImageUrl(value) {
   return typeof value === "string"
@@ -241,11 +229,19 @@ function canonicalNormalizedCatalogReferences(incoming) {
   return references;
 }
 
-router.get("/", optionalAuth, (_req, res) => {
+function requireProductListPermission(req, res, next) {
+  if (!req.user) return next();
+  const role = effectiveTenantRole(req);
+  if (["admin", "company_admin", "super_admin", "manager"].includes(role)) return next();
+  if (["employee", "staff"].includes(role) && req.user?.permissions?.includes("products.view")) return next();
+  return res.status(403).json({ message: "Product view permission required." });
+}
+
+router.get("/", optionalAuth, requireProductListPermission, (_req, res) => {
   res.json(productRepository.getByCompany(_req.companyId).map(normalizeProduct));
 });
 
-router.get("/:id/details", optionalAuth, async (req, res, next) => {
+router.get("/:id/details", optionalAuth, requireProductListPermission, async (req, res, next) => {
   const product = productRepository.findByCompany(req.companyId, req.params.id);
   if (!product || product.isActive === false) return res.status(404).json({ message: "Product not found." });
   try {
@@ -262,7 +258,7 @@ router.get("/:id/details", optionalAuth, async (req, res, next) => {
   }
 });
 
-router.post("/", requireAuth, requireProductPermission("products.create"), async (req, res) => {
+router.post("/", requireAuth, requirePermission("products.create"), async (req, res) => {
   let product;
   try {
     const normalizedReferences = canonicalNormalizedCatalogReferences(req.body);
@@ -289,7 +285,7 @@ router.post("/", requireAuth, requireProductPermission("products.create"), async
   res.status(201).json(product);
 });
 
-router.put("/:id", requireAuth, requireProductPermission("products.update"), async (req, res) => {
+router.put("/:id", requireAuth, requirePermission("products.update"), async (req, res) => {
   const existing = productRepository.findByCompany(req.companyId, req.params.id);
   if (!existing) {
     return res.status(404).json({ message: "Product not found." });
@@ -327,7 +323,7 @@ router.put("/:id", requireAuth, requireProductPermission("products.update"), asy
   return res.json(updated);
 });
 
-router.delete("/:id", requireAuth, requireProductPermission("products.delete"), async (req, res) => {
+router.delete("/:id", requireAuth, requirePermission("products.delete"), async (req, res) => {
   try {
     const removed = await deleteProductWithTenantCatalogLock(req.companyId, req.params.id);
     if (!removed) return res.status(404).json({ message: "Product not found." });

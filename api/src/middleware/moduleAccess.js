@@ -1,5 +1,5 @@
 import { getSessionUser } from "./auth.js";
-import { companyModuleEnabled } from "../moduleRegistry.js";
+import { companyModuleEnabledForCompany } from "../moduleRegistry.js";
 
 const rules = [
   [/^\/api\/admin\/dropshipping\/products(?:\/|$)/, "dropshipping.products"],
@@ -44,12 +44,14 @@ export async function enforceCompanyModuleAccess(req, res, next) {
   const user = req.user || await getSessionUser(req);
   if (!user) return res.status(401).json({ message: "Invalid or expired authentication token." });
   const tenantRole = user.globalRole === "super_admin" ? "super_admin" : user.role;
-  if (!["super_admin", "company_admin", "admin", "manager"].includes(tenantRole)) {
+  if (!["super_admin", "company_admin", "admin", "manager", "employee", "staff"].includes(tenantRole)) {
     return next();
   }
   if (moduleKey === "operations.reviews" && req.method === "POST") return next();
+  const selfSessionMatch = moduleKey === "people.employees" && ["employee", "staff"].includes(tenantRole) && req.method === "GET" && String(req.originalUrl || req.url || "").match(/^\/api\/work-sessions\/employees\/([^/]+)\/?$/);
+  if (selfSessionMatch && selfSessionMatch[1] === user.id) return next();
   if (!req.companyId) return res.status(403).json({ message: "An active company scope is required." });
-  if (!await companyModuleEnabled(req.companyId, moduleKey, user)) {
+  if (!await companyModuleEnabledForCompany(req.companyId, moduleKey, user)) {
     return res.status(403).json({ message: "This module is disabled for the active company.", moduleKey });
   }
   return next();

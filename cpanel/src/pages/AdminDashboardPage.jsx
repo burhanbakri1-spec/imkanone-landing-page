@@ -1764,7 +1764,8 @@ function AdminDashboardPage({
     switch (activePage) {
       case "admin-products":
         return <ProductsListPage brands={brands} canCreate={canCreateProducts} canDelete={canDeleteProducts} canUpdate={canUpdateProducts} categories={adminCategories} filters={filters} onAdd={() => { setEditingProduct(null); onNavigate("admin-products-new"); }} onDeleteProduct={onDeleteProduct} onEdit={(product) => { setEditingProduct(product); onNavigate("admin-products-new", { path: `/admin/products/${encodeURIComponent(product.id)}/edit` }); }} products={products} setFilters={setFilters} />;
-      case "admin-products-new": { // A dynamic edit URL intentionally shares the product-wizard page key.
+      case "admin-products-new":
+      case "admin-products-edit": {
         const match = window.location.pathname.match(/^\/admin\/products\/([^/]+)\/edit$/);
         const routeProductId = match ? decodeURIComponent(match[1]) : "";
         const productToEdit = routeProductId
@@ -1772,7 +1773,7 @@ function AdminDashboardPage({
           : editingProduct;
         if (routeProductId && !productToEdit) return <section className="admin-panel-card">Loading product...</section>;
         if ((productToEdit && !canUpdateProducts) || (!productToEdit && !canCreateProducts)) return <EmptyState title="View-only access" description="You do not have permission to save products." />;
-        return <ProductWizard brands={brands} categories={adminCategories} canManageContent={canManageProductContent} canManageMedia={canManageProductMedia} editingProduct={productToEdit} language={language} onCancel={(options) => onNavigate("admin-products", options)} onPersisted={(product) => { setEditingProduct(product); onNavigate("admin-products-new", { path: `/admin/products/${encodeURIComponent(product.id)}/edit`, preserveStatusMessage: true, replace: true }); }} onSave={onSaveProduct} />;
+        return <ProductWizard brands={brands} categories={adminCategories} canManageContent={canManageProductContent} canManageMedia={canManageProductMedia} editingProduct={productToEdit} language={language} onCancel={(options) => onNavigate("admin-products", options)} onPersisted={(product) => { setEditingProduct(product); onNavigate("admin-products-edit", { path: `/admin/products/${encodeURIComponent(product.id)}/edit`, preserveStatusMessage: true, replace: true }); }} onSave={onSaveProduct} />;
       }
       case "admin-categories":
         return renderSimpleTable("categories");

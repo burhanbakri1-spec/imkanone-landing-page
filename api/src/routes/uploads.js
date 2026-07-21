@@ -2,7 +2,7 @@ import express from "express";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { effectiveTenantRole, requireAuth } from "../middleware/auth.js";
+import { effectiveTenantRole, requireAuth, requirePermission } from "../middleware/auth.js";
 import { deleteSupabaseStorageObject, isSupabaseStorageConfigured, uploadImageToSupabaseStorage } from "../data/supabaseStore.js";
 import { companyStoragePath, companyStorageSegment } from "../tenancy/company.js";
 import { persistCompanyStore, productRepository, userRepository } from "../data/store.js";
@@ -25,11 +25,10 @@ const videoTypes = new Map([["video/mp4", ".mp4"], ["video/webm", ".webm"]]);
 const productMediaTypes = new Map([...imageTypes, ...videoTypes]);
 
 function requireProductUploader(req, res, next) {
-  if (!["admin", "company_admin", "super_admin", "manager", "employee", "staff"].includes(effectiveTenantRole(req))) {
-    return res.status(403).json({ message: "Admin or employee access required." });
-  }
-
-  return next();
+  const role = effectiveTenantRole(req);
+  if (["admin", "company_admin", "super_admin", "manager"].includes(role)) return next();
+  if (["employee", "staff"].includes(role) && req.user?.permissions?.some((p) => ["product_media.manage", "products.manage"].includes(p))) return next();
+  return res.status(403).json({ message: "Product media permission required." });
 }
 
 function getBoundary(contentType = "") {
@@ -126,7 +125,9 @@ function requiresPersistentStorage() {
 }
 
 function requireProductMediaPermission(req, res, next) {
-  if (["admin", "company_admin", "super_admin"].includes(effectiveTenantRole(req)) || req.user?.permissions?.some((permission) => ["product_media.manage", "products.manage", "products.update"].includes(permission))) return next();
+  const role = effectiveTenantRole(req);
+  if (["admin", "company_admin", "super_admin", "manager"].includes(role)) return next();
+  if (["employee", "staff"].includes(role) && req.user?.permissions?.some((permission) => ["product_media.manage", "products.manage", "products.update"].includes(permission))) return next();
   return res.status(403).json({ message: "Product media permission required." });
 }
 

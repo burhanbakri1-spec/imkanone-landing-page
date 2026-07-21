@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { fetchPlatformCompanies } from "../utils/platformCompaniesApi.js";
 import { groupCompanyModules, normalizedModulePage } from "../utils/moduleRegistry.js";
+import { canAccessAdminPage } from "../utils/roles.js";
 
 const icons = {
   activity: Activity, brands: Tag, categories: FolderTree, dashboard: Grid3X3,
@@ -34,8 +35,14 @@ function AdminLayout({
   const isSuperAdmin = (currentUser?.globalRole || currentUser?.role) === "super_admin";
   const sections = React.useMemo(() => {
     if (!company && isSuperAdmin) return [{ id: "platform", items: [{ pageKey: "admin-platform-companies", label_en: "Companies", label_ar: "الشركات", icon_key: "companies" }] }];
-    return groupCompanyModules(modules);
-  }, [company, isSuperAdmin, modules]);
+    const grouped = groupCompanyModules(modules);
+    return grouped
+      .map((section) => ({
+        ...section,
+        items: section.items.filter((item) => canAccessAdminPage(currentUser, item.pageKey)),
+      }))
+      .filter((section) => section.items.length > 0);
+  }, [company, currentUser, isSuperAdmin, modules]);
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const [openSections, setOpenSections] = React.useState({});
   const [companies, setCompanies] = React.useState([]);

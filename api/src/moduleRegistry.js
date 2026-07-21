@@ -62,11 +62,17 @@ export async function listCompanyModules(companyId, { query = dropshippingQuery 
 export function modulesVisibleToUser(modules, user) {
   const role = user?.globalRole === "super_admin" ? "super_admin" : user?.role;
   const permissions = new Set(user?.permissions || []);
-  return modules.filter((entry) => entry.enabled && entry.active && entry.allowed_roles?.includes(role) && (role === "super_admin" || ["company_admin", "admin"].includes(role) || !entry.required_permissions?.length || entry.required_permissions.some((permission) => permissions.has(permission))));
+  return modules.filter((entry) => entry.enabled && entry.active && entry.allowed_roles?.includes(role) && (role === "super_admin" || ["company_admin", "admin", "manager"].includes(role) || !entry.required_permissions?.length || entry.required_permissions.some((permission) => permissions.has(permission))));
 }
 
 export async function companyModuleEnabled(companyId, moduleKey, user, options) {
   return modulesVisibleToUser(await listCompanyModules(companyId, options), user).some((entry) => entry.module_key === moduleKey);
+}
+
+export async function companyModuleEnabledForCompany(companyId, moduleKey, user, options) {
+  const role = user?.globalRole === "super_admin" ? "super_admin" : user?.role;
+  const modules = await listCompanyModules(companyId, options);
+  return modules.some((entry) => entry.module_key === moduleKey && entry.enabled && entry.active && entry.allowed_roles?.includes(role));
 }
 
 export async function replaceCompanyModules(companyId, changes, { transaction = withDropshippingTransaction } = {}) {
