@@ -193,7 +193,7 @@ function sendCompanyError(res, error) {
 }
 
 function rejectMembershipSecrets(body) {
-  for (const field of ["password", "passwordHash", "password_hash", "token", "permissions"]) {
+  for (const field of ["passwordHash", "password_hash", "token", "permissions"]) {
     if (hasOwn(body, field)) {
       throw validationError(`${field} is not accepted by membership endpoints.`);
     }
@@ -357,11 +357,16 @@ function validateMembershipCreateBody(body) {
   }
   const name = hasOwn(body, "name") ? body.name.trim() : "";
   if (name.length > 120) throw validationError("name must be 120 characters or fewer.");
+  const password = hasOwn(body, "password") ? String(body.password || "") : "";
+  if (password && password.length < 8) {
+    throw validationError("Temporary password must be at least 8 characters.");
+  }
   return {
     email: validateMembershipEmail(body.email),
     name,
     role: validateMembershipRole(body.role),
     status: hasOwn(body, "status") ? validateMembershipStatus(body.status) : "active",
+    ...(password ? { password } : {}),
   };
 }
 
@@ -370,6 +375,9 @@ function validateMembershipUpdateBody(body) {
     throw validationError("Request body must be an object.");
   }
   rejectMembershipSecrets(body);
+  if (hasOwn(body, "password")) {
+    throw validationError("password cannot be changed by membership endpoints.");
+  }
   if (hasOwn(body, "email") || hasOwn(body, "name")) {
     throw validationError("User identity fields cannot be changed by membership endpoints.");
   }

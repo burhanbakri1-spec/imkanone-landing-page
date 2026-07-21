@@ -634,6 +634,107 @@ test("membership-aware authentication and authenticated tenant context", async (
   });
 });
 
+test("temporary password support for company member creation", async (t) => {
+  let superSession;
+
+  await t.test("Super Admin can log in and create a member with temporary password", async () => {
+    const loginResult = await request("/auth/login", {
+      body: { email: "super@test.local", password },
+    });
+    assert.equal(loginResult.response.status, 200);
+    superSession = loginResult.body;
+
+    const result = await request("/platform/companies/eb-chemical/memberships", {
+      token: superSession.token,
+      method: "POST",
+      body: {
+        email: "new-member-with-password@test.local",
+        name: "New Member With Password",
+        role: "employee",
+        status: "active",
+        password: "Temp-password-123!",
+      },
+    });
+    assert.equal(result.response.status, 201);
+    assert.equal(result.body.email, "new-member-with-password@test.local");
+    assert.equal(result.body.role, "employee");
+    assert.equal(result.body.status, "active");
+  });
+
+  await t.test("the new member can log in with the temporary password", async () => {
+    const loginResult = await request("/auth/login", {
+      body: { email: "new-member-with-password@test.local", password: "Temp-password-123!" },
+    });
+    assert.equal(loginResult.response.status, 200);
+    assert.equal(loginResult.body.user.email, "new-member-with-password@test.local");
+    assert.equal(loginResult.body.activeCompany.id, "eb-chemical");
+    assert.equal(loginResult.body.activeMembership.companyId, "eb-chemical");
+    assert.equal("password" in loginResult.body.user, false);
+  });
+
+  await t.test("adding an existing user ignores the password and does not change it", async () => {
+    const result = await request("/platform/companies/icare/memberships", {
+      token: superSession.token,
+      method: "POST",
+      body: {
+        email: "new-member-with-password@test.local",
+        name: "Renamed Member",
+        role: "customer",
+        status: "active",
+        password: "Different-password-456!",
+      },
+    });
+    assert.equal(result.response.status, 201);
+    assert.equal(result.body.email, "new-member-with-password@test.local");
+    assert.equal(result.body.role, "customer");
+
+    const loginResult = await request("/auth/login", {
+      body: { email: "new-member-with-password@test.local", password: "Temp-password-123!" },
+    });
+    assert.equal(loginResult.response.status, 200);
+
+    const wrongPassword = await request("/auth/login", {
+      body: { email: "new-member-with-password@test.local", password: "Different-password-456!" },
+    });
+    assert.equal(wrongPassword.response.status, 401);
+  });
+
+  await t.test("creating a new member without a password is rejected", async () => {
+    const result = await request("/platform/companies/eb-chemical/memberships", {
+      token: superSession.token,
+      method: "POST",
+      body: {
+        email: "no-password-member@test.local",
+        name: "No Password Member",
+        role: "employee",
+        status: "active",
+      },
+    });
+    assert.equal(result.response.status, 400);
+    assert.match(result.body.message, /password/i);
+  });
+
+  await t.test("existing user membership is created without changing password when no password sent", async () => {
+    const result = await request("/platform/companies/eb-chemical/memberships", {
+      token: superSession.token,
+      method: "POST",
+      body: {
+        email: "admin@eb.test",
+        name: "Admin EB",
+        role: "employee",
+        status: "active",
+      },
+    });
+    assert.equal(result.response.status, 201);
+    assert.equal(result.body.email, "admin@eb.test");
+
+    const loginResult = await request("/auth/login", {
+      body: { email: "admin@eb.test", password },
+    });
+    assert.equal(loginResult.response.status, 200);
+  });
+});
+
 test.after(async () => {
   await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   fs.rmSync(dataStoreDir, { recursive: true, force: true });

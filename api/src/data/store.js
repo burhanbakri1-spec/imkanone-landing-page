@@ -1778,6 +1778,22 @@ function createInactiveUserShell(email, name, companyId) {
   });
 }
 
+function createUserWithPassword(email, name, role, passwordHash) {
+  const id = `user-${crypto.randomUUID()}`;
+  return normalizeUser({
+    id,
+    name: String(name || "").trim() || email.split("@")[0],
+    email,
+    phone: "",
+    password: passwordHash,
+    role: role || "customer",
+    permissions: [],
+    isActive: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+}
+
 async function persistMembershipRecord(membership, user, createUser, previousMembership = null) {
   if (isSupabaseConfigured()) {
     await saveCompanyMembershipToSupabase({ membership, user, createUser });
@@ -1871,7 +1887,28 @@ export const companyMembershipRepository = {
     }
 
     const existingUser = [...candidates.values()][0] || null;
-    const user = existingUser || createInactiveUserShell(email, input?.name, normalizedCompanyId);
+    let user;
+    let isNewUser;
+    if (existingUser) {
+      user = existingUser;
+      isNewUser = false;
+    } else {
+      const password = typeof input?.password === "string" ? input.password.trim() : "";
+      if (!password) {
+        throw membershipRepositoryError(
+          "Temporary password is required for new users.",
+          400,
+        );
+      }
+      const passwordHash = await hashPassword(password);
+      user = createUserWithPassword(
+        email,
+        input?.name,
+        role,
+        passwordHash,
+      );
+      isNewUser = true;
+    }
     const memberships = await membershipsForCompany(normalizedCompanyId);
     const current = memberships.find((membership) => membership.userId === user.id) || null;
     assertMutableMembership(current, user);
@@ -1891,7 +1928,7 @@ export const companyMembershipRepository = {
     await persistMembershipRecord(
       membership,
       user,
-      !existingUser,
+      isNewUser,
       current ? normalizeMembership(current) : null,
     );
     return { ...clone(membership), user };
