@@ -8,6 +8,7 @@ import {
   disablePlatformCompany,
   fetchCompanyModules,
   fetchPlatformCompanies,
+  onboardCompany,
   restoreCompanyModules,
   updateCompanyModules,
   updatePlatformCompany,
@@ -267,29 +268,78 @@ function CompanyForm({ company, form, isSaving, onCancel, onChange, onSubmit }) 
   );
 }
 
-function AddCompanyDialog({ open, onOpenChange, onCreated, onError }) {
+const ONBOARD_MODULES = [
+  { key: "dashboard", group: "dashboard", label: "Dashboard" },
+  { key: "catalog.products", group: "catalog", label: "Products" },
+  { key: "catalog.categories", group: "catalog", label: "Categories" },
+  { key: "catalog.brands", group: "catalog", label: "Brands" },
+  { key: "storefront.videos", group: "storefront", label: "Videos" },
+  { key: "storefront.locations", group: "storefront", label: "Store locations" },
+  { key: "storefront.website_media", group: "storefront", label: "Website media" },
+  { key: "storefront.website_texts", group: "storefront", label: "Website texts" },
+  { key: "operations.orders", group: "operations", label: "Orders" },
+  { key: "operations.invoices", group: "operations", label: "Invoices" },
+  { key: "operations.delivery", group: "operations", label: "Delivery" },
+  { key: "operations.reviews", group: "operations", label: "Reviews" },
+  { key: "operations.inventory", group: "operations", label: "Inventory" },
+  { key: "people.customers", group: "people", label: "Customers" },
+  { key: "people.employees", group: "people", label: "Employees" },
+  { key: "settings.configuration", group: "settings", label: "Configuration" },
+  { key: "settings.product_settings", group: "settings", label: "Product settings" },
+  { key: "settings.reports", group: "settings", label: "Reports" },
+  { key: "settings.activity_log", group: "settings", label: "Activity log" },
+  { key: "settings.unit_creator", group: "settings", label: "Unit creator" },
+  { key: "dropshipping.overview", group: "dropshipping", label: "Overview" },
+  { key: "dropshipping.marketers", group: "dropshipping", label: "Marketers" },
+  { key: "dropshipping.products", group: "dropshipping", label: "Dropshipping Products" },
+  { key: "dropshipping.orders", group: "dropshipping", label: "Dropshipping Orders" },
+  { key: "dropshipping.earnings", group: "dropshipping", label: "Earnings" },
+  { key: "dropshipping.withdrawals", group: "dropshipping", label: "Withdrawals" },
+  { key: "dropshipping.reports", group: "dropshipping", label: "Dropshipping Reports" },
+  { key: "dropshipping.settings", group: "dropshipping", label: "Dropshipping Settings" },
+];
+
+function CompanyOnboardingWizard({ open, onOpenChange, onCreated, onError }) {
+  const [step, setStep] = React.useState(1);
+
   const [name, setName] = React.useState("");
   const [slug, setSlug] = React.useState("");
-  const [status, setStatus] = React.useState("draft");
+  const [status, setStatus] = React.useState("active");
   const [currency, setCurrency] = React.useState("");
   const [language, setLanguage] = React.useState("");
   const [storefrontUrl, setStorefrontUrl] = React.useState("");
+
+  const [adminName, setAdminName] = React.useState("");
+  const [adminEmail, setAdminEmail] = React.useState("");
+  const [adminPassword, setAdminPassword] = React.useState("");
+
+  const [selectedModules, setSelectedModules] = React.useState(
+    () => new Set(["dashboard"]),
+  );
+
   const [saving, setSaving] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState("");
 
-  function close() {
+  function reset() {
+    setStep(1);
     setName("");
     setSlug("");
-    setStatus("draft");
+    setStatus("active");
     setCurrency("");
     setLanguage("");
     setStorefrontUrl("");
+    setAdminName("");
+    setAdminEmail("");
+    setAdminPassword("");
+    setSelectedModules(new Set(["dashboard"]));
     setErrorMessage("");
     setSaving(false);
     onOpenChange(false);
   }
 
-  function validate() {
+  function close() { reset(); }
+
+  function validateStep1() {
     if (!name.trim()) { setErrorMessage("Company name is required."); return false; }
     if (slug && !slugPattern.test(slug)) { setErrorMessage("Slug must use lowercase letters, numbers, and hyphens only."); return false; }
     if (!["draft", "inactive", "active"].includes(status)) { setErrorMessage("Select a valid company status."); return false; }
@@ -306,27 +356,71 @@ function AddCompanyDialog({ open, onOpenChange, onCreated, onError }) {
     return true;
   }
 
-  async function handleSubmit(event) {
-    event.preventDefault();
+  function validateStep2() {
     setErrorMessage("");
-    if (!validate()) return;
+    if (!adminName.trim()) { setErrorMessage("Administrator name is required."); return false; }
+    if (!adminEmail.trim()) { setErrorMessage("Administrator email is required."); return false; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminEmail.trim())) { setErrorMessage("Enter a valid email address."); return false; }
+    if (!adminPassword || adminPassword.length < 8) { setErrorMessage("Temporary password must be at least 8 characters."); return false; }
+    return true;
+  }
+
+  function handleNext() {
+    setErrorMessage("");
+    if (step === 1 && validateStep1()) setStep(2);
+    else if (step === 2 && validateStep2()) setStep(3);
+  }
+
+  function handleBack() {
+    setErrorMessage("");
+    setStep((s) => Math.max(1, s - 1));
+  }
+
+  function toggleModule(moduleKey) {
+    setSelectedModules((prev) => {
+      const next = new Set(prev);
+      if (next.has(moduleKey)) next.delete(moduleKey);
+      else next.add(moduleKey);
+      return next;
+    });
+  }
+
+  function selectAllModules() {
+    setSelectedModules(new Set(ONBOARD_MODULES.map((m) => m.key)));
+  }
+
+  function clearOptionalModules() {
+    setSelectedModules(new Set(["dashboard"]));
+  }
+
+  async function handleSubmit() {
+    setErrorMessage("");
     setSaving(true);
     try {
-      const payload = {
-        name: name.trim(),
-        slug: slug.trim() || undefined,
-        status,
-        storefrontUrl: storefrontUrl.trim() || undefined,
-        settings: Object.fromEntries(
-          Object.entries({ currency: currency.trim(), language: language.trim() })
-            .filter(([, v]) => v),
-        ),
-      };
-      const company = await createPlatformCompany(payload);
-      onCreated(company);
-      close();
+      const modules = ONBOARD_MODULES.map((m) => ({
+        module_key: m.key,
+        enabled: selectedModules.has(m.key),
+      }));
+      const result = await onboardCompany({
+        company: {
+          name: name.trim(),
+          slug: slug.trim() || undefined,
+          status,
+          currency: currency.trim() || undefined,
+          language: language.trim() || undefined,
+          storefrontUrl: storefrontUrl.trim() || undefined,
+        },
+        administrator: {
+          name: adminName.trim(),
+          email: adminEmail.trim().toLowerCase(),
+          password: adminPassword,
+        },
+        modules,
+      });
+      onCreated(result.company);
+      reset();
     } catch (requestError) {
-      setErrorMessage(requestError.message || "Unable to create company.");
+      setErrorMessage(requestError.message || "Unable to complete onboarding.");
       if (onError) onError(requestError);
     } finally {
       setSaving(false);
@@ -335,83 +429,140 @@ function AddCompanyDialog({ open, onOpenChange, onCreated, onError }) {
 
   if (!open) return null;
 
+  const stepLabels = ["Company", "Administrator", "Modules"];
+
   return (
     <div className="admin-modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
-      <section className="admin-modal">
+      <section className="admin-modal onboarding-modal">
         <div className="admin-section-head">
           <div>
-            <h2>Add Company</h2>
-            <p>Create a new company record. You can configure modules and members after creation.</p>
+            <h2>Onboard new company</h2>
+            <p>Create a company, its first administrator, and choose enabled modules.</p>
           </div>
-          <button className="text-action" onClick={close} type="button">
-            Close
-          </button>
+          <button className="text-action" disabled={saving} onClick={close} type="button">Close</button>
         </div>
+
         {errorMessage && (
           <div className="message-panel error" role="alert">{errorMessage}</div>
         )}
-        <form className="admin-form company-form" onSubmit={handleSubmit}>
-          <label>
-            Company name
-            <input
-              autoComplete="organization"
-              onChange={(e) => setName(e.target.value)}
-              required
-              value={name}
-            />
-          </label>
-          <label>
-            Company slug / ID
-            <input
-              onChange={(e) => setSlug(e.target.value)}
-              pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-              placeholder="new-company"
-              value={slug}
-            />
-            <small>Auto-generated from name if left blank.</small>
-          </label>
-          <label>
-            Status
-            <select onChange={(e) => setStatus(e.target.value)} value={status}>
-              <option value="draft">Draft</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
-          </label>
-          <label>
-            Currency
-            <input
-              onChange={(e) => setCurrency(e.target.value)}
-              placeholder="USD"
-              value={currency}
-            />
-          </label>
-          <label>
-            Language
-            <input
-              onChange={(e) => setLanguage(e.target.value)}
-              placeholder="en"
-              value={language}
-            />
-          </label>
-          <label>
-            Storefront URL
-            <input
-              onChange={(e) => setStorefrontUrl(e.target.value)}
-              placeholder="https://example.com/company"
-              type="url"
-              value={storefrontUrl}
-            />
-          </label>
-          <div className="form-actions full-field">
-            <button className="secondary-action" disabled={saving} onClick={close} type="button">
-              Cancel
-            </button>
-            <button className="admin-primary-button" disabled={saving} type="submit">
-              {saving ? "Creating..." : "Create company"}
-            </button>
+
+        <div className="onboarding-steps">
+          {stepLabels.map((label, index) => {
+            const stepNum = index + 1;
+            const isActive = step === stepNum;
+            const isDone = step > stepNum;
+            return (
+              <div key={label} className={`onboarding-step ${isActive ? "active" : ""} ${isDone ? "done" : ""}`}>
+                <span className="onboarding-step-number">{isDone ? "\u2713" : stepNum}</span>
+                <span className="onboarding-step-label">{label}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {step === 1 && (
+          <div className="admin-form company-form">
+            <label>
+              Company name
+              <input autoComplete="organization" onChange={(e) => setName(e.target.value)} required value={name} />
+            </label>
+            <label>
+              Slug / ID
+              <input onChange={(e) => setSlug(e.target.value)} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="new-company" value={slug} />
+              <small>Auto-generated from name if left blank.</small>
+            </label>
+            <label>
+              Status
+              <select onChange={(e) => setStatus(e.target.value)} value={status}>
+                <option value="draft">Draft</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </label>
+            <label>
+              Currency
+              <input onChange={(e) => setCurrency(e.target.value)} placeholder="USD" value={currency} />
+            </label>
+            <label>
+              Language
+              <input onChange={(e) => setLanguage(e.target.value)} placeholder="en" value={language} />
+            </label>
+            <label>
+              Storefront URL
+              <input onChange={(e) => setStorefrontUrl(e.target.value)} placeholder="https://example.com/company" type="url" value={storefrontUrl} />
+            </label>
           </div>
-        </form>
+        )}
+
+        {step === 2 && (
+          <div className="admin-form company-form">
+            <label>
+              Administrator name
+              <input autoComplete="name" onChange={(e) => setAdminName(e.target.value)} required value={adminName} />
+            </label>
+            <label>
+              Email
+              <input autoComplete="email" onChange={(e) => setAdminEmail(e.target.value)} required type="email" value={adminEmail} />
+            </label>
+            <label>
+              Temporary password
+              <input autoComplete="new-password" onChange={(e) => setAdminPassword(e.target.value)} required type="text" value={adminPassword} />
+              <small>Minimum 8 characters. Used only for first login if the user is new.</small>
+            </label>
+            <input type="hidden" value="company_admin" />
+            <div className="onboarding-fixed-fields">
+              <span><strong>Role:</strong> Company Administrator</span>
+              <span><strong>Status:</strong> Active</span>
+            </div>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div>
+            <div className="onboarding-module-toolbar">
+              <button className="secondary-action" onClick={selectAllModules} type="button">Select all</button>
+              <button className="secondary-action" onClick={clearOptionalModules} type="button">Clear optional</button>
+              <span className="onboarding-module-count">{selectedModules.size} of {ONBOARD_MODULES.length} selected</span>
+            </div>
+            <div className="onboarding-modules-grid">
+              {ONBOARD_MODULES.map((module) => (
+                <label key={module.key} className="onboarding-module-checkbox">
+                  <input
+                    checked={selectedModules.has(module.key)}
+                    onChange={() => toggleModule(module.key)}
+                    type="checkbox"
+                  />
+                  <span><strong>{module.label}</strong><br /><small>{module.key}</small></span>
+                </label>
+              ))}
+            </div>
+            <details className="onboarding-review">
+              <summary>Review before creating</summary>
+              <div className="onboarding-review-content">
+                <div><strong>Company:</strong> {name.trim() || "\u2014"}</div>
+                <div><strong>Slug:</strong> {slug.trim() || "(auto)"}</div>
+                <div><strong>Status:</strong> {status}</div>
+                <div><strong>Currency:</strong> {currency.trim() || "\u2014"}</div>
+                <div><strong>Language:</strong> {language.trim() || "\u2014"}</div>
+                <div><strong>Storefront:</strong> {storefrontUrl.trim() || "\u2014"}</div>
+                <div><strong>Admin:</strong> {adminName.trim()} ({adminEmail.trim().toLowerCase()})</div>
+                <div><strong>Modules:</strong> {selectedModules.size} enabled</div>
+              </div>
+            </details>
+          </div>
+        )}
+
+        <div className="form-actions full-field onboarding-actions">
+          <button className="secondary-action" disabled={saving} onClick={close} type="button">Cancel</button>
+          {step > 1 && <button className="secondary-action" disabled={saving} onClick={handleBack} type="button">Back</button>}
+          {step < 3 ? (
+            <button className="admin-primary-button" onClick={handleNext} type="button">Next</button>
+          ) : (
+            <button className="admin-primary-button" disabled={saving} onClick={handleSubmit} type="button">
+              {saving ? "Creating company..." : "Create company"}
+            </button>
+          )}
+        </div>
       </section>
     </div>
   );
@@ -771,7 +922,7 @@ function AdminCompaniesPage({
               onSubmit={submitCompany}
             />
           )}
-          <AddCompanyDialog
+          <CompanyOnboardingWizard
             onCreated={handleDialogCreated}
             onError={(requestError) => {
               if (requestError.status === 401) void onLogout();

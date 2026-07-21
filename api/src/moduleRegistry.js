@@ -1,6 +1,8 @@
 import { dropshippingQuery, withDropshippingTransaction } from "./dropshipping/database.js";
+import { isSupabaseConfigured } from "./data/postgresStore.js";
 
 const allRoles = ["super_admin", "company_admin", "admin", "manager", "employee", "staff"];
+export const inMemoryModuleStore = new Map();
 const define = (module_key, group_key, label_en, label_ar, icon_key, route, sort_order, required_permissions = [], allowed_roles = allRoles) => ({
   module_key, group_key, label_en, label_ar, description_en: `${label_en} administration`, description_ar: `إدارة ${label_ar}`,
   icon_key, route, sort_order, active: true, required_permissions, allowed_roles, configuration: {},
@@ -51,6 +53,9 @@ export async function listCompanyModules(companyId, { query = dropshippingQuery 
     const { rows } = await query(`select d.*,s.enabled,s.sort_order company_sort_order,s.label_en_override,s.label_ar_override,s.configuration_override from public.cpanel_module_definitions d left join public.company_cpanel_modules s on s.module_key=d.module_key and s.company_id=$1 where d.active=true order by coalesce(s.sort_order,d.sort_order),d.module_key`, [companyId]);
     if (rows.length) return rows.map((row) => normalize(row, companyId));
   } catch { /* Migration 012 is intentionally optional until applied. */ }
+  if (inMemoryModuleStore.has(companyId)) {
+    return inMemoryModuleStore.get(companyId).map((row) => normalize(row, companyId));
+  }
   return CPANEL_MODULE_DEFINITIONS.map((row) => normalize(row, companyId));
 }
 
@@ -78,10 +83,18 @@ export async function replaceCompanyModules(companyId, changes, { transaction = 
     }
     seen.add(item.module_key);
   }
-  return transaction(async (client) => {
-    for (const item of changes) await client.query(`insert into public.company_cpanel_modules(company_id,module_key,enabled,sort_order,label_en_override,label_ar_override,configuration_override) values($1,$2,$3,$4,$5,$6,$7::jsonb) on conflict(company_id,module_key) do update set enabled=excluded.enabled,sort_order=excluded.sort_order,label_en_override=excluded.label_en_override,label_ar_override=excluded.label_ar_override,configuration_override=excluded.configuration_override,updated_at=now()`, [companyId, item.module_key, item.enabled, Number(item.sort_order), item.label_en_override || null, item.label_ar_override || null, JSON.stringify(item.configuration_override || {})]);
-    return true;
-  });
+  try {
+    return await transaction(async (client) => {
+      for (const item of changes) await client.query(`insert into public.company_cpanel_modules(company_id,module_key,enabled,sort_order,label_en_override,label_ar_override,configuration_override) values($1,$2,$3,$4,$5,$6,$7::jsonb) on conflict(company_id,module_key) do update set enabled=excluded.enabled,sort_order=excluded.sort_order,label_en_override=excluded.label_en_override,label_ar_override=excluded.label_ar_override,configuration_override=excluded.configuration_override,updated_at=now()`, [companyId, item.module_key, item.enabled, Number(item.sort_order), item.label_en_override || null, item.label_ar_override || null, JSON.stringify(item.configuration_override || {})]);
+      return true;
+    });
+  } catch (dbError) {
+    if (!isSupabaseConfigured()) {
+      inMemoryModuleStore.set(companyId, changes);
+      return true;
+    }
+    throw dbError;
+  }
 }
 
 export async function restoreCompanyModuleDefaults(companyId, { transaction = withDropshippingTransaction } = {}) {

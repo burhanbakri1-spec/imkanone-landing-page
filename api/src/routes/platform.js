@@ -1,10 +1,16 @@
+import crypto from "node:crypto";
 import { Router } from "express";
 import { platformRoles } from "../auth/roles.js";
 import { hashPassword } from "../auth/passwords.js";
+import { isSupabaseConfigured } from "../data/postgresStore.js";
+import { dropshippingQuery, withDropshippingTransaction } from "../dropshipping/database.js";
 import {
+  companies,
+  companyMemberships,
   companyMembershipRepository,
   companyRepository,
   platformUserRepository,
+  users,
 } from "../data/store.js";
 import {
   COMPANY_SCOPE_EXPIRY_SECONDS,
@@ -15,6 +21,8 @@ import {
 } from "../middleware/auth.js";
 import { recordActivityLog } from "../activityLog/logger.js";
 import {
+  CPANEL_MODULE_DEFINITIONS,
+  inMemoryModuleStore,
   listCompanyModules,
   modulesVisibleToUser,
   replaceCompanyModules,
@@ -695,4 +703,368 @@ router.patch("/companies/:id/disable", async (req, res) => {
   }
 });
 
+// ── Super Admin company onboarding ──────────────────────────────────────────
+
+const validOnboardModuleKeys = new Set(
+  CPANEL_MODULE_DEFINITIONS.map((entry) => entry.module_key),
+);
+
+function validateOnboardBody(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw validationError("Request body must be an object.");
+  }
+
+  const companySection = body.company;
+  if (!companySection || typeof companySection !== "object" || Array.isArray(companySection)) {
+    throw validationError("company is required and must be an object.");
+  }
+
+  const adminSection = body.administrator;
+  if (!adminSection || typeof adminSection !== "object" || Array.isArray(adminSection)) {
+    throw validationError("administrator is required and must be an object.");
+  }
+
+  const companyPayload = { name: companySection.name, status: companySection.status };
+  if (hasOwn(companySection, "slug") && companySection.slug) companyPayload.slug = companySection.slug;
+  if (hasOwn(companySection, "domain")) companyPayload.domain = companySection.domain;
+  if (hasOwn(companySection, "storefrontUrl")) companyPayload.storefrontUrl = companySection.storefrontUrl;
+  if (hasOwn(companySection, "storefrontPath")) companyPayload.storefrontPath = companySection.storefrontPath;
+  if (hasOwn(companySection, "currency") || hasOwn(companySection, "language")) {
+    const settings = {};
+    if (hasOwn(companySection, "currency")) settings.currency = companySection.currency;
+    if (hasOwn(companySection, "language")) settings.language = companySection.language;
+    companyPayload.settings = settings;
+  }
+  const companyInput = validateCreateBody(companyPayload);
+
+  const adminName = typeof adminSection.name === "string" ? adminSection.name.trim() : "";
+  if (!adminName) throw validationError("administrator.name is required.");
+  if (adminName.length > 120) throw validationError("administrator.name must be 120 characters or fewer.");
+
+  const adminEmail = typeof adminSection.email === "string" ? adminSection.email.trim().toLowerCase() : "";
+  if (!adminEmail || adminEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminEmail)) {
+    throw validationError("administrator.email must be a valid email address.");
+  }
+
+  const adminPassword = typeof adminSection.password === "string" ? adminSection.password : "";
+  if (adminPassword && adminPassword.length < 8) {
+    throw validationError("Temporary password must be at least 8 characters.");
+  }
+
+  const providedModules = Array.isArray(body.modules) ? body.modules : [];
+  const providedByKey = new Map();
+  for (const item of providedModules) {
+    if (!item || typeof item !== "object" || !item.module_key) {
+      throw validationError("Each module entry must have a module_key.");
+    }
+    if (!validOnboardModuleKeys.has(item.module_key)) {
+      throw validationError(`Unknown module: ${item.module_key}.`);
+    }
+    if (providedByKey.has(item.module_key)) {
+      throw validationError(`Duplicate module: ${item.module_key}.`);
+    }
+    if (typeof item.enabled !== "boolean") {
+      throw validationError(`${item.module_key}.enabled must be a boolean.`);
+    }
+    providedByKey.set(item.module_key, { module_key: item.module_key, enabled: item.enabled, sort_order: 0 });
+  }
+
+  const normalizedModules = CPANEL_MODULE_DEFINITIONS.map((def) => {
+    const override = providedByKey.get(def.module_key);
+    return override || { module_key: def.module_key, enabled: false, sort_order: 0 };
+  });
+
+  return {
+    company: companyInput,
+    administrator: {
+      name: adminName,
+      email: adminEmail,
+      password: adminPassword,
+      role: "company_admin",
+      status: "active",
+    },
+    modules: normalizedModules,
+  };
+}
+
+async function assertExistingUserNotProhibited(email) {
+  const existingUser = await platformUserRepository.findByEmail(email);
+  if (!existingUser) return;
+  if (existingUser.role === "super_admin") {
+    const err = new Error("A Super Admin cannot be assigned as a company administrator.");
+    err.statusCode = 422;
+    throw err;
+  }
+}
+
+async function compensateOnboarding(companyId, adminUserId, createdUserId) {
+  if (isSupabaseConfigured()) {
+    try {
+      await withDropshippingTransaction(async (client) => {
+        await client.query(
+          "delete from public.company_cpanel_modules where company_id = $1",
+          [companyId],
+        );
+        if (adminUserId) {
+          await client.query(
+            "delete from public.company_memberships where company_id = $1 and user_id = $2",
+            [companyId, adminUserId],
+          );
+        }
+        if (createdUserId) {
+          await client.query(
+            "delete from public.users where id = $1",
+            [createdUserId],
+          );
+        }
+        await client.query(
+          "delete from public.company_domains where company_id = $1",
+          [companyId],
+        );
+        await client.query(
+          "delete from public.company_settings where company_id = $1",
+          [companyId],
+        );
+        await client.query(
+          "delete from public.companies where id = $1",
+          [companyId],
+        );
+      });
+    } catch {}
+  }
+
+  if (createdUserId) {
+    try {
+      const userIdx = users.findIndex((u) => u.id === createdUserId);
+      if (userIdx !== -1) users.splice(userIdx, 1);
+    } catch {}
+  }
+
+  if (adminUserId) {
+    try {
+      const membershipIdx = companyMemberships.findIndex(
+        (m) => m.companyId === companyId && m.userId === adminUserId,
+      );
+      if (membershipIdx !== -1) companyMemberships.splice(membershipIdx, 1);
+    } catch {}
+  }
+
+  try {
+    const companyIdx = companies.findIndex((c) => c.id === companyId);
+    if (companyIdx !== -1) companies.splice(companyIdx, 1);
+  } catch {}
+
+  inMemoryModuleStore.delete(companyId);
+}
+
+async function executeOnboardingAtomic(input, options = {}) {
+  const transaction = options.transaction || withDropshippingTransaction;
+  return transaction(async (client) => {
+    const slug = input.company.slug;
+    const now = new Date().toISOString();
+
+    const slugCheck = await client.query(
+      "SELECT id FROM public.companies WHERE slug = $1",
+      [slug],
+    );
+    if (slugCheck.rows.length) {
+      const err = new Error("Company ID already exists.");
+      err.statusCode = 409;
+      throw err;
+    }
+
+    const storefrontUrl = input.company.storefrontUrl;
+    if (storefrontUrl) {
+      const urlCheck = await client.query(
+        "SELECT c.id FROM public.companies c JOIN public.company_settings s ON s.company_id = c.id WHERE s.settings->>'storefrontUrl' = $1",
+        [storefrontUrl],
+      );
+      if (urlCheck.rows.length) {
+        const err = new Error("Storefront URL already belongs to another company.");
+        err.statusCode = 409;
+        throw err;
+      }
+    }
+
+    const email = input.administrator.email;
+    const userCheck = await client.query(
+      "SELECT id, role FROM public.users WHERE LOWER(email) = LOWER($1)",
+      [email],
+    );
+    if (userCheck.rows.length && userCheck.rows[0].role === "super_admin") {
+      const err = new Error("A Super Admin cannot be assigned as a company administrator.");
+      err.statusCode = 422;
+      throw err;
+    }
+
+    await client.query(
+      "INSERT INTO public.companies (id, slug, name, status, is_default, created_at, updated_at) VALUES ($1, $2, $3, $4, false, $5, $5)",
+      [slug, slug, input.company.name, input.company.status, now],
+    );
+
+    await client.query(
+      "INSERT INTO public.company_settings (company_id, settings, created_at, updated_at) VALUES ($1, $2, $3, $3)",
+      [slug, JSON.stringify(input.company.settings || {}), now],
+    );
+
+    if (input.company.domain) {
+      await client.query(
+        "INSERT INTO public.company_domains (id, company_id, domain, is_primary, is_active, created_at, updated_at) VALUES ($1, $2, $3, true, false, $4, $4)",
+        [`company-domain-${slug}`, slug, input.company.domain, now],
+      );
+    }
+
+    let userId;
+    let isNewUser = false;
+    if (userCheck.rows.length) {
+      userId = userCheck.rows[0].id;
+    } else {
+      const passwordHash = await hashPassword(input.administrator.password);
+      userId = `user-${crypto.randomUUID()}`;
+      await client.query(
+        "INSERT INTO public.users (id, name, email, phone, password, role, department, permissions, account_type, eb_points, total_points_earned, total_points_redeemed, is_active, data, created_at, updated_at) VALUES ($1, $2, $3, '', $4, 'company_admin', '', '[]'::jsonb, 'retail', 0, 0, 0, true, '{}'::jsonb, $5, $5)",
+        [userId, input.administrator.name, email, passwordHash, now],
+      );
+      isNewUser = true;
+    }
+
+    const membershipId = `${slug}:${userId}`;
+    await client.query(
+      "INSERT INTO public.company_memberships (id, company_id, user_id, role, permissions, is_active, created_at, updated_at) VALUES ($1, $2, $3, 'company_admin', '[]'::jsonb, true, $4, $4) ON CONFLICT (id) DO UPDATE SET role = 'company_admin', updated_at = $4",
+      [membershipId, slug, userId, now],
+    );
+
+    for (const mod of input.modules) {
+      await client.query(
+        "INSERT INTO public.company_cpanel_modules (company_id, module_key, enabled, sort_order, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $5) ON CONFLICT (company_id, module_key) DO UPDATE SET enabled = excluded.enabled, sort_order = excluded.sort_order, updated_at = excluded.updated_at",
+        [slug, mod.module_key, mod.enabled, mod.sort_order, now],
+      );
+    }
+
+    return { companyId: slug, userId, isNewUser };
+  });
+}
+
+async function executeOnboardingInMemory(input, options = {}) {
+  const saveModules = options.saveModules || replaceCompanyModules;
+  const company = await companyRepository.createCompanyDraft(input.company);
+  let membership;
+  let createdUserId = null;
+
+  try {
+    await assertExistingUserNotProhibited(input.administrator.email);
+
+    const userExistedBefore = !!(await platformUserRepository.findByEmail(input.administrator.email));
+
+    membership = await companyMembershipRepository.createOrUpdateMembership(
+      company.id,
+      {
+        email: input.administrator.email,
+        name: input.administrator.name,
+        role: input.administrator.role,
+        status: input.administrator.status,
+        ...(input.administrator.password ? { password: input.administrator.password } : {}),
+      },
+    );
+
+    if (!userExistedBefore) {
+      createdUserId = membership.userId;
+    }
+  } catch (membershipError) {
+    await compensateOnboarding(company.id, null, null);
+    throw membershipError;
+  }
+
+  try {
+    if (input.modules.length) {
+      await saveModules(company.id, input.modules);
+    }
+  } catch (modulesError) {
+    await compensateOnboarding(company.id, membership.userId, createdUserId);
+    throw modulesError;
+  }
+
+  const modules = await listCompanyModules(company.id);
+  const adminUser = await platformUserRepository.getUserById(membership.userId);
+
+  return {
+    company: createPlatformCompanySummary(company),
+    administrator: {
+      id: membership.userId,
+      name: adminUser?.name || input.administrator.name,
+      email: input.administrator.email,
+      role: "company_admin",
+    },
+    modules,
+  };
+}
+
+async function executeOnboarding(input, options = {}) {
+  if (isSupabaseConfigured()) {
+    const result = await executeOnboardingAtomic(input, options);
+
+    const companyRows = await dropshippingQuery(
+      `SELECT c.id, c.slug, c.name, c.status, c.is_default, c.created_at, c.updated_at,
+              s.settings,
+              d.id AS domain_id, d.domain AS domain_name, d.is_active AS domain_active
+       FROM public.companies c
+       LEFT JOIN public.company_settings s ON s.company_id = c.id
+       LEFT JOIN public.company_domains d ON d.company_id = c.id AND d.is_primary = true
+       WHERE c.id = $1`,
+      [result.companyId],
+    );
+    if (!companyRows.rows.length) {
+      throw Object.assign(new Error("Company was created but could not be reloaded from database."), { statusCode: 500 });
+    }
+    const row = companyRows.rows[0];
+    const settings = row.settings || {};
+    const company = {
+      id: row.id,
+      slug: row.slug,
+      name: row.name,
+      status: row.status,
+      isDefault: row.is_default === true,
+      domain: row.domain_name || "",
+      domains: row.domain_name ? [row.domain_name] : [],
+      storefrontUrl: settings.storefrontUrl || "",
+      storefrontPath: settings.storefrontPath || "",
+      settings,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      _domainId: row.domain_id || "",
+    };
+
+    const adminUser = result.isNewUser
+      ? await platformUserRepository.getUserById(result.userId)
+      : await platformUserRepository.findByEmail(input.administrator.email);
+
+    const modules = await listCompanyModules(result.companyId);
+
+    return {
+      company: createPlatformCompanySummary(company),
+      administrator: {
+        id: result.userId,
+        name: adminUser?.name || input.administrator.name,
+        email: input.administrator.email,
+        role: "company_admin",
+      },
+      modules,
+    };
+  }
+
+  return executeOnboardingInMemory(input, options);
+}
+
+router.post("/onboard", async (req, res) => {
+  try {
+    const input = validateOnboardBody(req.body);
+    const result = await executeOnboarding(input);
+    return res.status(201).json(result);
+  } catch (error) {
+    return sendCompanyError(res, error);
+  }
+});
+
 export default router;
+
+export { executeOnboarding, executeOnboardingAtomic, validateOnboardBody };

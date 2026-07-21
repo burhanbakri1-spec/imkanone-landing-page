@@ -54,3 +54,10 @@ export async function requestCompanyScope(companyId) {
 export async function recordCompanyScopeExit() {
   return apiRequest("/platform/company-scope/exit", { method: "POST" });
 }
+
+export async function onboardCompany(data) {
+  return apiRequest("/platform/onboard", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
