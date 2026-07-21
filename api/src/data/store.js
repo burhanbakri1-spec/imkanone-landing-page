@@ -1488,6 +1488,13 @@ function assertUniqueCompanyFields(candidate, currentId = "") {
     );
     if (duplicateDomain) throw companyRepositoryError("Company domain already exists.", 409);
   }
+
+  if (candidate.storefrontUrl) {
+    const duplicateUrl = companies.find(
+      (company) => company.id !== currentId && company.storefrontUrl === candidate.storefrontUrl,
+    );
+    if (duplicateUrl) throw companyRepositoryError("Company storefront URL already exists.", 409);
+  }
 }
 
 export const companyRepository = {

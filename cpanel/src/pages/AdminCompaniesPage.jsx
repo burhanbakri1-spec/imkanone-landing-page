@@ -2,6 +2,7 @@ import React from "react";
 import { Building2, ExternalLink, Pencil, Plus, Settings, ShieldAlert, Users } from "lucide-react";
 import AdminLayout from "../components/AdminLayout.jsx";
 import CompanyMembershipsPanel from "../components/CompanyMembershipsPanel.jsx";
+
 import {
   createPlatformCompany,
   disablePlatformCompany,
@@ -266,6 +267,156 @@ function CompanyForm({ company, form, isSaving, onCancel, onChange, onSubmit }) 
   );
 }
 
+function AddCompanyDialog({ open, onOpenChange, onCreated, onError }) {
+  const [name, setName] = React.useState("");
+  const [slug, setSlug] = React.useState("");
+  const [status, setStatus] = React.useState("draft");
+  const [currency, setCurrency] = React.useState("");
+  const [language, setLanguage] = React.useState("");
+  const [storefrontUrl, setStorefrontUrl] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [errorMessage, setErrorMessage] = React.useState("");
+
+  function close() {
+    setName("");
+    setSlug("");
+    setStatus("draft");
+    setCurrency("");
+    setLanguage("");
+    setStorefrontUrl("");
+    setErrorMessage("");
+    setSaving(false);
+    onOpenChange(false);
+  }
+
+  function validate() {
+    if (!name.trim()) { setErrorMessage("Company name is required."); return false; }
+    if (slug && !slugPattern.test(slug)) { setErrorMessage("Slug must use lowercase letters, numbers, and hyphens only."); return false; }
+    if (!["draft", "inactive", "active"].includes(status)) { setErrorMessage("Select a valid company status."); return false; }
+    if (storefrontUrl) {
+      try {
+        if (new URL(storefrontUrl).protocol !== "https:") { setErrorMessage("Storefront URL must use HTTPS."); return false; }
+      } catch {
+        setErrorMessage("Storefront URL must be a valid HTTPS URL.");
+        return false;
+      }
+    }
+    if (currency && !/^[A-Z]{3}$/.test(currency)) { setErrorMessage("Currency must be a 3-letter code (e.g. USD)."); return false; }
+    if (language && !/^[a-z]{2,3}(?:-[A-Z]{2})?$/.test(language)) { setErrorMessage("Language must be a locale code (e.g. en)."); return false; }
+    return true;
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setErrorMessage("");
+    if (!validate()) return;
+    setSaving(true);
+    try {
+      const payload = {
+        name: name.trim(),
+        slug: slug.trim() || undefined,
+        status,
+        storefrontUrl: storefrontUrl.trim() || undefined,
+        settings: Object.fromEntries(
+          Object.entries({ currency: currency.trim(), language: language.trim() })
+            .filter(([, v]) => v),
+        ),
+      };
+      const company = await createPlatformCompany(payload);
+      onCreated(company);
+      close();
+    } catch (requestError) {
+      setErrorMessage(requestError.message || "Unable to create company.");
+      if (onError) onError(requestError);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!open) return null;
+
+  return (
+    <div className="admin-modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
+      <section className="admin-modal">
+        <div className="admin-section-head">
+          <div>
+            <h2>Add Company</h2>
+            <p>Create a new company record. You can configure modules and members after creation.</p>
+          </div>
+          <button className="text-action" onClick={close} type="button">
+            Close
+          </button>
+        </div>
+        {errorMessage && (
+          <div className="message-panel error" role="alert">{errorMessage}</div>
+        )}
+        <form className="admin-form company-form" onSubmit={handleSubmit}>
+          <label>
+            Company name
+            <input
+              autoComplete="organization"
+              onChange={(e) => setName(e.target.value)}
+              required
+              value={name}
+            />
+          </label>
+          <label>
+            Company slug / ID
+            <input
+              onChange={(e) => setSlug(e.target.value)}
+              pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+              placeholder="new-company"
+              value={slug}
+            />
+            <small>Auto-generated from name if left blank.</small>
+          </label>
+          <label>
+            Status
+            <select onChange={(e) => setStatus(e.target.value)} value={status}>
+              <option value="draft">Draft</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </label>
+          <label>
+            Currency
+            <input
+              onChange={(e) => setCurrency(e.target.value)}
+              placeholder="USD"
+              value={currency}
+            />
+          </label>
+          <label>
+            Language
+            <input
+              onChange={(e) => setLanguage(e.target.value)}
+              placeholder="en"
+              value={language}
+            />
+          </label>
+          <label>
+            Storefront URL
+            <input
+              onChange={(e) => setStorefrontUrl(e.target.value)}
+              placeholder="https://example.com/company"
+              type="url"
+              value={storefrontUrl}
+            />
+          </label>
+          <div className="form-actions full-field">
+            <button className="secondary-action" disabled={saving} onClick={close} type="button">
+              Cancel
+            </button>
+            <button className="admin-primary-button" disabled={saving} type="submit">
+              {saving ? "Creating..." : "Create company"}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 function AccessDenied() {
   return (
     <section className="admin-panel-card company-access-denied" role="alert">
@@ -298,6 +449,7 @@ function AdminCompaniesPage({
   const [selectedCompanyId, setSelectedCompanyId] = React.useState("");
   const [modulesCompany, setModulesCompany] = React.useState(null);
   const [form, setForm] = React.useState(cloneForm());
+  const [addDialogOpen, setAddDialogOpen] = React.useState(false);
   const onLogoutRef = React.useRef(onLogout);
 
   React.useEffect(() => {
@@ -419,6 +571,16 @@ function AdminCompaniesPage({
     }
   }
 
+  function handleDialogCreated(company) {
+    setCompanies((current) => {
+      const exists = current.some((c) => c.id === company.id);
+      return exists ? current.map((c) => (c.id === company.id ? company : c)) : [...current, company];
+    });
+    setSelectedCompanyId(company.id);
+    setSuccess("Company created.");
+    setError("");
+  }
+
   async function disableCompany(company) {
     if (company.isDefault) return;
     if (!window.confirm(`Disable ${company.name}? Its public resolution remains unavailable.`)) {
@@ -467,9 +629,9 @@ function AdminCompaniesPage({
               <strong>Platform companies</strong>
               <span>{companies.length} total</span>
             </div>
-            <button className="admin-primary-button" onClick={beginCreate} type="button">
+            <button className="admin-primary-button" onClick={() => setAddDialogOpen(true)} type="button">
               <Plus size={15} />
-              New company
+              Add Company
             </button>
           </div>
 
@@ -599,13 +761,25 @@ function AdminCompaniesPage({
             onSuccess={(message) => { setError(""); setSuccess(message); }}
           />}
 
-          <CompanyForm
-            company={editorCompany}
-            form={form}
-            isSaving={isSaving}
-            onCancel={beginCreate}
-            onChange={changeForm}
-            onSubmit={submitCompany}
+          {editorCompany && (
+            <CompanyForm
+              company={editorCompany}
+              form={form}
+              isSaving={isSaving}
+              onCancel={beginCreate}
+              onChange={changeForm}
+              onSubmit={submitCompany}
+            />
+          )}
+          <AddCompanyDialog
+            onCreated={handleDialogCreated}
+            onError={(requestError) => {
+              if (requestError.status === 401) void onLogout();
+              else if (requestError.status === 403) setAccessDenied(true);
+              else setError(requestError.message || "Unable to create company.");
+            }}
+            onOpenChange={setAddDialogOpen}
+            open={addDialogOpen}
           />
         </div>
       )}

@@ -42,11 +42,15 @@ function AdminLayout({
 
   React.useEffect(() => {
     setOpenSections((current) => {
+      let changed = false;
       const next = { ...current };
       sections.forEach((section) => {
-        if (section.items.some((item) => item.pageKey === activeKey) || section.id === "dashboard") next[section.id] = true;
+        if ((section.items.some((item) => item.pageKey === activeKey) || section.id === "dashboard") && !next[section.id]) {
+          next[section.id] = true;
+          changed = true;
+        }
       });
-      return next;
+      return changed ? next : current;
     });
   }, [activeKey, sections]);
 
