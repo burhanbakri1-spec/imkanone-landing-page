@@ -51,6 +51,10 @@ export async function enforceCompanyModuleAccess(req, res, next) {
   const selfSessionMatch = moduleKey === "people.employees" && ["employee", "staff"].includes(tenantRole) && req.method === "GET" && String(req.originalUrl || req.url || "").match(/^\/api\/work-sessions\/employees\/([^/]+)\/?$/);
   if (selfSessionMatch && selfSessionMatch[1] === user.id) return next();
   if (!req.companyId) return res.status(403).json({ message: "An active company scope is required." });
+  if (req.method === "GET" && ["catalog.categories", "catalog.brands"].includes(moduleKey) && user?.permissions?.some((p) => ["products.create", "products.update", "products.manage"].includes(p))) {
+    const productsEnabled = await companyModuleEnabledForCompany(req.companyId, "catalog.products", user);
+    if (productsEnabled) return next();
+  }
   if (!await companyModuleEnabledForCompany(req.companyId, moduleKey, user)) {
     return res.status(403).json({ message: "This module is disabled for the active company.", moduleKey });
   }

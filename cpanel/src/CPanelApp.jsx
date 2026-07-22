@@ -74,6 +74,7 @@ import {
   isPlatformAdmin,
   landingPageForRole,
   resolveAdminPage,
+  canReadCatalogFormOptions,
 } from "./utils/roles.js";
 
 import "./styles/global.css";
@@ -313,6 +314,10 @@ function CPanelApp() {
     if (moduleAllowsPage(modules, "admin-products") && canAccessAdminPage(currentUser, "admin-products")) void refreshProducts();
     if (moduleAllowsPage(modules, "admin-categories") && canAccessAdminPage(currentUser, "admin-categories")) void refreshCategories();
     if (moduleAllowsPage(modules, "admin-brands") && canAccessAdminPage(currentUser, "admin-brands")) void refreshBrands();
+    if (canReadCatalogFormOptions(currentUser) && moduleAllowsPage(modules, "admin-products")) {
+      void refreshCategories();
+      void refreshBrands();
+    }
     if (moduleAllowsPage(modules, "admin-orders") && canAccessAdminPage(currentUser, "admin-orders")) void refreshOrders(currentUser);
     if (moduleAllowsPage(modules, "admin-staff") && canAccessAdminPage(currentUser, "admin-staff")) void refreshEmployees(currentUser);
     if (moduleAllowsPage(modules, "admin-reviews") && canAccessAdminPage(currentUser, "admin-reviews")) void refreshAdminContent(currentUser);

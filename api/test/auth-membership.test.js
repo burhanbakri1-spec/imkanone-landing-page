@@ -1076,6 +1076,113 @@ test("employee product permission enforcement", async (t) => {
     assert.equal(otherEmployeeResult.response.status, 403);
     assert.equal(otherEmployeeResult.body.message, "Work session access denied.");
   });
+
+  // ── Category/brand product-form dependency tests ────────────────────────
+
+  let icareCategoryId;
+  let icareBrandId;
+
+  await t.test("setup known iCare categories and brands for product-form tests", async () => {
+    const cat = await request("/categories", {
+      token: icareCompanyAdmin.body.token,
+      method: "POST",
+      body: { slug: "product-form-category", name: { en: "Product Form Category" }, isActive: true },
+    });
+    assert.equal(cat.response.status, 201);
+    icareCategoryId = cat.body.id;
+
+    const br = await request("/brands", {
+      token: icareCompanyAdmin.body.token,
+      method: "POST",
+      body: { slug: "product-form-brand", name: "Product Form Brand", country: "PS", isActive: true },
+    });
+    assert.equal(br.response.status, 201);
+    icareBrandId = br.body.id;
+  });
+
+  await t.test("iCare product employee GET categories returns iCare categories", async () => {
+    const result = await request("/categories", { token: productEmp.body.token });
+    assert.equal(result.response.status, 200);
+    assert.ok(Array.isArray(result.body), "categories is an array");
+    assert.ok(result.body.some((c) => c.id === icareCategoryId), "iCare category is visible to iCare employee");
+  });
+
+  await t.test("iCare product employee GET brands returns iCare brands", async () => {
+    const result = await request("/brands", { token: productEmp.body.token });
+    assert.equal(result.response.status, 200);
+    assert.ok(Array.isArray(result.body), "brands is an array");
+    assert.ok(result.body.some((b) => b.id === icareBrandId), "iCare brand is visible to iCare employee");
+  });
+
+  await t.test("iCare product employee cannot POST a category", async () => {
+    const result = await request("/categories", {
+      token: productEmp.body.token,
+      method: "POST",
+      body: { slug: "employee-category", name: { en: "Employee Category" } },
+    });
+    assert.equal(result.response.status, 403);
+  });
+
+  await t.test("iCare product employee cannot POST a brand", async () => {
+    const result = await request("/brands", {
+      token: productEmp.body.token,
+      method: "POST",
+      body: { slug: "employee-brand", name: "Employee Brand" },
+    });
+    assert.equal(result.response.status, 403);
+  });
+
+  await t.test("iCare product employee cannot PATCH a category", async () => {
+    const result = await request(`/categories/${icareCategoryId}`, {
+      token: productEmp.body.token,
+      method: "PATCH",
+      body: { name: { en: "Hacked" } },
+    });
+    assert.equal(result.response.status, 403);
+  });
+
+  await t.test("iCare product employee cannot DELETE a category", async () => {
+    const result = await request(`/categories/${icareCategoryId}`, {
+      token: productEmp.body.token,
+      method: "DELETE",
+    });
+    assert.equal(result.response.status, 403);
+  });
+
+  await t.test("iCare product employee cannot DELETE a brand", async () => {
+    const result = await request(`/brands/${icareBrandId}`, {
+      token: productEmp.body.token,
+      method: "DELETE",
+    });
+    assert.equal(result.response.status, 403);
+  });
+
+  await t.test("iCare product employee cannot PATCH a brand", async () => {
+    const result = await request(`/brands/${icareBrandId}`, {
+      token: productEmp.body.token,
+      method: "PATCH",
+      body: { name: "Hacked" },
+    });
+    assert.equal(result.response.status, 403);
+  });
+
+  await t.test("EB Chemical employee cannot retrieve iCare category options", async () => {
+    const ebEmp = await login("employee@eb.test");
+    assert.equal(ebEmp.response.status, 200, "EB employee login ok");
+    const result = await request("/categories", { token: ebEmp.body.token });
+    assert.equal(result.response.status, 200);
+    assert.ok(Array.isArray(result.body), "categories is an array");
+    assert.equal(result.body.some((c) => c.id === icareCategoryId), false, "iCare category is absent from EB response");
+  });
+
+  await t.test("EB Chemical employee cannot retrieve iCare brand options", async () => {
+    const ebEmp = await login("employee@eb.test");
+    assert.equal(ebEmp.response.status, 200, "EB employee login ok");
+    const result = await request("/brands", { token: ebEmp.body.token });
+    assert.equal(result.response.status, 200);
+    assert.ok(Array.isArray(result.body), "brands is an array");
+    assert.equal(result.body.some((b) => b.id === icareBrandId), false, "iCare brand is absent from EB response");
+  });
 });
 
 test.after(async () => {

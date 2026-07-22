@@ -19,6 +19,7 @@ import { isValidCpanelUser, landingPage, resolvePage } from "../src/utils/cpanel
 import {
   adminDashboardPath,
   canAccessAdminPage,
+  canReadCatalogFormOptions,
   filterAccessiblePages,
   isAdminPortalRole,
   isCompanyAdmin,
@@ -350,6 +351,33 @@ test("company_admin retains full tenant page access without permission check", (
   assert.equal(canAccessAdminPage("company_admin", "admin-orders"), true);
   assert.equal(canAccessAdminPage("company_admin", "admin-customers"), true);
   assert.equal(canAccessAdminPage("company_admin", "admin-settings"), true);
+});
+
+// ── Product employee category/brand form dependency tests ──────────────────
+
+test("product employee cannot access admin-categories or admin-brands management pages", () => {
+  assert.equal(canAccessAdminPage(activeEmployeeUser, "admin-categories"), false);
+  assert.equal(canAccessAdminPage(activeEmployeeUser, "admin-brands"), false);
+});
+
+test("product employee has product form permissions for catalog dependencies", () => {
+  assert.equal(canReadCatalogFormOptions(activeEmployeeUser), true);
+});
+
+test("view-only product employee lacks product form permissions for catalog dependencies", () => {
+  assert.equal(canReadCatalogFormOptions(employeeViewOnly), false);
+});
+
+test("manager and company_admin are not considered catalog form options readers", () => {
+  assert.equal(canReadCatalogFormOptions({ role: "manager" }), false);
+  assert.equal(canReadCatalogFormOptions({ role: "company_admin" }), false);
+  assert.equal(canReadCatalogFormOptions({ role: "super_admin" }), false);
+});
+
+test("employee from another company cannot access iCare categories or brands at the page level", () => {
+  const otherCompanyEmployee = { ...activeEmployeeUser, activeCompany: { id: "other-company" } };
+  assert.equal(canAccessAdminPage(otherCompanyEmployee, "admin-categories"), false);
+  assert.equal(canAccessAdminPage(otherCompanyEmployee, "admin-brands"), false);
 });
 
 test("super_admin behavior remains unchanged", () => {

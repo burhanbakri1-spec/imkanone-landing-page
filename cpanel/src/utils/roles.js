@@ -121,3 +121,10 @@ export function tenantAccessNotice(role) {
   }
   return "Employee access: admin sections are available in view-only mode.";
 }
+
+export function canReadCatalogFormOptions(user) {
+  if (!user || !["employee", "staff"].includes(user.role)) return false;
+  return user.permissions?.some((p) =>
+    ["products.create", "products.update", "products.manage"].includes(p),
+  );
+}
