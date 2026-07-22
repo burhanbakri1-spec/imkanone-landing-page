@@ -12,6 +12,7 @@ export function isValidCpanelUser(user) {
   if (!user) return false;
   if (!isAdminPortalRole(user.role)) return false;
   if (user.isActive === false) return false;
+  if (isPlatformAdmin(user.role)) return true;
   if (!user.activeCompany) return false;
   if (user.activeCompany.status === "inactive") return false;
   if (user.companyId && user.activeCompany.id !== user.companyId) return false;

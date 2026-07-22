@@ -535,6 +535,45 @@ test("isValidCpanelUser rejects user with rejected role", () => {
   assert.equal(isValidCpanelUser(user), false);
 });
 
+// ── Super Admin isValidCpanelUser tests ────────────────────────────────────
+
+test("isValidCpanelUser accepts active Super Admin without activeCompany or activeMembership", () => {
+  const user = { role: "super_admin", isActive: true };
+  assert.equal(isValidCpanelUser(user), true);
+});
+
+test("isValidCpanelUser rejects inactive Super Admin", () => {
+  const user = { role: "super_admin", isActive: false };
+  assert.equal(isValidCpanelUser(user), false);
+});
+
+test("isValidCpanelUser rejects null user regardless of role", () => {
+  assert.equal(isValidCpanelUser(null), false);
+});
+
+test("isValidCpanelUser rejects employee without activeCompany or activeMembership", () => {
+  const user = { role: "employee", isActive: true };
+  assert.equal(isValidCpanelUser(user), false);
+});
+
+test("isValidCpanelUser rejects company_admin without activeMembership", () => {
+  const user = {
+    ...activeEmployeeUser,
+    role: "company_admin",
+    activeMembership: null,
+  };
+  assert.equal(isValidCpanelUser(user), false);
+});
+
+test("isValidCpanelUser accepts company_admin with valid active membership unchanged", () => {
+  const user = {
+    ...activeEmployeeUser,
+    role: "company_admin",
+    permissions: [],
+  };
+  assert.equal(isValidCpanelUser(user), true);
+});
+
 test("employee with product permissions must land on Products", () => {
   const user = {
     ...activeEmployeeUser,
