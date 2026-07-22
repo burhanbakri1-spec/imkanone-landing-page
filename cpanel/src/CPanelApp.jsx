@@ -496,13 +496,24 @@ function CPanelApp() {
   }
 
   async function handleSaveCategory(category) {
+    const isCatUpdate = Boolean(category.id);
+    if (isCatUpdate && !isCompanyAdmin(currentUser?.role) && !hasPermission(currentUser, "categories.update") && !hasPermission(currentUser, "categories.manage") && !hasPermission(currentUser, "products.update") && !hasPermission(currentUser, "products.manage")) {
+      setAdminMessageType("error");
+      setAdminMessage("You do not have permission to update categories.");
+      return;
+    }
+    if (!isCatUpdate && !isCompanyAdmin(currentUser?.role) && !hasPermission(currentUser, "categories.create") && !hasPermission(currentUser, "categories.manage") && !hasPermission(currentUser, "products.create") && !hasPermission(currentUser, "products.manage")) {
+      setAdminMessageType("error");
+      setAdminMessage("You do not have permission to create categories.");
+      return;
+    }
     try {
-      const saved = category.id
+      const saved = isCatUpdate
         ? await updateCategory(category)
         : await createCategory(category);
       await refreshCategories();
       setAdminMessageType("success");
-      setAdminMessage(category.id ? "Category changes saved." : "Category created.");
+      setAdminMessage(isCatUpdate ? "Category changes saved." : "Category created.");
       return saved;
     } catch (error) {
       handleApiError(error);
@@ -511,6 +522,11 @@ function CPanelApp() {
   }
 
   async function handleDeleteCategory(id) {
+    if (!isCompanyAdmin(currentUser?.role) && !hasPermission(currentUser, "categories.delete") && !hasPermission(currentUser, "categories.manage") && !hasPermission(currentUser, "products.delete") && !hasPermission(currentUser, "products.manage")) {
+      setAdminMessageType("error");
+      setAdminMessage("You do not have permission to delete categories.");
+      return;
+    }
     if (!window.confirm(t("admin.deleteConfirm"))) return;
     try {
       await deleteCategory(id);
@@ -523,13 +539,24 @@ function CPanelApp() {
   }
 
   async function handleSaveBrand(brand) {
+    const isBrandUpdate = Boolean(brand.id);
+    if (isBrandUpdate && !isCompanyAdmin(currentUser?.role) && !hasPermission(currentUser, "brands.update") && !hasPermission(currentUser, "brands.manage") && !hasPermission(currentUser, "products.update") && !hasPermission(currentUser, "products.manage")) {
+      setAdminMessageType("error");
+      setAdminMessage("You do not have permission to update brands.");
+      return;
+    }
+    if (!isBrandUpdate && !isCompanyAdmin(currentUser?.role) && !hasPermission(currentUser, "brands.create") && !hasPermission(currentUser, "brands.manage") && !hasPermission(currentUser, "products.create") && !hasPermission(currentUser, "products.manage")) {
+      setAdminMessageType("error");
+      setAdminMessage("You do not have permission to create brands.");
+      return;
+    }
     try {
-      const saved = brand.id
+      const saved = isBrandUpdate
         ? await updateBrand(brand)
         : await createBrand(brand);
       await refreshBrands();
       setAdminMessageType("success");
-      setAdminMessage(brand.id ? "Brand changes saved." : "Brand created.");
+      setAdminMessage(isBrandUpdate ? "Brand changes saved." : "Brand created.");
       return saved;
     } catch (error) {
       handleApiError(error);
@@ -538,6 +565,11 @@ function CPanelApp() {
   }
 
   async function handleDeleteBrand(id) {
+    if (!isCompanyAdmin(currentUser?.role) && !hasPermission(currentUser, "brands.delete") && !hasPermission(currentUser, "brands.manage") && !hasPermission(currentUser, "products.delete") && !hasPermission(currentUser, "products.manage")) {
+      setAdminMessageType("error");
+      setAdminMessage("You do not have permission to delete brands.");
+      return;
+    }
     if (!window.confirm(t("admin.deleteConfirm"))) return;
     try {
       await deleteBrand(id);

@@ -1114,56 +1114,167 @@ test("employee product permission enforcement", async (t) => {
     assert.ok(result.body.some((b) => b.id === icareBrandId), "iCare brand is visible to iCare employee");
   });
 
-  await t.test("iCare product employee cannot POST a category", async () => {
+  await t.test("iCare product employee with products.create can POST a category", async () => {
     const result = await request("/categories", {
       token: productEmp.body.token,
       method: "POST",
-      body: { slug: "employee-category", name: { en: "Employee Category" } },
+      body: { slug: "emp-created-category", name: { en: "Employee Created Category" }, isActive: true },
     });
-    assert.equal(result.response.status, 403);
+    assert.equal(result.response.status, 201, "employee with products.create can create a category");
+    assert.ok(result.body.id, "category has an id");
+    await request(`/categories/${result.body.id}`, { token: icareCompanyAdmin.body.token, method: "DELETE" });
   });
 
-  await t.test("iCare product employee cannot POST a brand", async () => {
+  await t.test("iCare product employee with products.create can POST a brand", async () => {
     const result = await request("/brands", {
       token: productEmp.body.token,
       method: "POST",
-      body: { slug: "employee-brand", name: "Employee Brand" },
+      body: { slug: "emp-created-brand", name: "Employee Created Brand", country: "PS", isActive: true },
+    });
+    assert.equal(result.response.status, 201, "employee with products.create can create a brand");
+    assert.ok(result.body.id, "brand has an id");
+    await request(`/brands/${result.body.id}`, { token: icareCompanyAdmin.body.token, method: "DELETE" });
+  });
+
+  await t.test("iCare product employee with products.update can PATCH a category", async () => {
+    const result = await request(`/categories/${icareCategoryId}`, {
+      token: productEmp.body.token,
+      method: "PATCH",
+      body: { name: { en: "Updated By Employee" } },
+    });
+    assert.equal(result.response.status, 200, "employee with products.update can update a category");
+    assert.equal(result.body.name?.en, "Updated By Employee");
+  });
+
+  await t.test("iCare product employee with products.update can PATCH a brand", async () => {
+    const result = await request(`/brands/${icareBrandId}`, {
+      token: productEmp.body.token,
+      method: "PATCH",
+      body: { name: "Updated By Employee" },
+    });
+    assert.equal(result.response.status, 200, "employee with products.update can update a brand");
+    assert.equal(result.body.name, "Updated By Employee");
+  });
+
+  await t.test("iCare product employee with products.delete can DELETE a category", async () => {
+    const cat = await request("/categories", {
+      token: icareCompanyAdmin.body.token,
+      method: "POST",
+      body: { slug: "emp-deletable-category", name: { en: "To Be Deleted" }, isActive: true },
+    });
+    assert.equal(cat.response.status, 201);
+    const result = await request(`/categories/${cat.body.id}`, {
+      token: productEmp.body.token,
+      method: "DELETE",
+    });
+    assert.equal(result.response.status, 204, "employee with products.delete can delete a category");
+  });
+
+  await t.test("iCare product employee with products.delete can DELETE a brand", async () => {
+    const br = await request("/brands", {
+      token: icareCompanyAdmin.body.token,
+      method: "POST",
+      body: { slug: "emp-deletable-brand", name: "To Be Deleted Brand", country: "PS", isActive: true },
+    });
+    assert.equal(br.response.status, 201);
+    const result = await request(`/brands/${br.body.id}`, {
+      token: productEmp.body.token,
+      method: "DELETE",
+    });
+    assert.equal(result.response.status, 204, "employee with products.delete can delete a brand");
+  });
+
+  await t.test("view-only employee GET categories returns 200", async () => {
+    const result = await request("/categories", { token: viewEmp.body.token });
+    assert.equal(result.response.status, 200);
+  });
+
+  await t.test("view-only employee cannot POST a category", async () => {
+    const result = await request("/categories", {
+      token: viewEmp.body.token,
+      method: "POST",
+      body: { slug: "view-emp-category", name: { en: "View Only Category" } },
     });
     assert.equal(result.response.status, 403);
   });
 
-  await t.test("iCare product employee cannot PATCH a category", async () => {
+  await t.test("view-only employee cannot PATCH a category", async () => {
     const result = await request(`/categories/${icareCategoryId}`, {
-      token: productEmp.body.token,
+      token: viewEmp.body.token,
       method: "PATCH",
       body: { name: { en: "Hacked" } },
     });
     assert.equal(result.response.status, 403);
   });
 
-  await t.test("iCare product employee cannot DELETE a category", async () => {
+  await t.test("view-only employee cannot DELETE a category", async () => {
     const result = await request(`/categories/${icareCategoryId}`, {
-      token: productEmp.body.token,
+      token: viewEmp.body.token,
       method: "DELETE",
     });
     assert.equal(result.response.status, 403);
   });
 
-  await t.test("iCare product employee cannot DELETE a brand", async () => {
-    const result = await request(`/brands/${icareBrandId}`, {
-      token: productEmp.body.token,
-      method: "DELETE",
+  await t.test("view-only employee cannot POST a brand", async () => {
+    const result = await request("/brands", {
+      token: viewEmp.body.token,
+      method: "POST",
+      body: { slug: "view-emp-brand", name: "View Only Brand" },
     });
     assert.equal(result.response.status, 403);
   });
 
-  await t.test("iCare product employee cannot PATCH a brand", async () => {
+  await t.test("view-only employee cannot PATCH a brand", async () => {
     const result = await request(`/brands/${icareBrandId}`, {
-      token: productEmp.body.token,
+      token: viewEmp.body.token,
       method: "PATCH",
       body: { name: "Hacked" },
     });
     assert.equal(result.response.status, 403);
+  });
+
+  await t.test("view-only employee cannot DELETE a brand", async () => {
+    const result = await request(`/brands/${icareBrandId}`, {
+      token: viewEmp.body.token,
+      method: "DELETE",
+    });
+    assert.equal(result.response.status, 403);
+  });
+
+  await t.test("create-only employee can POST but not update or delete categories", async () => {
+    const cat = await request("/categories", {
+      token: createEmp.body.token,
+      method: "POST",
+      body: { slug: "create-only-category", name: { en: "Create Only" }, isActive: true },
+    });
+    assert.equal(cat.response.status, 201, "create-only employee can create a category");
+    const patchResult = await request(`/categories/${cat.body.id}`, {
+      token: createEmp.body.token,
+      method: "PATCH",
+      body: { name: { en: "Updated" } },
+    });
+    assert.equal(patchResult.response.status, 403, "create-only employee cannot update");
+    const deleteResult = await request(`/categories/${cat.body.id}`, {
+      token: createEmp.body.token,
+      method: "DELETE",
+    });
+    assert.equal(deleteResult.response.status, 403, "create-only employee cannot delete");
+    await request(`/categories/${cat.body.id}`, { token: icareCompanyAdmin.body.token, method: "DELETE" });
+  });
+
+  await t.test("update-only employee can PATCH but not create or delete categories", async () => {
+    const cat = await request("/categories", {
+      token: updateEmp.body.token,
+      method: "POST",
+      body: { slug: "update-only-category", name: { en: "Update Only" }, isActive: true },
+    });
+    assert.equal(cat.response.status, 403, "update-only employee cannot create a category");
+    const patchResult = await request(`/categories/${icareCategoryId}`, {
+      token: updateEmp.body.token,
+      method: "PATCH",
+      body: { name: { en: "Updated By Update-Only" } },
+    });
+    assert.equal(patchResult.response.status, 200, "update-only employee can update a category");
   });
 
   await t.test("EB Chemical employee cannot retrieve iCare category options", async () => {

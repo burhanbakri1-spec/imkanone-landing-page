@@ -82,6 +82,15 @@ export function validateSortOrder(value) {
   return number;
 }
 
+const inheritedCatalogPermissions = {
+  "categories.create": ["products.create", "products.manage"],
+  "categories.update": ["products.update", "products.manage"],
+  "categories.delete": ["products.delete", "products.manage"],
+  "brands.create": ["products.create", "products.manage"],
+  "brands.update": ["products.update", "products.manage"],
+  "brands.delete": ["products.delete", "products.manage"],
+};
+
 export function requireTenantPermission(resource, action) {
   return (req, res, next) => {
     const isScopedSuperAdmin = req.tenantScope && req.membershipRole === "super_admin";
@@ -96,6 +105,10 @@ export function requireTenantPermission(resource, action) {
       || permissions.includes(`${resource}.${action}`)
       || permissions.includes(`${resource}.manage`)
     ) {
+      return next();
+    }
+    const inherited = inheritedCatalogPermissions[`${resource}.${action}`];
+    if (inherited && inherited.some((p) => permissions.includes(p))) {
       return next();
     }
     return res.status(403).json({ message: `${resource} permission required.` });

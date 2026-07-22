@@ -59,10 +59,24 @@ export async function listCompanyModules(companyId, { query = dropshippingQuery 
   return CPANEL_MODULE_DEFINITIONS.map((row) => normalize(row, companyId));
 }
 
+const inheritedModulePermissions = {
+  "catalog.categories": ["products.view", "products.create", "products.update", "products.delete", "products.manage"],
+  "catalog.brands": ["products.view", "products.create", "products.update", "products.delete", "products.manage"],
+};
+
 export function modulesVisibleToUser(modules, user) {
   const role = user?.globalRole === "super_admin" ? "super_admin" : user?.role;
   const permissions = new Set(user?.permissions || []);
-  return modules.filter((entry) => entry.enabled && entry.active && entry.allowed_roles?.includes(role) && (role === "super_admin" || ["company_admin", "admin", "manager"].includes(role) || !entry.required_permissions?.length || entry.required_permissions.some((permission) => permissions.has(permission))));
+  return modules.filter((entry) => {
+    if (!entry.enabled || !entry.active || !entry.allowed_roles?.includes(role)) return false;
+    if (role === "super_admin" || ["company_admin", "admin", "manager"].includes(role)) return true;
+    if (!entry.required_permissions?.length) return true;
+    const inherited = inheritedModulePermissions[entry.module_key];
+    const effectivePermissions = inherited
+      ? [...entry.required_permissions, ...inherited]
+      : entry.required_permissions;
+    return effectivePermissions.some((p) => permissions.has(p));
+  });
 }
 
 export async function companyModuleEnabled(companyId, moduleKey, user, options) {

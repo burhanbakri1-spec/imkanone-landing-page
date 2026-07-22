@@ -70,6 +70,11 @@ const employeeUpdateOnly = {
   permissions: ["products.view", "products.update"],
 };
 
+const employeeDeleteOnly = {
+  role: "employee",
+  permissions: ["products.view", "products.delete"],
+};
+
 const employeeAllPerms = {
   role: "employee",
   permissions: [
@@ -353,11 +358,114 @@ test("company_admin retains full tenant page access without permission check", (
   assert.equal(canAccessAdminPage("company_admin", "admin-settings"), true);
 });
 
-// ── Product employee category/brand form dependency tests ──────────────────
+// ── Product employee category/brand inherited permission tests ───────────
 
-test("product employee cannot access admin-categories or admin-brands management pages", () => {
-  assert.equal(canAccessAdminPage(activeEmployeeUser, "admin-categories"), false);
-  assert.equal(canAccessAdminPage(activeEmployeeUser, "admin-brands"), false);
+test("product employee with products.view can access admin-categories and admin-brands pages", () => {
+  assert.equal(canAccessAdminPage(activeEmployeeUser, "admin-categories"), true);
+  assert.equal(canAccessAdminPage(activeEmployeeUser, "admin-brands"), true);
+});
+
+test("view-only product employee (products.view only) can access admin-categories and admin-brands pages", () => {
+  assert.equal(canAccessAdminPage(employeeViewOnly, "admin-categories"), true);
+  assert.equal(canAccessAdminPage(employeeViewOnly, "admin-brands"), true);
+});
+
+test("employee without products.view cannot access admin-categories or admin-brands pages", () => {
+  const noView = { role: "employee", permissions: [] };
+  assert.equal(canAccessAdminPage(noView, "admin-categories"), false);
+  assert.equal(canAccessAdminPage(noView, "admin-brands"), false);
+});
+
+test("employee with products.create can access admin-categories-new and admin-brands-new pages", () => {
+  assert.equal(canAccessAdminPage(employeeCreateOnly, "admin-categories-new"), true);
+  assert.equal(canAccessAdminPage(employeeCreateOnly, "admin-brands-new"), true);
+});
+
+test("employee with products.update can access admin-categories-new and admin-brands-new pages", () => {
+  assert.equal(canAccessAdminPage(employeeUpdateOnly, "admin-categories-new"), true);
+  assert.equal(canAccessAdminPage(employeeUpdateOnly, "admin-brands-new"), true);
+});
+
+test("view-only employee cannot access admin-categories-new or admin-brands-new pages", () => {
+  assert.equal(canAccessAdminPage(employeeViewOnly, "admin-categories-new"), false);
+  assert.equal(canAccessAdminPage(employeeViewOnly, "admin-brands-new"), false);
+});
+
+test("view-only employee can access list pages but not new-form pages", () => {
+  assert.equal(canAccessAdminPage(employeeViewOnly, "admin-categories"), true);
+  assert.equal(canAccessAdminPage(employeeViewOnly, "admin-brands"), true);
+  assert.equal(canAccessAdminPage(employeeViewOnly, "admin-categories-new"), false);
+  assert.equal(canAccessAdminPage(employeeViewOnly, "admin-brands-new"), false);
+  assert.deepEqual(
+    filterAccessiblePages(employeeViewOnly, [
+      "admin-categories",
+      "admin-categories-new",
+      "admin-brands",
+      "admin-brands-new",
+    ]),
+    ["admin-categories", "admin-brands"],
+  );
+});
+
+test("create-only employee can access both list and new-form pages for categories and brands", () => {
+  assert.equal(canAccessAdminPage(employeeCreateOnly, "admin-categories"), true);
+  assert.equal(canAccessAdminPage(employeeCreateOnly, "admin-brands"), true);
+  assert.equal(canAccessAdminPage(employeeCreateOnly, "admin-categories-new"), true);
+  assert.equal(canAccessAdminPage(employeeCreateOnly, "admin-brands-new"), true);
+});
+
+test("update-only employee can access both list and new-form pages, but blank form guarded in UI", () => {
+  assert.equal(canAccessAdminPage(employeeUpdateOnly, "admin-categories"), true);
+  assert.equal(canAccessAdminPage(employeeUpdateOnly, "admin-brands"), true);
+  assert.equal(canAccessAdminPage(employeeUpdateOnly, "admin-categories-new"), true);
+  assert.equal(canAccessAdminPage(employeeUpdateOnly, "admin-brands-new"), true);
+});
+
+test("delete-only employee can access list pages but not new-form pages", () => {
+  assert.equal(canAccessAdminPage(employeeDeleteOnly, "admin-categories"), true);
+  assert.equal(canAccessAdminPage(employeeDeleteOnly, "admin-brands"), true);
+  assert.equal(canAccessAdminPage(employeeDeleteOnly, "admin-categories-new"), false);
+  assert.equal(canAccessAdminPage(employeeDeleteOnly, "admin-brands-new"), false);
+  assert.deepEqual(
+    filterAccessiblePages(employeeDeleteOnly, [
+      "admin-categories",
+      "admin-categories-new",
+      "admin-brands",
+      "admin-brands-new",
+    ]),
+    ["admin-categories", "admin-brands"],
+  );
+});
+
+test("resolveAdminPage for new category/brand forms falls to landing for view-only and delete-only", () => {
+  const pages = {
+    "admin-categories-new": "/admin/categories/new",
+    "admin-brands-new": "/admin/brands/new",
+  };
+  assert.equal(
+    resolveAdminPage("/admin/categories/new", employeeViewOnly, { ...pagePaths, ...pages }),
+    "admin",
+  );
+  assert.equal(
+    resolveAdminPage("/admin/categories/new", employeeDeleteOnly, { ...pagePaths, ...pages }),
+    "admin",
+  );
+  assert.equal(
+    resolveAdminPage("/admin/categories/new", employeeCreateOnly, { ...pagePaths, ...pages }),
+    "admin-categories-new",
+  );
+  assert.equal(
+    resolveAdminPage("/admin/categories/new", employeeUpdateOnly, { ...pagePaths, ...pages }),
+    "admin-categories-new",
+  );
+  assert.equal(
+    resolveAdminPage("/admin/brands/new", employeeCreateOnly, { ...pagePaths, ...pages }),
+    "admin-brands-new",
+  );
+  assert.equal(
+    resolveAdminPage("/admin/brands/new", employeeUpdateOnly, { ...pagePaths, ...pages }),
+    "admin-brands-new",
+  );
 });
 
 test("product employee has product form permissions for catalog dependencies", () => {
@@ -374,10 +482,10 @@ test("manager and company_admin are not considered catalog form options readers"
   assert.equal(canReadCatalogFormOptions({ role: "super_admin" }), false);
 });
 
-test("employee from another company cannot access iCare categories or brands at the page level", () => {
+test("canAccessAdminPage does not enforce company context; company isolation is handled by modules and API", () => {
   const otherCompanyEmployee = { ...activeEmployeeUser, activeCompany: { id: "other-company" } };
-  assert.equal(canAccessAdminPage(otherCompanyEmployee, "admin-categories"), false);
-  assert.equal(canAccessAdminPage(otherCompanyEmployee, "admin-brands"), false);
+  assert.equal(canAccessAdminPage(otherCompanyEmployee, "admin-categories"), true);
+  assert.equal(canAccessAdminPage(otherCompanyEmployee, "admin-brands"), true);
 });
 
 test("super_admin behavior remains unchanged", () => {

@@ -1611,6 +1611,12 @@ function AdminDashboardPage({
   const canCreateProducts = isCompanyAdmin(role) || ["products.create", "products.manage"].some((permission) => hasPermission(currentUser, permission));
   const canUpdateProducts = isCompanyAdmin(role) || ["products.update", "products.manage"].some((permission) => hasPermission(currentUser, permission));
   const canDeleteProducts = isCompanyAdmin(role) || ["products.delete", "products.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canCreateCategories = isCompanyAdmin(role) || ["categories.create", "categories.manage", "products.create", "products.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canUpdateCategories = isCompanyAdmin(role) || ["categories.update", "categories.manage", "products.update", "products.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canDeleteCategories = isCompanyAdmin(role) || ["categories.delete", "categories.manage", "products.delete", "products.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canCreateBrands = isCompanyAdmin(role) || ["brands.create", "brands.manage", "products.create", "products.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canUpdateBrands = isCompanyAdmin(role) || ["brands.update", "brands.manage", "products.update", "products.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canDeleteBrands = isCompanyAdmin(role) || ["brands.delete", "brands.manage", "products.delete", "products.manage"].some((permission) => hasPermission(currentUser, permission));
   const readOnly = !canEdit;
   const customers = uniqueCustomersFromOrders(orders);
   const [title, subtitle] = pageMeta[activePage] || pageMeta.admin;
@@ -1682,7 +1688,9 @@ function AdminDashboardPage({
             <button className="admin-primary-button" onClick={() => writeStorage(storageKey("vlogHero"), vlogHero)} type="button">Save Hero</button>
           </div>
         )}
-        <Toolbar addLabel={config.title} onAdd={readOnly ? null : () => {
+        <Toolbar addLabel={config.title} onAdd={readOnly && kind !== "categories" && kind !== "brands" ? null : () => {
+          if (kind === "categories" && !canCreateCategories) return;
+          if (kind === "brands" && !canCreateBrands) return;
           if (kind === "categories") setEditingCategory(null);
           if (kind === "brands") setEditingBrand(null);
           onNavigate(config.add);
@@ -1704,11 +1712,11 @@ function AdminDashboardPage({
                 {kind === "stores" ? (
                   <><td>{row.name}</td><td>{row.city}</td><td>{row.country}</td><td>{row.phone || "-"}</td><td><Badge>{row.active === false ? "Inactive" : "Active"}</Badge></td><td>{row.sort || index + 1}</td><td>-</td></>
                 ) : kind === "brands" ? (
-                  <><td>{row.logoUrl ? <img className="admin-thumb" src={row.logoUrl} alt="" /> : <span className="admin-logo-mini">{row.name?.charAt(0)}</span>}</td><td>{row.name}</td><td>{row.country}</td><td><Badge>{row.isActive === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>{formatDate(row.updatedAt)}</td><td>{!readOnly && <div className="row-actions"><button className="text-action" onClick={() => { setEditingBrand(row); onNavigate("admin-brands-new"); }} type="button">Edit</button><button className="text-action danger" onClick={() => onDeleteBrand(row.id)} type="button">Delete</button></div>}</td></>
+                  <><td>{row.logoUrl ? <img className="admin-thumb" src={row.logoUrl} alt="" /> : <span className="admin-logo-mini">{row.name?.charAt(0)}</span>}</td><td>{row.name}</td><td>{row.country}</td><td><Badge>{row.isActive === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>{formatDate(row.updatedAt)}</td><td>{(canUpdateBrands || canDeleteBrands) && <div className="row-actions">{canUpdateBrands && <button className="text-action" onClick={() => { setEditingBrand(row); onNavigate("admin-brands-new"); }} type="button">Edit</button>}{canDeleteBrands && <button className="text-action danger" onClick={() => onDeleteBrand(row.id)} type="button">Delete</button>}</div>}</td></>
                 ) : kind === "vlogs" ? (
                   <><td>{row.thumbnail ? <img className="admin-thumb" src={row.thumbnail} alt="" /> : "-"}</td><td>{row.title}</td><td>{row.featured ? "Featured" : "Standard"}</td><td><Badge>{row.active === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>-</td></>
                 ) : (
-                  <><td>{row.imageUrl ? <img className="admin-thumb" src={row.imageUrl} alt="" /> : <span className="admin-logo-mini">C</span>}</td><td>{getText(row.name, language)}</td><td>{row.parentId ? getText(adminCategories.find((category) => String(category.id) === String(row.parentId))?.name, language) || (language === "ar" ? "غير متاح" : "Not available") : "—"}</td><td><Badge>{row.isActive === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>{formatDate(row.updatedAt)}</td><td>{!readOnly && <div className="row-actions"><button className="text-action" onClick={() => { setEditingCategory(row); onNavigate("admin-categories-new"); }} type="button">Edit</button><button className="text-action danger" onClick={() => onDeleteCategory(row.id)} type="button">Delete</button></div>}</td></>
+                  <><td>{row.imageUrl ? <img className="admin-thumb" src={row.imageUrl} alt="" /> : <span className="admin-logo-mini">C</span>}</td><td>{getText(row.name, language)}</td><td>{row.parentId ? getText(adminCategories.find((category) => String(category.id) === String(row.parentId))?.name, language) || (language === "ar" ? "غير متاح" : "Not available") : "—"}</td><td><Badge>{row.isActive === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>{formatDate(row.updatedAt)}</td><td>{(canUpdateCategories || canDeleteCategories) && <div className="row-actions">{canUpdateCategories && <button className="text-action" onClick={() => { setEditingCategory(row); onNavigate("admin-categories-new"); }} type="button">Edit</button>}{canDeleteCategories && <button className="text-action danger" onClick={() => onDeleteCategory(row.id)} type="button">Delete</button>}</div>}</td></>
                 )}
               </tr>
             )) : <tr><td colSpan="7"><EmptyState title={kind === "vlogs" ? "No vlogs yet" : "No records yet"} description={kind === "vlogs" ? "Create your first vlog entry for the storefront." : ""} /></td></tr>}
@@ -1719,18 +1727,24 @@ function AdminDashboardPage({
   }
 
   function renderEntityForm(kind) {
-    if (!canEdit) return <EmptyState title="View-only access" description="You do not have permission to create records." />;
     if (kind === "category") {
       const current = editingCategory;
+      if (current && !canUpdateCategories) return <EmptyState title="Access denied" description="You do not have permission to edit categories." />;
+      if (!current && !canCreateCategories) return <EmptyState title="Access denied" description="You do not have permission to create categories." />;
       return <GenericEntityForm isEditing={Boolean(current)} language={language} title={current ? "Edit Category" : "New Category"} initial={{ active: current?.isActive !== false, description: getText(current?.description, language), image: current?.imageUrl || "", name: getText(current?.name, language), parentId: current?.parentId || "", slug: current?.slug || "" }} fields={[
         { name: "name", label: "Category Name *", required: true }, { name: "slug", label: "Slug" }, { name: "description", label: "Description", type: "textarea" }, { name: "image", label: "Category Image", type: "media" }, { name: "parentId", label: "Parent Category", type: "select", options: [{ value: "", label: "None (top-level)" }, ...adminCategories.map((category) => ({ value: category.id, label: getText(category.name) }))] }, { name: "active", label: "Active", type: "checkbox" }, { name: "metaTitle", label: "Meta Title" }, { name: "metaDescription", label: "Meta Description", type: "textarea" },
       ]} onCancel={() => { setEditingCategory(null); onNavigate("admin-categories"); }} onSave={async (form) => { await onSaveCategory({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.name), name: createLocalizedCopy(form.name, form.name), description: form.description ? createLocalizedCopy(form.description, form.description) : null, imageUrl: form.image || null, parentId: form.parentId || null, isActive: form.active }); setEditingCategory(null); onNavigate("admin-categories", { preserveStatusMessage: true }); }} />;
     }
     if (kind === "brand") {
       const current = editingBrand;
+      if (current && !canUpdateBrands) return <EmptyState title="Access denied" description="You do not have permission to edit brands." />;
+      if (!current && !canCreateBrands) return <EmptyState title="Access denied" description="You do not have permission to create brands." />;
       return <GenericEntityForm isEditing={Boolean(current)} language={language} title={current ? "Edit Brand" : "New Brand"} initial={{ active: current?.isActive !== false, country: current?.country || "", logo: current?.logoUrl || "", name: current?.name || "", slug: current?.slug || "" }} fields={[
         { name: "name", label: "Brand Name *", required: true }, { name: "slug", label: "Slug" }, { name: "description", label: "Description", type: "textarea" }, { name: "country", label: "Country" }, { name: "website", label: "Website" }, { name: "logo", label: "Brand Logo", type: "media" }, { name: "active", label: "Active", type: "checkbox" }, { name: "metaTitle", label: "Meta Title" }, { name: "metaDescription", label: "Meta Description", type: "textarea" },
       ]} onCancel={() => { setEditingBrand(null); onNavigate("admin-brands"); }} onSave={async (form) => { await onSaveBrand({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.name), name: form.name, country: form.country || null, logoUrl: form.logo || null, isActive: form.active }); setEditingBrand(null); onNavigate("admin-brands", { preserveStatusMessage: true }); }} />;
+    }
+    if (kind === "vlog" && !canEdit) {
+      return <EmptyState title="View-only access" description="You do not have permission to create records." />;
     }
     if (kind === "vlog") {
       return <GenericEntityForm title="New Vlog" initial={{ active: true, featured: false }} fields={[
