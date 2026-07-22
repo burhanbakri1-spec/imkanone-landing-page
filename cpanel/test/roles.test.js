@@ -586,6 +586,24 @@ test("employee with product permissions must land on Products", () => {
   assert.equal(result, "admin-products");
 });
 
+test("fresh employee login before modules load does not permanently land on admin-no-access", () => {
+  const employeeBeforeModules = {
+    ...activeEmployeeUser,
+    activeCompany: { ...activeEmployeeUser.activeCompany, modules: [] },
+  };
+  const beforeModules = landingPage(employeeBeforeModules);
+  assert.equal(beforeModules, "admin-no-access");
+  const employeeAfterModules = {
+    ...activeEmployeeUser,
+    activeCompany: {
+      ...activeEmployeeUser.activeCompany,
+      modules: [{ route: "/admin/products", enabled: true }],
+    },
+  };
+  const afterModules = landingPage(employeeAfterModules);
+  assert.equal(afterModules, "admin-products");
+});
+
 test("employee with no accessible page must land on admin-no-access", () => {
   const user = {
     ...activeEmployeeUser,

@@ -158,9 +158,9 @@ function CPanelApp() {
   const t = React.useMemo(() => createTranslator(language), [language]);
 
   function navigate(page, options = {}) {
-    const authorizationUser = Object.prototype.hasOwnProperty.call(options, "role")
+    const authorizationUser = options.user || (Object.prototype.hasOwnProperty.call(options, "role")
       ? (options.role ? { role: options.role } : null)
-      : currentUser;
+      : currentUser);
     const navigationCompany = Object.prototype.hasOwnProperty.call(options, "company") ? options.company : company;
     const navigationModules = options.modules || modules;
     const roleAllowed = pagePaths[page] && canAccessAdminPage(authorizationUser, page);
@@ -287,7 +287,7 @@ function CPanelApp() {
   }, [activePage, currentUser, modules, t]);
 
   React.useEffect(() => {
-    if (!company || !currentUser || activePage === "admin-login" || activePage === "admin-no-access") return;
+    if (!company || !currentUser || activePage === "admin-login") return;
     if (currentUser.role === "manager") return;
     if (["company_admin", "admin"].includes(currentUser.role)) return;
     const allowedByModule = !modules.length || moduleAllowsPage(modules, activePage);
@@ -435,7 +435,10 @@ function CPanelApp() {
       }
       setUser(session.user);
       setCompany(session.activeCompany || null);
-      navigate(landingPage(session.user, session.activeCompany?.modules), { role: session.user.role });
+      navigate(landingPage(session.user, session.activeCompany?.modules), {
+        user: session.user,
+        modules: session.activeCompany?.modules || [],
+      });
     } catch (error) {
       setAdminLoginMessage(error.message || t("auth.loginFailed"));
     }
