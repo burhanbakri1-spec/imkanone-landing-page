@@ -6,10 +6,15 @@ import { isSupabaseConfigured } from "../data/postgresStore.js";
 import { dropshippingQuery, withDropshippingTransaction } from "../dropshipping/database.js";
 import {
   companies,
+  companyDomains,
   companyMemberships,
   companyMembershipRepository,
   companyRepository,
+  getCompanyDomainsByCompany,
+  getDomainEntryById,
   platformUserRepository,
+  removeDomainEntry,
+  upsertDomainEntry,
   users,
 } from "../data/store.js";
 import {
@@ -54,6 +59,197 @@ const allowedMembershipStatuses = new Set(["active", "inactive"]);
 
 router.use(requireAuth, requireSuperAdmin);
 
+function isSupabaseWritable() {
+  return isSupabaseConfigured() && process.env.NODE_ENV !== "test";
+}
+
+router.get("/domains", (_req, res) => {
+  const result = companyDomains.map((entry) => ({
+    id: entry.id,
+    company_id: entry.company_id,
+    domain: entry.domain,
+    is_primary: entry.is_primary === true,
+    is_active: entry.is_active !== false,
+    is_verified: entry.is_verified === true,
+    created_at: entry.created_at,
+    updated_at: entry.updated_at,
+    company_name: companyRepository.getCompanyById(entry.company_id)?.name || "",
+  }));
+  res.json(result);
+});
+
+router.post("/domains", async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      throw Object.assign(new Error("Request body must be an object."), { statusCode: 400 });
+    }
+    const companyId = String(body.company_id || "").trim().toLowerCase();
+    if (!companyId || !companyRepository.getCompanyById(companyId)) {
+      throw Object.assign(new Error("Valid company_id is required."), { statusCode: 400 });
+    }
+    const domain = validateHostname(body.domain);
+    if (!domain) throw Object.assign(new Error("hostname is required."), { statusCode: 400 });
+
+    const duplicate = companyDomains.find((d) => d.domain === domain);
+    if (duplicate) {
+      throw Object.assign(new Error("This hostname already belongs to another company."), { statusCode: 409 });
+    }
+
+    const isPrimary = body.is_primary === true;
+    const isActive = body.is_active !== false;
+    const isVerified = body.is_verified === true;
+
+    if (isPrimary && (!isActive || !isVerified)) {
+      throw Object.assign(new Error("A primary domain must be active and verified."), { statusCode: 400 });
+    }
+
+    const id = body.id || `domain-${crypto.randomUUID().slice(0, 12)}`;
+    const now = new Date().toISOString();
+
+    const entry = {
+      id, company_id: companyId, domain,
+      is_primary: isPrimary, is_active: isActive, is_verified: isVerified,
+      created_at: now, updated_at: now,
+    };
+
+    if (isSupabaseWritable()) {
+      await withDropshippingTransaction(async (client) => {
+        const existing = await client.query("select id from public.company_domains where domain = $1", [domain]);
+        if (existing.rows.length) {
+          throw Object.assign(new Error("This hostname already belongs to another company."), { statusCode: 409 });
+        }
+        if (isPrimary) {
+          await client.query(
+            "update public.company_domains set is_primary = false, updated_at = $1 where company_id = $2 and is_primary = true",
+            [now, companyId],
+          );
+        }
+        await client.query(
+          `insert into public.company_domains (id, company_id, domain, is_primary, is_active, is_verified, created_at, updated_at) values ($1, $2, $3, $4, $5, $6, $7, $7)`,
+          [id, companyId, domain, isPrimary, isActive, isVerified, now],
+        );
+      });
+    }
+
+    if (isPrimary) {
+      for (const d of companyDomains) {
+        if (d.company_id === companyId && d.id !== id && d.is_primary) {
+          d.is_primary = false;
+        }
+      }
+    }
+
+    upsertDomainEntry(entry);
+    return res.status(201).json(entry);
+  } catch (error) {
+    const code = Number(error?.statusCode || 500);
+    if (code >= 500) console.error("Create domain failed.", error?.message || error);
+    return res.status(code).json({ message: error.message || "Create domain failed." });
+  }
+});
+
+router.patch("/domains/:id", async (req, res) => {
+  try {
+    const existing = getDomainEntryById(req.params.id);
+    if (!existing) throw Object.assign(new Error("Domain not found."), { statusCode: 404 });
+
+    const body = req.body || {};
+    const changes = {};
+    if (body.hasOwnProperty("company_id")) {
+      const cid = String(body.company_id).trim().toLowerCase();
+      if (!cid || !companyRepository.getCompanyById(cid)) {
+        throw Object.assign(new Error("Valid company_id is required."), { statusCode: 400 });
+      }
+      changes.company_id = cid;
+    }
+    if (body.hasOwnProperty("domain")) {
+      const domain = validateHostname(body.domain);
+      if (!domain) throw Object.assign(new Error("hostname is required."), { statusCode: 400 });
+      const dup = companyDomains.find((d) => d.domain === domain && d.id !== req.params.id);
+      if (dup) {
+        throw Object.assign(new Error("This hostname already belongs to another company."), { statusCode: 409 });
+      }
+      changes.domain = domain;
+    }
+    if (body.hasOwnProperty("is_primary")) changes.is_primary = body.is_primary === true;
+    if (body.hasOwnProperty("is_active")) changes.is_active = body.is_active !== false;
+    if (body.hasOwnProperty("is_verified")) changes.is_verified = body.is_verified === true;
+
+    if (!Object.keys(changes).length) {
+      throw Object.assign(new Error("No supported fields provided."), { statusCode: 400 });
+    }
+
+    if (changes.is_primary === true) {
+      const effectiveActive = Object.hasOwn(changes, "is_active") ? changes.is_active : existing.is_active;
+      const effectiveVerified = Object.hasOwn(changes, "is_verified") ? changes.is_verified : existing.is_verified;
+      if (!effectiveActive || !effectiveVerified) {
+        throw Object.assign(new Error("A primary domain must be active and verified."), { statusCode: 400 });
+      }
+    }
+
+    if (isSupabaseWritable()) {
+      await withDropshippingTransaction(async (client) => {
+        if (changes.domain && changes.domain !== existing.domain) {
+          const dup = await client.query("select id from public.company_domains where domain = $1 and id <> $2", [changes.domain, req.params.id]);
+          if (dup.rows.length) {
+            throw Object.assign(new Error("This hostname already belongs to another company."), { statusCode: 409 });
+          }
+        }
+        if (changes.is_primary === true) {
+          const companyId = changes.company_id || existing.company_id;
+          await client.query(
+            "update public.company_domains set is_primary = false, updated_at = $1 where company_id = $2 and is_primary = true and id <> $3",
+            [new Date().toISOString(), companyId, req.params.id],
+          );
+        }
+        const { text, params } = buildDomainUpdateQuery(changes, req.params.id);
+        await client.query(text, params);
+      });
+    }
+
+    if (changes.is_primary === true) {
+      const targetCompanyId = changes.company_id || existing.company_id;
+      for (const d of companyDomains) {
+        if (d.company_id === targetCompanyId && d.id !== req.params.id && d.is_primary) {
+          d.is_primary = false;
+        }
+      }
+    }
+
+    const updated = upsertDomainEntry({
+      ...existing,
+      ...changes,
+      updated_at: new Date().toISOString(),
+    });
+    return res.json(updated);
+  } catch (error) {
+    const code = Number(error?.statusCode || 500);
+    if (code >= 500) console.error("Update domain failed.", error?.message || error);
+    return res.status(code).json({ message: error.message || "Update domain failed." });
+  }
+});
+
+router.delete("/domains/:id", async (req, res) => {
+  try {
+    const existing = getDomainEntryById(req.params.id);
+    if (!existing) throw Object.assign(new Error("Domain not found."), { statusCode: 404 });
+
+    if (isSupabaseWritable()) {
+      await withDropshippingTransaction(async (client) => {
+        await client.query("delete from public.company_domains where id = $1", [req.params.id]);
+      });
+    }
+
+    removeDomainEntry(req.params.id);
+    return res.status(204).end();
+  } catch (error) {
+    const code = Number(error?.statusCode || 500);
+    if (code >= 500) console.error("Delete domain failed.", error?.message || error);
+    return res.status(code).json({ message: error.message || "Delete domain failed." });
+  }
+});
+
 function hasOwn(source, key) {
   return Object.prototype.hasOwnProperty.call(source, key);
 }
@@ -62,6 +258,25 @@ function validationError(message) {
   const error = new Error(message);
   error.statusCode = 400;
   return error;
+}
+
+export function buildDomainUpdateQuery(changes, domainId) {
+  const setClauses = [];
+  const params = [];
+  let idx = 1;
+  for (const [key, value] of Object.entries(changes)) {
+    setClauses.push(`${key} = $${idx}`);
+    params.push(value);
+    idx++;
+  }
+  setClauses.push(`updated_at = $${idx}`);
+  params.push(new Date().toISOString());
+  const whereIdx = idx + 1;
+  params.push(domainId);
+  return {
+    text: `update public.company_domains set ${setClauses.join(", ")} where id = $${whereIdx}`,
+    params,
+  };
 }
 
 function validateSettings(value) {
@@ -86,18 +301,28 @@ function validateSettings(value) {
   return sanitizePublicCompanySettings(value);
 }
 
-function validateDomain(value) {
+function validateHostname(value) {
   if (value === null || value === "") return "";
-  if (typeof value !== "string") throw validationError("domain must be a string.");
-  const normalized = normalizeCompanyHost(value);
-  const labels = normalized.split(".");
-  const isSafeDomain = normalized.length <= 253 && labels.every(
-    (label) => label.length > 0
-      && label.length <= 63
-      && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label),
-  );
-  if (!isSafeDomain) throw validationError("domain is invalid.");
-  return normalized;
+  if (typeof value !== "string") throw validationError("hostname must be a string.");
+  if (value !== value.trim()) throw validationError("hostname must not include leading or trailing whitespace.");
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed.includes("://")) throw validationError("hostname must not include a scheme.");
+  if (trimmed.includes("/")) throw validationError("hostname must not include a path.");
+  if (trimmed.includes("?")) throw validationError("hostname must not include a query string.");
+  if (trimmed.includes("#")) throw validationError("hostname must not include a hash.");
+  if (trimmed.includes(":")) throw validationError("hostname must not include a port.");
+  if (trimmed.includes("*")) throw validationError("hostname must not include wildcards.");
+  if (trimmed.includes(" ")) throw validationError("hostname must not include spaces.");
+  if (trimmed.includes("..")) throw validationError("hostname must not include consecutive dots.");
+  if (trimmed.startsWith(".") || trimmed.endsWith(".")) throw validationError("hostname must not start or end with a dot.");
+  const labels = trimmed.split(".");
+  if (labels.some((label) => !label.length)) throw validationError("hostname must not contain empty labels.");
+  if (labels.some((label) => label.length > 63)) throw validationError("each hostname label must be 63 characters or fewer.");
+  if (trimmed.length > 253) throw validationError("hostname must be 253 characters or fewer.");
+  if (!labels.every((label) => /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label) || /^[a-z0-9]$/.test(label))) {
+    throw validationError("hostname contains invalid characters.");
+  }
+  return trimmed;
 }
 
 function validateStorefrontUrl(value) {
@@ -149,7 +374,7 @@ function validateCreateBody(body) {
     name,
     slug,
     status: hasOwn(body, "status") ? validateStatus(body.status) : "draft",
-    domain: hasOwn(body, "domain") ? validateDomain(body.domain) : "",
+    domain: hasOwn(body, "domain") ? validateHostname(body.domain) : "",
     storefrontUrl: hasOwn(body, "storefrontUrl") ? validateStorefrontUrl(body.storefrontUrl) : "",
     storefrontPath: hasOwn(body, "storefrontPath") ? validateStorefrontPath(body.storefrontPath) : "",
     settings: hasOwn(body, "settings") ? validateSettings(body.settings) : {},
@@ -180,7 +405,7 @@ function validateUpdateBody(body) {
     changes.slug = slug;
   }
   if (hasOwn(body, "status")) changes.status = validateStatus(body.status);
-  if (hasOwn(body, "domain")) changes.domain = validateDomain(body.domain);
+  if (hasOwn(body, "domain")) changes.domain = validateHostname(body.domain);
   if (hasOwn(body, "storefrontUrl")) changes.storefrontUrl = validateStorefrontUrl(body.storefrontUrl);
   if (hasOwn(body, "storefrontPath")) changes.storefrontPath = validateStorefrontPath(body.storefrontPath);
   if (hasOwn(body, "settings")) changes.settings = validateSettings(body.settings);

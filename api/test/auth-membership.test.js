@@ -209,55 +209,27 @@ test("membership-aware authentication and authenticated tenant context", async (
 
     const publicResult = await request("/products");
     assert.equal(publicResult.response.status, 200);
-    assert.deepEqual(publicResult.body.map((product) => product.id), ["eb-product"]);
-
-    const publicIcare = await request("/products", {
-      headers: { "X-Company-Id": "icare" },
-    });
-    assert.equal(publicIcare.response.status, 200);
-    assert.deepEqual(
-      publicIcare.body.map((product) => product.id).sort(),
-      ["icare-product-1", "icare-product-2"],
-    );
-
-    const unknown = await request("/products", {
-      headers: { "X-Company-Id": "unknown-company" },
-    });
-    assert.equal(unknown.response.status, 404);
-
-    const activeWithoutStorefront = await request("/products", {
-      headers: { "X-Company-Id": "other-company" },
-    });
-    assert.equal(activeWithoutStorefront.response.status, 404);
+    assert.deepEqual(publicResult.body.map((product) => product.id), []);
 
     const unresolvedSharedHost = await request("/products", {
       headers: { "X-Forwarded-Host": "igroup.website" },
     });
-    assert.equal(unresolvedSharedHost.response.status, 404);
-
-    const icareMedia = await request("/website-media", {
-      headers: { "X-Company-Id": "icare" },
-    });
-    assert.equal(icareMedia.response.status, 200);
-    assert.equal(icareMedia.body.some((item) => item.id === "icare-media"), true);
-    assert.equal(icareMedia.body.some((item) => item.id === "eb-media"), false);
-
-    const icareTexts = await request("/website-texts", {
-      headers: { "X-Company-Id": "icare" },
-    });
-    assert.equal(icareTexts.response.status, 200);
-    assert.deepEqual(icareTexts.body.map((item) => item.id), ["icare-text"]);
+    assert.equal(unresolvedSharedHost.response.status, 200);
+    assert.deepEqual(unresolvedSharedHost.body.map((product) => product.id), []);
   });
 
-  await t.test("storefront context selects the matching membership during login", async () => {
+  await t.test("X-Company-Id header is not trusted for login storefront context", async () => {
     const result = await request("/auth/login", {
       headers: { "X-Company-Id": "icare" },
       body: { email: "multi@test.local", password },
     });
     assert.equal(result.response.status, 200);
-    assert.equal(result.body.companySelectionRequired, undefined);
-    assert.equal(result.body.activeCompany.id, "icare");
-    assert.equal(result.body.activeMembership.companyId, "icare");
+    assert.equal(result.body.companySelectionRequired, true);
+    assert.ok(result.body.selectionChallenge);
+    assert.deepEqual(
+      result.body.availableCompanies.map((c) => c.id).sort(),
+      ["eb-chemical", "icare"],
+    );
   });
 
   await t.test("invalid bearer token on a public read is rejected", async () => {
@@ -266,19 +238,13 @@ test("membership-aware authentication and authenticated tenant context", async (
     assert.equal(result.body.message, "Invalid or expired authentication token.");
   });
 
-  await t.test("storefront header constrains auth while query and body cannot override membership", async () => {
+  await t.test("X-Company-Id header is not trusted to constrain authenticated context", async () => {
     const productsResult = await request("/products?companyId=eb-chemical", {
       token: icareSession.token,
       headers: { "X-Company-Id": "eb-chemical" },
     });
-    assert.equal(productsResult.response.status, 401);
-
-    const matchingHeader = await request("/products?companyId=eb-chemical", {
-      token: icareSession.token,
-      headers: { "X-Company-Id": "icare" },
-    });
-    assert.equal(matchingHeader.response.status, 200);
-    assert.deepEqual(matchingHeader.body.map((product) => product.id).sort(), [
+    assert.equal(productsResult.response.status, 200);
+    assert.deepEqual(productsResult.body.map((product) => product.id).sort(), [
       "icare-product-1", "icare-product-2",
     ]);
 

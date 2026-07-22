@@ -57,6 +57,60 @@ import {
   resolveStorefrontCompany,
   selectPreferredCompanyDomains,
 } from "../tenancy/company.js";
+
+export const companyDomains = [];
+export function initializeDomainRegistry(domainRows = []) {
+  companyDomains.length = 0;
+  for (const row of domainRows) {
+    companyDomains.push({
+      id: row.id,
+      company_id: row.company_id || row.companyId,
+      domain: String(row.domain || "").toLowerCase(),
+      is_primary: row.is_primary === true,
+      is_active: row.is_active !== false,
+      is_verified: row.is_verified === true,
+      created_at: row.created_at || row.createdAt || new Date().toISOString(),
+      updated_at: row.updated_at || row.updatedAt || new Date().toISOString(),
+    });
+  }
+}
+
+export function resolveByActiveVerifiedDomain(normalizedHost) {
+  if (!normalizedHost) return null;
+  for (const entry of companyDomains) {
+    if (
+      entry.is_active
+      && entry.is_verified
+      && normalizeCompanyHost(entry.domain) === normalizedHost
+    ) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+export function getCompanyDomainsByCompany(companyId) {
+  return companyDomains.filter((d) => d.company_id === companyId);
+}
+
+export function getDomainEntryById(id) {
+  return companyDomains.find((d) => d.id === id) || null;
+}
+
+export function upsertDomainEntry(entry) {
+  const existing = companyDomains.findIndex((d) => d.id === entry.id);
+  if (existing >= 0) {
+    companyDomains[existing] = { ...companyDomains[existing], ...entry };
+    return companyDomains[existing];
+  }
+  companyDomains.push(entry);
+  return entry;
+}
+
+export function removeDomainEntry(id) {
+  const idx = companyDomains.findIndex((d) => d.id === id);
+  if (idx >= 0) companyDomains.splice(idx, 1);
+}
 import { hashPassword, isPasswordHash } from "../auth/passwords.js";
 import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
 
@@ -553,21 +607,41 @@ function serializeCompany(company) {
 
 async function readInitialStore() {
   if (!isSupabaseConfigured()) {
-    return { persisted: readPersistedStore(), canPersistToSupabase: false };
+    const persisted = readPersistedStore();
+    if (Array.isArray(persisted?.domains)) {
+      initializeDomainRegistry(persisted.domains);
+    } else {
+      initializeDomainRegistry((persisted?.companies || []).flatMap((c) => {
+        const d = c.domain;
+        return d ? [{ id: c._domainId || `domain-${c.id}`, company_id: c.id, domain: d, is_primary: true, is_active: true, is_verified: false }] : [];
+      }));
+    }
+    return { persisted, canPersistToSupabase: false };
   }
 
   try {
     const result = await loadPlatformStoreFromSupabase();
     const localFallback = readPersistedStore();
+    const store = result.isEmpty
+      ? { ...(localFallback || {}), companies: result.store.companies || [] }
+      : result.store;
+    initializeDomainRegistry(result.rawDomains || []);
     return {
-      persisted: result.isEmpty
-        ? { ...(localFallback || {}), companies: result.store.companies || [] }
-        : result.store,
+      persisted: store,
       canPersistToSupabase: true,
     };
   } catch (error) {
     console.warn("Could not read Supabase store, using local fallback without remote writes.", error.message);
-    return { persisted: readPersistedStore(), canPersistToSupabase: false };
+    const persisted = readPersistedStore();
+    if (Array.isArray(persisted?.domains)) {
+      initializeDomainRegistry(persisted.domains);
+    } else {
+      initializeDomainRegistry((persisted?.companies || []).flatMap((c) => {
+        const d = c.domain;
+        return d ? [{ id: c._domainId || `domain-${c.id}`, company_id: c.id, domain: d, is_primary: true, is_active: true, is_verified: false }] : [];
+      }));
+    }
+    return { persisted, canPersistToSupabase: false };
   }
 }
 
@@ -720,6 +794,7 @@ class TenantRepository {
   }
 
   getByCompany(companyId) {
+    if (companyId == null) return [];
     const normalized = normalizeCompanyId(companyId);
     return this.collection.filter((record) => getRecordCompanyId(record) === normalized);
   }

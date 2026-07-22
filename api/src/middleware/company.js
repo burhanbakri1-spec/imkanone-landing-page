@@ -1,9 +1,5 @@
-import {
-  DEFAULT_COMPANY_ID,
-  defaultCompany,
-  normalizeCompanyHost,
-} from "../tenancy/company.js";
-import { companyRepository } from "../data/store.js";
+import { normalizeCompanyHost } from "../tenancy/company.js";
+import { companyRepository, resolveByActiveVerifiedDomain } from "../data/store.js";
 
 function requestHost(req) {
   const forwardedHost = req.headers["x-forwarded-host"];
@@ -14,32 +10,44 @@ function requestHost(req) {
 }
 
 export function resolveCompany(req, res, next) {
-  req.companyHost = requestHost(req);
-  const suppliedCompanyId = String(req.headers["x-company-id"] || "").trim().toLowerCase();
-  const dedicatedCompany = companyRepository.resolveStorefront(req.companyHost, "/");
-  const suppliedCompany = suppliedCompanyId
-    ? companyRepository.getCompanyById(suppliedCompanyId)
-    : null;
+  const origin = String(req.headers.origin || "").trim();
+  const hasOrigin = Boolean(origin);
 
-  if (
-    suppliedCompanyId
-    && (
-      !suppliedCompany
-      || suppliedCompany.status !== "active"
-      || !companyRepository.hasResolvableStorefront(suppliedCompany.id)
-    )
-  ) {
-    return res.status(404).json({ message: "Storefront company not found or inactive." });
-  }
-  if (suppliedCompany && dedicatedCompany && suppliedCompany.id !== dedicatedCompany.id) {
-    return res.status(403).json({ message: "Storefront company does not match the request domain." });
-  }
-  if (!suppliedCompany && !dedicatedCompany && companyRepository.isSharedStorefrontHost(req.companyHost)) {
-    return res.status(404).json({ message: "A resolved storefront company is required." });
+  if (hasOrigin) {
+    if (origin.startsWith("https://")) {
+      let originHost = "";
+      try { originHost = normalizeCompanyHost(new URL(origin).hostname); } catch {}
+      if (originHost) {
+        const domainEntry = resolveByActiveVerifiedDomain(originHost);
+        if (domainEntry) {
+          const company = companyRepository.getCompanyById(domainEntry.company_id);
+          req.companyHost = originHost;
+          req.requestedCompanyId = domainEntry.company_id;
+          req.companyId = domainEntry.company_id;
+          req.company = company || null;
+          return next();
+        }
+      }
+    }
+    req.companyHost = "";
+    req.requestedCompanyId = null;
+    req.companyId = null;
+    req.company = null;
+    return next();
   }
 
-  req.requestedCompanyId = suppliedCompany?.id || dedicatedCompany?.id || null;
-  req.companyId = req.requestedCompanyId || DEFAULT_COMPANY_ID;
-  req.company = suppliedCompany || dedicatedCompany || defaultCompany;
+  const host = requestHost(req);
+  req.companyHost = host;
+  const domainEntry = host ? resolveByActiveVerifiedDomain(host) : null;
+  if (domainEntry) {
+    const company = companyRepository.getCompanyById(domainEntry.company_id);
+    req.requestedCompanyId = domainEntry.company_id;
+    req.companyId = domainEntry.company_id;
+    req.company = company || null;
+  } else {
+    req.requestedCompanyId = null;
+    req.companyId = null;
+    req.company = null;
+  }
   next();
 }

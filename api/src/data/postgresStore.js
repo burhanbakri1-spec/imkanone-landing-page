@@ -1531,7 +1531,7 @@ export async function loadPlatformStoreFromSupabase(dependencies = null) {
       .filter((key) => key !== "memberships")
       .some((key) => Array.isArray(store[key]) && store[key].length > 0);
 
-  return { isEmpty: !hasRows, store };
+  return { isEmpty: !hasRows, store, rawDomains: rowsByTable.company_domains || [] };
 }
 
 export async function saveStoreToSupabase(store, options = {}) {

@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import { resolveCompany } from "./middleware/company.js";
 import { enforceCompanyModuleAccess } from "./middleware/moduleAccess.js";
 import { sanitizeTenantRequestBody } from "./middleware/tenantInput.js";
+import { companyDomains } from "./data/store.js";
+import { normalizeCompanyHost } from "./tenancy/company.js";
 import adminRoutes from "./routes/admin.js";
 import authRoutes from "./routes/auth.js";
 import cartRoutes from "./routes/cart.js";
@@ -74,6 +76,16 @@ function isLocalDevelopmentOrigin(origin) {
   }
 }
 
+function dynamicStorefrontOrigins() {
+  const origins = [];
+  for (const entry of companyDomains) {
+    if (entry.is_active && entry.is_verified) {
+      origins.push(`https://${entry.domain}`);
+    }
+  }
+  return origins;
+}
+
 const configuredOrigins = parseAllowedOrigins(process.env.CORS_ALLOWED_ORIGINS);
 const fallbackFrontendOrigin = normalizeOrigin(process.env.FRONTEND_ORIGIN);
 const deploymentOrigins = configuredOrigins.length
@@ -84,12 +96,23 @@ if (deploymentOrigins.includes("*")) {
   throw new Error("Wildcard CORS origins are not supported. Configure exact frontend origins.");
 }
 
-const allowedOrigins = new Set([
-  ...deploymentOrigins,
-  ...ebChemicalProductionOrigins,
-  ...iGroupProductionOrigins,
-  ...(!isProduction ? localDevelopmentOrigins : []),
-]);
+function isAllowedStorefrontOrigin(origin) {
+  const normalizedOrigin = normalizeOrigin(origin);
+  try {
+    const url = new URL(normalizedOrigin);
+    if (url.protocol !== "https:") return false;
+    const hostname = normalizeCompanyHost(url.hostname);
+    if (!hostname) return false;
+    for (const entry of companyDomains) {
+      if (entry.is_active && entry.is_verified && normalizeCompanyHost(entry.domain) === hostname) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 app.set("trust proxy", 1);
 app.use(
@@ -100,7 +123,12 @@ app.use(
       }
 
       const normalizedOrigin = normalizeOrigin(origin);
-      return callback(null, allowedOrigins.has(normalizedOrigin) || isLocalDevelopmentOrigin(normalizedOrigin));
+      const allowed = deploymentOrigins.includes(normalizedOrigin)
+        || ebChemicalProductionOrigins.includes(normalizedOrigin)
+        || iGroupProductionOrigins.includes(normalizedOrigin)
+        || isLocalDevelopmentOrigin(normalizedOrigin)
+        || isAllowedStorefrontOrigin(normalizedOrigin);
+      return callback(null, allowed);
     },
     credentials: true,
   }),
@@ -158,7 +186,12 @@ app.use((_req, res) => {
 function setCorsOnError(err, req, res) {
   const origin = req.headers?.origin || req.headers?.["Origin"] || "";
   const normalizedOrigin = normalizeOrigin(String(origin));
-  if (normalizedOrigin && (allowedOrigins.has(normalizedOrigin) || isLocalDevelopmentOrigin(normalizedOrigin))) {
+  const allowed = deploymentOrigins.includes(normalizedOrigin)
+    || ebChemicalProductionOrigins.includes(normalizedOrigin)
+    || iGroupProductionOrigins.includes(normalizedOrigin)
+    || isLocalDevelopmentOrigin(normalizedOrigin)
+    || isAllowedStorefrontOrigin(normalizedOrigin);
+  if (normalizedOrigin && allowed) {
     res.setHeader("Access-Control-Allow-Origin", normalizedOrigin);
   } else {
     res.setHeader("Access-Control-Allow-Origin", "https://ebchemi.com");

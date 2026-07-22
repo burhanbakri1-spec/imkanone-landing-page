@@ -496,6 +496,11 @@ test("super_admin behavior remains unchanged", () => {
     "admin-platform-companies",
   );
   assert.equal(canAccessAdminPage("super_admin", "admin-platform-companies"), true);
+  assert.equal(canAccessAdminPage("super_admin", "admin-platform-domains"), true);
+  assert.equal(canAccessAdminPage("company_admin", "admin-platform-domains"), false);
+  assert.equal(canAccessAdminPage("admin", "admin-platform-domains"), false);
+  assert.equal(canAccessAdminPage("manager", "admin-platform-domains"), false);
+  assert.equal(canAccessAdminPage("employee", "admin-platform-domains"), false);
 });
 
 test("tenant API headers use only the authenticated token for company context", () => {

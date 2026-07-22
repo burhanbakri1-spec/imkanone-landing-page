@@ -1,5 +1,6 @@
 import React from "react";
 import AdminCompaniesPage from "./pages/AdminCompaniesPage.jsx";
+import AdminDomainsPage from "./pages/AdminDomainsPage.jsx";
 import AdminDashboardPage from "./pages/AdminDashboardPage.jsx";
 import AdminEmployeesPage from "./pages/AdminEmployeesPage.jsx";
 import AdminLoginPage from "./pages/AdminLoginPage.jsx";
@@ -83,6 +84,7 @@ const pagePaths = {
   "admin-login": "/admin/login",
   admin: adminDashboardPath,
   "admin-platform-companies": "/admin/platform/companies",
+  "admin-platform-domains": "/admin/platform/domains",
   "admin-products": "/admin/products",
   "admin-products-new": "/admin/products/new",
   "admin-products-edit": "/admin/products/new",
@@ -123,7 +125,9 @@ const pagePaths = {
 
 const adminPageKeys = Object.keys(pagePaths).filter((page) => page !== "admin-login");
 const staffPageKeys = ["admin-staff", "admin-staff-new", "admin-employees"];
-const dropshippingPageKeys = Object.keys(pagePaths).filter((key) => key.startsWith("admin-dropshipping"));
+const dropshippingPageKeys = Object.keys(pagePaths).filter((key) =>
+  key.startsWith("admin-dropshipping"),
+);
 
 function CPanelApp() {
   const storedUser = React.useMemo(() => getCurrentUser(), []);
@@ -159,17 +163,26 @@ function CPanelApp() {
   const t = React.useMemo(() => createTranslator(language), [language]);
 
   function navigate(page, options = {}) {
-    const authorizationUser = options.user || (Object.prototype.hasOwnProperty.call(options, "role")
-      ? (options.role ? { role: options.role } : null)
-      : currentUser);
-    const navigationCompany = Object.prototype.hasOwnProperty.call(options, "company") ? options.company : company;
+    const authorizationUser =
+      options.user ||
+      (Object.prototype.hasOwnProperty.call(options, "role")
+        ? options.role
+          ? { role: options.role }
+          : null
+        : currentUser);
+    const navigationCompany = Object.prototype.hasOwnProperty.call(options, "company")
+      ? options.company
+      : company;
     const navigationModules = options.modules || modules;
     const roleAllowed = pagePaths[page] && canAccessAdminPage(authorizationUser, page);
-    const moduleAllowed = !navigationCompany || page === "admin-platform-companies" || page === "admin-login"
-      || moduleAllowsPage(navigationModules, page);
-    const safePage = roleAllowed && moduleAllowed
-      ? page
-      : landingPage(authorizationUser || {}, navigationModules);
+    const moduleAllowed =
+      !navigationCompany ||
+      page === "admin-platform-companies" ||
+      page === "admin-platform-domains" ||
+      page === "admin-login" ||
+      moduleAllowsPage(navigationModules, page);
+    const safePage =
+      roleAllowed && moduleAllowed ? page : landingPage(authorizationUser || {}, navigationModules);
     if (!options.preserveStatusMessage) setAdminMessage("");
     if (!options.preserveLoginMessage) setAdminLoginMessage("");
     setActivePage(safePage);
@@ -205,7 +218,9 @@ function CPanelApp() {
 
   React.useEffect(() => {
     const canonicalPath = pagePaths[activePage];
-    const isProductEditPath = ["admin-products-new", "admin-products-edit"].includes(activePage) && /^\/admin\/products\/[^/]+\/edit$/.test(window.location.pathname);
+    const isProductEditPath =
+      ["admin-products-new", "admin-products-edit"].includes(activePage) &&
+      /^\/admin\/products\/[^/]+\/edit$/.test(window.location.pathname);
     if (canonicalPath && canonicalPath !== window.location.pathname && !isProductEditPath) {
       window.history.replaceState({}, "", canonicalPath);
     }
@@ -310,18 +325,44 @@ function CPanelApp() {
   }, [isDarkMode]);
 
   React.useEffect(() => {
-    if (!isAdminPortalRole(currentUser?.role) || isPlatformAdmin(currentUser.role) || !company) return;
-    if (moduleAllowsPage(modules, "admin-products") && canAccessAdminPage(currentUser, "admin-products")) void refreshProducts();
-    if (moduleAllowsPage(modules, "admin-categories") && canAccessAdminPage(currentUser, "admin-categories")) void refreshCategories();
-    if (moduleAllowsPage(modules, "admin-brands") && canAccessAdminPage(currentUser, "admin-brands")) void refreshBrands();
+    if (!isAdminPortalRole(currentUser?.role) || isPlatformAdmin(currentUser.role) || !company)
+      return;
+    if (
+      moduleAllowsPage(modules, "admin-products") &&
+      canAccessAdminPage(currentUser, "admin-products")
+    )
+      void refreshProducts();
+    if (
+      moduleAllowsPage(modules, "admin-categories") &&
+      canAccessAdminPage(currentUser, "admin-categories")
+    )
+      void refreshCategories();
+    if (
+      moduleAllowsPage(modules, "admin-brands") &&
+      canAccessAdminPage(currentUser, "admin-brands")
+    )
+      void refreshBrands();
     if (canReadCatalogFormOptions(currentUser) && moduleAllowsPage(modules, "admin-products")) {
       void refreshCategories();
       void refreshBrands();
     }
-    if (moduleAllowsPage(modules, "admin-orders") && canAccessAdminPage(currentUser, "admin-orders")) void refreshOrders(currentUser);
-    if (moduleAllowsPage(modules, "admin-staff") && canAccessAdminPage(currentUser, "admin-staff")) void refreshEmployees(currentUser);
-    if (moduleAllowsPage(modules, "admin-reviews") && canAccessAdminPage(currentUser, "admin-reviews")) void refreshAdminContent(currentUser);
-    if (moduleAllowsPage(modules, "admin-website-media") && canAccessAdminPage(currentUser, "admin-website-media")) void refreshWebsiteMedia(currentUser);
+    if (
+      moduleAllowsPage(modules, "admin-orders") &&
+      canAccessAdminPage(currentUser, "admin-orders")
+    )
+      void refreshOrders(currentUser);
+    if (moduleAllowsPage(modules, "admin-staff") && canAccessAdminPage(currentUser, "admin-staff"))
+      void refreshEmployees(currentUser);
+    if (
+      moduleAllowsPage(modules, "admin-reviews") &&
+      canAccessAdminPage(currentUser, "admin-reviews")
+    )
+      void refreshAdminContent(currentUser);
+    if (
+      moduleAllowsPage(modules, "admin-website-media") &&
+      canAccessAdminPage(currentUser, "admin-website-media")
+    )
+      void refreshWebsiteMedia(currentUser);
   }, [currentUser, company?.id]);
 
   async function refreshProducts() {
@@ -497,20 +538,32 @@ function CPanelApp() {
 
   async function handleSaveCategory(category) {
     const isCatUpdate = Boolean(category.id);
-    if (isCatUpdate && !isCompanyAdmin(currentUser?.role) && !hasPermission(currentUser, "categories.update") && !hasPermission(currentUser, "categories.manage") && !hasPermission(currentUser, "products.update") && !hasPermission(currentUser, "products.manage")) {
+    if (
+      isCatUpdate &&
+      !isCompanyAdmin(currentUser?.role) &&
+      !hasPermission(currentUser, "categories.update") &&
+      !hasPermission(currentUser, "categories.manage") &&
+      !hasPermission(currentUser, "products.update") &&
+      !hasPermission(currentUser, "products.manage")
+    ) {
       setAdminMessageType("error");
       setAdminMessage("You do not have permission to update categories.");
       return;
     }
-    if (!isCatUpdate && !isCompanyAdmin(currentUser?.role) && !hasPermission(currentUser, "categories.create") && !hasPermission(currentUser, "categories.manage") && !hasPermission(currentUser, "products.create") && !hasPermission(currentUser, "products.manage")) {
+    if (
+      !isCatUpdate &&
+      !isCompanyAdmin(currentUser?.role) &&
+      !hasPermission(currentUser, "categories.create") &&
+      !hasPermission(currentUser, "categories.manage") &&
+      !hasPermission(currentUser, "products.create") &&
+      !hasPermission(currentUser, "products.manage")
+    ) {
       setAdminMessageType("error");
       setAdminMessage("You do not have permission to create categories.");
       return;
     }
     try {
-      const saved = isCatUpdate
-        ? await updateCategory(category)
-        : await createCategory(category);
+      const saved = isCatUpdate ? await updateCategory(category) : await createCategory(category);
       await refreshCategories();
       setAdminMessageType("success");
       setAdminMessage(isCatUpdate ? "Category changes saved." : "Category created.");
@@ -522,7 +575,13 @@ function CPanelApp() {
   }
 
   async function handleDeleteCategory(id) {
-    if (!isCompanyAdmin(currentUser?.role) && !hasPermission(currentUser, "categories.delete") && !hasPermission(currentUser, "categories.manage") && !hasPermission(currentUser, "products.delete") && !hasPermission(currentUser, "products.manage")) {
+    if (
+      !isCompanyAdmin(currentUser?.role) &&
+      !hasPermission(currentUser, "categories.delete") &&
+      !hasPermission(currentUser, "categories.manage") &&
+      !hasPermission(currentUser, "products.delete") &&
+      !hasPermission(currentUser, "products.manage")
+    ) {
       setAdminMessageType("error");
       setAdminMessage("You do not have permission to delete categories.");
       return;
@@ -540,20 +599,32 @@ function CPanelApp() {
 
   async function handleSaveBrand(brand) {
     const isBrandUpdate = Boolean(brand.id);
-    if (isBrandUpdate && !isCompanyAdmin(currentUser?.role) && !hasPermission(currentUser, "brands.update") && !hasPermission(currentUser, "brands.manage") && !hasPermission(currentUser, "products.update") && !hasPermission(currentUser, "products.manage")) {
+    if (
+      isBrandUpdate &&
+      !isCompanyAdmin(currentUser?.role) &&
+      !hasPermission(currentUser, "brands.update") &&
+      !hasPermission(currentUser, "brands.manage") &&
+      !hasPermission(currentUser, "products.update") &&
+      !hasPermission(currentUser, "products.manage")
+    ) {
       setAdminMessageType("error");
       setAdminMessage("You do not have permission to update brands.");
       return;
     }
-    if (!isBrandUpdate && !isCompanyAdmin(currentUser?.role) && !hasPermission(currentUser, "brands.create") && !hasPermission(currentUser, "brands.manage") && !hasPermission(currentUser, "products.create") && !hasPermission(currentUser, "products.manage")) {
+    if (
+      !isBrandUpdate &&
+      !isCompanyAdmin(currentUser?.role) &&
+      !hasPermission(currentUser, "brands.create") &&
+      !hasPermission(currentUser, "brands.manage") &&
+      !hasPermission(currentUser, "products.create") &&
+      !hasPermission(currentUser, "products.manage")
+    ) {
       setAdminMessageType("error");
       setAdminMessage("You do not have permission to create brands.");
       return;
     }
     try {
-      const saved = isBrandUpdate
-        ? await updateBrand(brand)
-        : await createBrand(brand);
+      const saved = isBrandUpdate ? await updateBrand(brand) : await createBrand(brand);
       await refreshBrands();
       setAdminMessageType("success");
       setAdminMessage(isBrandUpdate ? "Brand changes saved." : "Brand created.");
@@ -565,7 +636,13 @@ function CPanelApp() {
   }
 
   async function handleDeleteBrand(id) {
-    if (!isCompanyAdmin(currentUser?.role) && !hasPermission(currentUser, "brands.delete") && !hasPermission(currentUser, "brands.manage") && !hasPermission(currentUser, "products.delete") && !hasPermission(currentUser, "products.manage")) {
+    if (
+      !isCompanyAdmin(currentUser?.role) &&
+      !hasPermission(currentUser, "brands.delete") &&
+      !hasPermission(currentUser, "brands.manage") &&
+      !hasPermission(currentUser, "products.delete") &&
+      !hasPermission(currentUser, "products.manage")
+    ) {
       setAdminMessageType("error");
       setAdminMessage("You do not have permission to delete brands.");
       return;
@@ -585,7 +662,7 @@ function CPanelApp() {
     try {
       const updated = await updateCompanySettings(settings);
       setCompany(updated);
-      setUser((current) => current ? { ...current, activeCompany: updated } : current);
+      setUser((current) => (current ? { ...current, activeCompany: updated } : current));
       return updated;
     } catch (error) {
       handleApiError(error);
@@ -789,14 +866,37 @@ function CPanelApp() {
     <div className={activePage === "admin-login" ? "app-shell admin-login-shell" : "app-shell"}>
       <main className={activePage === "admin-login" ? "admin-login-main" : "admin-panel-main"}>
         {activePage === "admin-login" && (
-          <AdminLoginPage company={company} message={adminLoginMessage} onLogin={handleAdminLogin} t={t} />
+          <AdminLoginPage
+            company={company}
+            message={adminLoginMessage}
+            onLogin={handleAdminLogin}
+            t={t}
+          />
         )}
 
         {activePage === "admin-no-access" && (
-          <AdminLayout activePage={activePage} company={company} currentUser={currentUser} isDarkMode={isDarkMode} language={language} modules={modules} onLanguageChange={() => setLanguage((value) => (value === "en" ? "ar" : "en"))} onLogout={handleLogout} onNavigate={navigate} onReturnToPlatform={handleReturnToPlatform} onSwitchCompany={handleSwitchCompany} onToggleDarkMode={() => setIsDarkMode((value) => !value)} title="No Access" subtitle="You do not have permission to access any admin section.">
+          <AdminLayout
+            activePage={activePage}
+            company={company}
+            currentUser={currentUser}
+            isDarkMode={isDarkMode}
+            language={language}
+            modules={modules}
+            onLanguageChange={() => setLanguage((value) => (value === "en" ? "ar" : "en"))}
+            onLogout={handleLogout}
+            onNavigate={navigate}
+            onReturnToPlatform={handleReturnToPlatform}
+            onSwitchCompany={handleSwitchCompany}
+            onToggleDarkMode={() => setIsDarkMode((value) => !value)}
+            title="No Access"
+            subtitle="You do not have permission to access any admin section."
+          >
             <div className="admin-empty-state">
               <strong>No Access</strong>
-              <span>Your account does not have permission to access any admin section. Contact your administrator to request the appropriate permissions.</span>
+              <span>
+                Your account does not have permission to access any admin section. Contact your
+                administrator to request the appropriate permissions.
+              </span>
             </div>
           </AdminLayout>
         )}
@@ -847,8 +947,13 @@ function CPanelApp() {
           )}
 
         {activePage === "admin-platform-companies" && <AdminCompaniesPage {...sharedLayoutProps} />}
-        {dropshippingPageKeys.includes(activePage) && <AdminDropshippingPage activePage={activePage} {...sharedLayoutProps} />}
-        {featurePageKeys.includes(activePage) && <AdminFeaturePage activePage={activePage} {...sharedLayoutProps} />}
+        {activePage === "admin-platform-domains" && <AdminDomainsPage {...sharedLayoutProps} />}
+        {dropshippingPageKeys.includes(activePage) && (
+          <AdminDropshippingPage activePage={activePage} {...sharedLayoutProps} />
+        )}
+        {featurePageKeys.includes(activePage) && (
+          <AdminFeaturePage activePage={activePage} {...sharedLayoutProps} />
+        )}
 
         {staffPageKeys.includes(activePage) && (
           <AdminEmployeesPage

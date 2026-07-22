@@ -59,6 +59,7 @@ const pagePaths = {
   "admin-login": "/admin/login",
   admin: "/admin/dashboard",
   "admin-platform-companies": "/admin/platform/companies",
+  "admin-platform-domains": "/admin/platform/domains",
   "admin-products": "/admin/products",
   "admin-products-new": "/admin/products/new",
   "admin-products-edit": "/admin/products/new",

@@ -16,6 +16,31 @@ import { listCompanyModules, modulesVisibleToUser } from "../moduleRegistry.js";
 
 const router = Router();
 
+router.get("/resolve", (req, res) => {
+  return res.json({
+    company: req.company ? { id: req.company.id, name: req.company.name, slug: req.company.slug } : null,
+    companyId: req.companyId || null,
+    companyHost: req.companyHost || null,
+  });
+});
+
+router.post("/resolve", (req, res) => {
+  return res.json({
+    company: req.company ? { id: req.company.id, name: req.company.name, slug: req.company.slug } : null,
+    companyId: req.companyId || null,
+    companyHost: req.companyHost || null,
+  });
+});
+
+router.get("/resolve-auth", optionalAuth, (req, res) => {
+  return res.json({
+    company: req.company ? { id: req.company.id, name: req.company.name, slug: req.company.slug } : null,
+    companyId: req.companyId || null,
+    companyHost: req.companyHost || null,
+    user: req.user ? { id: req.user.id, role: req.user.role } : null,
+  });
+});
+
 router.get("/resolve-storefront", (req, res) => {
   const host = String(req.query.host || "");
   const path = String(req.query.path || "/");
