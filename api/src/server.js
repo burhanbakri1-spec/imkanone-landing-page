@@ -8,6 +8,7 @@ import { enforceCompanyModuleAccess } from "./middleware/moduleAccess.js";
 import { sanitizeTenantRequestBody } from "./middleware/tenantInput.js";
 import { companyDomains } from "./data/store.js";
 import { normalizeCompanyHost } from "./tenancy/company.js";
+import { cpanelOrigins } from "./cpanel.js";
 import adminRoutes from "./routes/admin.js";
 import authRoutes from "./routes/auth.js";
 import cartRoutes from "./routes/cart.js";
@@ -126,6 +127,7 @@ app.use(
       const allowed = deploymentOrigins.includes(normalizedOrigin)
         || ebChemicalProductionOrigins.includes(normalizedOrigin)
         || iGroupProductionOrigins.includes(normalizedOrigin)
+        || cpanelOrigins.includes(normalizedOrigin)
         || isLocalDevelopmentOrigin(normalizedOrigin)
         || isAllowedStorefrontOrigin(normalizedOrigin);
       return callback(null, allowed);
@@ -189,6 +191,7 @@ function setCorsOnError(err, req, res) {
   const allowed = deploymentOrigins.includes(normalizedOrigin)
     || ebChemicalProductionOrigins.includes(normalizedOrigin)
     || iGroupProductionOrigins.includes(normalizedOrigin)
+    || cpanelOrigins.includes(normalizedOrigin)
     || isLocalDevelopmentOrigin(normalizedOrigin)
     || isAllowedStorefrontOrigin(normalizedOrigin);
   if (normalizedOrigin && allowed) {

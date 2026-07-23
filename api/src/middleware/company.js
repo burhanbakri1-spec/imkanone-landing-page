@@ -1,5 +1,18 @@
 import { normalizeCompanyHost } from "../tenancy/company.js";
 import { companyRepository, resolveByActiveVerifiedDomain } from "../data/store.js";
+import { cpanelOrigins } from "../cpanel.js";
+
+const cpanelHosts = new Set(
+  cpanelOrigins
+    .map((o) => {
+      try {
+        return normalizeCompanyHost(new URL(o).hostname);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean),
+);
 
 function requestHost(req) {
   const forwardedHost = req.headers["x-forwarded-host"];
@@ -10,6 +23,15 @@ function requestHost(req) {
 }
 
 export function resolveCompany(req, res, next) {
+  const authHeader = String(req.headers.authorization || "");
+  if (authHeader.startsWith("Bearer ") && authHeader.length > 7) {
+    req.companyHost = "";
+    req.requestedCompanyId = null;
+    req.companyId = null;
+    req.company = null;
+    return next();
+  }
+
   const origin = String(req.headers.origin || "").trim();
   const hasOrigin = Boolean(origin);
 
@@ -18,6 +40,13 @@ export function resolveCompany(req, res, next) {
       let originHost = "";
       try { originHost = normalizeCompanyHost(new URL(origin).hostname); } catch {}
       if (originHost) {
+        if (cpanelHosts.has(originHost)) {
+          req.companyHost = "";
+          req.requestedCompanyId = null;
+          req.companyId = null;
+          req.company = null;
+          return next();
+        }
         const domainEntry = resolveByActiveVerifiedDomain(originHost);
         if (domainEntry) {
           const company = companyRepository.getCompanyById(domainEntry.company_id);

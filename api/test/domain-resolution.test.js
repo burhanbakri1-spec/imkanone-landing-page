@@ -26,6 +26,7 @@ const domains = [
   { id: "domain-kids-velvet", company_id: "kids-velvet", domain: "iplay-web.vercel.app", is_primary: true, is_active: true, is_verified: true, created_at: now, updated_at: now },
   { id: "domain-inactive", company_id: "ioutfit", domain: "inactive-test.vercel.app", is_primary: false, is_active: false, is_verified: true, created_at: now, updated_at: now },
   { id: "domain-unverified", company_id: "idesign", domain: "unverified-test.vercel.app", is_primary: false, is_active: true, is_verified: false, created_at: now, updated_at: now },
+  { id: "domain-eb-cpanel", company_id: "eb-chemical", domain: "ebchemi.com", is_primary: false, is_active: true, is_verified: true, created_at: now, updated_at: now },
 ];
 
 const users = [
@@ -374,6 +375,129 @@ test("unknown HTTPS Origin with a mapped Host still does not resolve", async () 
   });
   assert.equal(response.status, 200);
   assert.equal(body.company, null);
+});
+
+test("ebchemi.com resolves to eb-chemical tenant for public storefront requests", async () => {
+  const { response, body } = await api("/company/resolve", {
+    headers: { origin: "https://ebchemi.com" },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(body.company?.id, "eb-chemical");
+});
+
+test("igroup.website does not resolve to any company (unknown origin)", async () => {
+  const { response, body } = await api("/company/resolve", {
+    headers: { origin: "https://igroup.website" },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(body.company, null);
+});
+
+test("www.ebchemi.com resolves to eb-chemical tenant for public storefront requests", async () => {
+  const { response, body } = await api("/company/resolve", {
+    headers: { origin: "https://www.ebchemi.com" },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(body.company?.id, "eb-chemical");
+});
+
+test("www.igroup.website does not resolve to any company (unknown origin)", async () => {
+  const { response, body } = await api("/company/resolve", {
+    headers: { origin: "https://www.igroup.website" },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(body.company, null);
+});
+
+test("dedicated CPanel origin cpanel-staging.igroup.website does not resolve through companyDomains", async () => {
+  const { response, body } = await api("/company/resolve", {
+    headers: { origin: "https://cpanel-staging.igroup.website" },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(body.company, null);
+});
+
+test("storefront origin eb-chemical-full.vercel.app still resolves after CPanel origins are excluded", async () => {
+  const { response, body } = await api("/company/resolve", {
+    headers: { origin: "https://eb-chemical-full.vercel.app" },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(body.company?.id, "eb-chemical");
+});
+
+test("CORS preflight allows ebchemi.com origin", async () => {
+  const { response } = await api("/company/resolve", {
+    method: "OPTIONS",
+    headers: { origin: "https://ebchemi.com", "access-control-request-method": "GET" },
+  });
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get("access-control-allow-origin"), "https://ebchemi.com");
+});
+
+test("CORS preflight allows igroup.website origin", async () => {
+  const { response } = await api("/company/resolve", {
+    method: "OPTIONS",
+    headers: { origin: "https://igroup.website", "access-control-request-method": "GET" },
+  });
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get("access-control-allow-origin"), "https://igroup.website");
+});
+
+test("CORS preflight allows cpanel-staging.igroup.website origin", async () => {
+  const { response } = await api("/company/resolve", {
+    method: "OPTIONS",
+    headers: { origin: "https://cpanel-staging.igroup.website", "access-control-request-method": "GET" },
+  });
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get("access-control-allow-origin"), "https://cpanel-staging.igroup.website");
+});
+
+test("CORS preflight rejects unknown origin", async () => {
+  const { response } = await api("/company/resolve", {
+    method: "OPTIONS",
+    headers: { origin: "https://evil-site.com", "access-control-request-method": "GET" },
+  });
+  const acao = response.headers.get("access-control-allow-origin");
+  assert.ok(!acao || acao !== "https://evil-site.com", "unknown origin must not be echoed back");
+});
+
+test("EB admin login from ebchemi.com resolves to eb-chemical tenant", async () => {
+  const { response, body } = await api("/auth/login", {
+    method: "POST",
+    body: { email: "admin@eb.test", password: "Test-password-123!" },
+    headers: { origin: "https://ebchemi.com" },
+  });
+  assert.equal(response.status, 200);
+  assert.ok(body.user, "login response must include user");
+  assert.equal(body.user.role, "admin");
+  assert.ok(body.activeCompany, "EB admin must have an active company");
+  assert.equal(body.activeCompany.id, "eb-chemical");
+});
+
+test("super_admin login from ebchemi.com gets platform access", async () => {
+  const { response, body } = await api("/auth/login", {
+    method: "POST",
+    body: { email: "super@test.local", password: "Test-password-123!" },
+    headers: { origin: "https://ebchemi.com" },
+  });
+  assert.equal(response.status, 200);
+  assert.ok(body.user, "login response must include user");
+  assert.equal(body.user.role, "super_admin");
+  assert.equal(body.activeCompany, null, "super_admin must not have an active company");
+  assert.equal(body.activeMembership, null, "super_admin must not have a membership");
+});
+
+test("super_admin login from CPanel origin cpanel-staging.igroup.website gets platform access", async () => {
+  const { response, body } = await api("/auth/login", {
+    method: "POST",
+    body: { email: "super@test.local", password: "Test-password-123!" },
+    headers: { origin: "https://cpanel-staging.igroup.website" },
+  });
+  assert.equal(response.status, 200);
+  assert.ok(body.user, "login response must include user");
+  assert.equal(body.user.role, "super_admin");
+  assert.equal(body.activeCompany, null, "super_admin must not have an active company");
+  assert.equal(body.activeMembership, null, "super_admin must not have a membership");
 });
 
 test("missing Origin with mapped X-Forwarded-Host resolves correctly", async () => {
