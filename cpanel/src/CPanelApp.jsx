@@ -904,6 +904,7 @@ function CPanelApp() {
         {adminPageKeys.includes(activePage) &&
           activePage !== "admin-no-access" &&
           activePage !== "admin-platform-companies" &&
+          activePage !== "admin-platform-domains" &&
           !dropshippingPageKeys.includes(activePage) &&
           !featurePageKeys.includes(activePage) &&
           !staffPageKeys.includes(activePage) && (

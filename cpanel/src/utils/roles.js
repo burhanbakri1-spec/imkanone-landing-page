@@ -115,6 +115,7 @@ export function filterAccessiblePages(user, pageKeys) {
 }
 
 export function tenantAccessNotice(role) {
+  if (isPlatformAdmin(role)) return null;
   if (isCompanyAdmin(role)) return null;
   if (role === "manager") {
     return "Manager access: content, catalog, orders, customers, and reviews can be managed. Staff and settings are restricted.";
