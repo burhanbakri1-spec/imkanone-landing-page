@@ -33,11 +33,13 @@ const users = [
   { id: "super-user", name: "Super Admin", email: "super@test.local", password: passwordHash, role: "super_admin", permissions: [], isActive: true, company_id: "", createdAt: now, updatedAt: now },
   { id: "domain-admin", name: "Domain Admin", email: "admin@eb.test", password: passwordHash, role: "admin", permissions: [], isActive: true, company_id: "eb-chemical", createdAt: now, updatedAt: now },
   { id: "idesign-admin", name: "I Design Admin", email: "admin@idesign.test", password: passwordHash, role: "company_admin", permissions: [], isActive: true, company_id: "idesign", createdAt: now, updatedAt: now },
+  { id: "eb-employee", name: "EB Employee", email: "employee@eb.test", password: passwordHash, role: "employee", permissions: ["products.view", "products.create", "orders.view"], isActive: true, company_id: "eb-chemical", createdAt: now, updatedAt: now },
 ].map((u) => ({ ...u, company_id: u.company_id }));
 
 const memberships = [
   { id: "eb-chemical:domain-admin", companyId: "eb-chemical", userId: "domain-admin", role: "admin", status: "active", permissions: [], createdAt: now, updatedAt: now },
   { id: "idesign:idesign-admin", companyId: "idesign", userId: "idesign-admin", role: "company_admin", status: "active", permissions: [], createdAt: now, updatedAt: now },
+  { id: "eb-chemical:eb-employee", companyId: "eb-chemical", userId: "eb-employee", role: "employee", status: "active", permissions: ["products.view", "products.create", "orders.view"], createdAt: now, updatedAt: now },
 ];
 
 fs.writeFileSync(path.join(dataStoreDir, "store.json"), JSON.stringify({
@@ -543,4 +545,123 @@ test("PATCH SQL with single SET field still uses distinct placeholders", async (
   const numbers = [...text.matchAll(/\$(\d+)/g)].map((m) => parseInt(m[1], 10));
   assert.deepEqual(numbers, [1, 2, 3], "sequential 1, 2, 3");
   assert.equal(Math.max(...numbers), params.length, "highest equals param count");
+});
+
+test("super_admin enters company scope and scope token persists across simulated refresh", async () => {
+  const { response: scopeRes, body: scope } = await api("/platform/companies/eb-chemical/scope", {
+    method: "POST",
+    token: superToken,
+  });
+  assert.equal(scopeRes.status, 200);
+  assert.equal(scope.activeCompany.id, "eb-chemical");
+  assert.equal(scope.user.role, "company_admin");
+  assert.equal(scope.user.globalRole, "super_admin");
+  assert.ok(scope.user.isCompanyScope);
+  assert.ok(scope.token);
+
+  const scopeToken = scope.token;
+
+  const refreshed = await api("/auth/me", { token: scopeToken });
+  assert.equal(refreshed.response.status, 200);
+  assert.equal(refreshed.body.activeCompany?.id, "eb-chemical", "scope token re-used after simulated refresh must still resolve to the scoped company");
+});
+
+test("scope isolation: company A scope token cannot read company B data", async () => {
+  const { body: scope } = await api("/platform/companies/idesign/scope", {
+    method: "POST",
+    token: superToken,
+  });
+  const scopeToken = scope.token;
+
+  const inside = await api("/auth/me", { token: scopeToken });
+  assert.equal(inside.response.status, 200);
+  assert.equal(inside.body.activeCompany?.id, "idesign", "scoped to idesign");
+
+  const ebRes = await api("/employees", { token: scopeToken });
+  assert.equal(ebRes.response.status, 200, "scope token must be authorized for employees endpoint");
+  assert.ok(Array.isArray(ebRes.body), "employees must be an array");
+  assert.equal(ebRes.body.length, 0, "idesign has no employees, must return empty array, not eb-chemical employees");
+});
+
+test("scope token expiry matches main login session expiry", async () => {
+  const { JWT_EXPIRY_SECONDS, COMPANY_SCOPE_EXPIRY_SECONDS } = await import("../src/middleware/auth.js");
+  assert.equal(COMPANY_SCOPE_EXPIRY_SECONDS, JWT_EXPIRY_SECONDS,
+    `COMPANY_SCOPE_EXPIRY_SECONDS (${COMPANY_SCOPE_EXPIRY_SECONDS}) must equal JWT_EXPIRY_SECONDS (${JWT_EXPIRY_SECONDS})`);
+});
+
+test("Back to Platform clears scope token and restores original super_admin context", async () => {
+  const { response: scopeRes, body: scope } = await api("/platform/companies/eb-chemical/scope", {
+    method: "POST",
+    token: superToken,
+  });
+  assert.equal(scopeRes.status, 200);
+  const scopeToken = scope.token;
+
+  const inside = await api("/auth/me", { token: scopeToken });
+  assert.equal(inside.response.status, 200);
+  assert.equal(inside.body.activeCompany?.id, "eb-chemical", "scoped inside eb-chemical");
+
+  const { response: exitRes } = await api("/platform/company-scope/exit", {
+    method: "POST",
+    token: scopeToken,
+  });
+  assert.equal(exitRes.status, 204, "scope exit must return 204");
+
+  const platformRes = await api("/auth/me", { token: superToken });
+  assert.equal(platformRes.response.status, 200);
+  assert.equal(platformRes.body.activeCompany, null, "super_admin must have no company after returning to platform");
+  assert.equal(platformRes.body.user?.globalRole || platformRes.body.user?.role, "super_admin", "original super_admin identity restored");
+});
+
+test("switching to eb-chemical loads its Employees module with existing employee records", async () => {
+  const { body: scope } = await api("/platform/companies/eb-chemical/scope", {
+    method: "POST",
+    token: superToken,
+  });
+  const scopeToken = scope.token;
+
+  const inside = await api("/auth/me", { token: scopeToken });
+  assert.equal(inside.response.status, 200);
+  assert.equal(inside.body.activeCompany?.id, "eb-chemical", "scoped to eb-chemical");
+
+  const { response, body } = await api("/employees", { token: scopeToken });
+  assert.equal(response.status, 200);
+  assert.ok(Array.isArray(body), "employees must be an array");
+  assert.ok(body.length >= 1, "eb-chemical must have at least one employee");
+  const ebEmp = body.find((e) => e.id === "eb-employee");
+  assert.ok(ebEmp, "eb-employee must be present in the employee list");
+  assert.equal(ebEmp.name, "EB Employee");
+  assert.equal(ebEmp.role, "employee");
+});
+
+test("super_admin never gets a company membership when entering scope", async () => {
+  const { body: scope } = await api("/platform/companies/eb-chemical/scope", {
+    method: "POST",
+    token: superToken,
+  });
+  assert.equal(scope.activeMembership, null, "scope endpoint must not return a membership for super_admin");
+  assert.equal(scope.user.role, "company_admin", "super_admin role overridden to company_admin in UI");
+  assert.equal(scope.user.globalRole, "super_admin", "global role unchanged");
+  assert.ok(scope.user.isCompanyScope, "flagged as company scope");
+
+  const { body: meBody } = await api("/auth/me", { token: scope.token });
+  assert.equal(meBody.activeMembership, null, "auth/me must not report a membership for scoped super_admin");
+  assert.equal(meBody.activeCompany?.id, "eb-chemical", "active company set correctly");
+});
+
+test("legacy super_admin membership records exist in some fixtures but are never used for auth", async () => {
+  const { companyMembershipRepository } = await import("../src/data/store.js");
+  const memberships = await companyMembershipRepository.listMembershipsForUser("super-user");
+  assert.equal(memberships.length, 0, "this test fixture has no membership for super-user");
+
+  const { body: me } = await api("/auth/me", { token: superToken });
+  assert.equal(me.activeMembership, null, "super_admin login never attaches a membership");
+  assert.equal(me.activeCompany, null, "super_admin has no active company");
+
+  const payload = JSON.parse(
+    Buffer.from(superToken.split(".")[1], "base64url").toString("utf8"),
+  );
+  assert.equal(payload.membershipId, null, "super_admin JWT must not contain membershipId");
+  assert.equal(payload.membershipRole, null, "super_admin JWT must not contain membershipRole");
+  assert.equal(payload.membershipVersion, null, "super_admin JWT must not contain membershipVersion");
 });

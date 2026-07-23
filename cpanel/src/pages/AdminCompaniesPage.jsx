@@ -1,5 +1,5 @@
 import React from "react";
-import { Building2, ExternalLink, Pencil, Plus, Settings, ShieldAlert, Users } from "lucide-react";
+import { Building2, Pencil, Plus, Settings, ShieldAlert, Users } from "lucide-react";
 import AdminLayout from "../components/AdminLayout.jsx";
 import CompanyMembershipsPanel from "../components/CompanyMembershipsPanel.jsx";
 
@@ -853,7 +853,7 @@ function AdminCompaniesPage({
                       <td>
                         <div className="company-row-actions">
                           <button className="text-action" disabled={company.status !== "active"} onClick={() => onSwitchCompany(company.id)} type="button">
-                            <ExternalLink size={14} /> Open CPanel
+                            <Building2 size={14} /> Manage company
                           </button>
                           <button className="text-action" onClick={() => setModulesCompany(company)} type="button">
                             <Settings size={14} /> Manage Modules

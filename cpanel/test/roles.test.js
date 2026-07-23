@@ -2,13 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { hasPermission } from "../src/data/permissions.js";
-import { createApiHeaders } from "../src/utils/api.js";
+import { companyInitials } from "../src/utils/companySwitcher.js";
+import { createApiHeaders, tokenStorageKey, userStorageKey } from "../src/utils/api.js";
 import { fetchBrands, fetchCategories } from "../src/utils/catalogApi.js";
 import {
   clearTenantCaches,
   sanitizeCompanyContext,
   tenantStorageKey,
 } from "../src/utils/companyContext.js";
+import { enterCompanyScope, exitCompanyScope } from "../src/utils/auth.js";
 import { getSelectableAdminCategories } from "../src/utils/adminCategories.js";
 import { getOrders } from "../src/utils/orders.js";
 import {
@@ -860,4 +862,244 @@ test("company_admin, admin, and manager bypass canAccessAdminPage permission che
   const managerUser = { role: "manager" };
   assert.equal(isStaffRole(managerUser.role), true);
   assert.equal(canAccessAdminPage(managerUser, "admin-products"), true);
+});
+
+// ── Company switcher tests ────────────────────────────────────────────────
+
+test("companyInitials returns first two letters of a single-word name", () => {
+  assert.equal(companyInitials("Platform"), "PL");
+});
+
+test("companyInitials returns first letters of first two words", () => {
+  assert.equal(companyInitials("EB Chemical"), "EC");
+  assert.equal(companyInitials("I Design"), "ID");
+  assert.equal(companyInitials("Kids Velvet"), "KV");
+});
+
+test("companyInitials handles null and empty", () => {
+  assert.equal(companyInitials(null), "?");
+  assert.equal(companyInitials(""), "?");
+});
+
+test("companyInitials handles multi-word names", () => {
+  assert.equal(companyInitials("Super Admin Platform"), "SA");
+  assert.equal(companyInitials("  Extra   Spaces  "), "ES");
+});
+
+test("super_admin can access platform-companies page", () => {
+  const user = { role: "super_admin" };
+  assert.equal(canAccessAdminPage(user, "admin-platform-companies"), true);
+});
+
+test("company_admin cannot access platform-companies page", () => {
+  const user = { role: "company_admin" };
+  assert.equal(canAccessAdminPage(user, "admin-platform-companies"), false);
+});
+
+test("super_admin can access platform-domains page", () => {
+  const user = { role: "super_admin" };
+  assert.equal(canAccessAdminPage(user, "admin-platform-domains"), true);
+});
+
+test("company_admin cannot access platform-domains page", () => {
+  const user = { role: "company_admin" };
+  assert.equal(canAccessAdminPage(user, "admin-platform-domains"), false);
+});
+
+test("super_admin in company scope lands on admin dashboard", () => {
+  const user = {
+    role: "company_admin",
+    globalRole: "super_admin",
+    isCompanyScope: true,
+    activeCompany: { modules: [{ route: "/admin/dashboard", enabled: true }] },
+  };
+  const result = landingPage(user);
+  assert.equal(result, "admin");
+});
+
+test("super_admin with no company lands on platform companies", () => {
+  const user = { role: "super_admin", isActive: true };
+  const result = landingPage(user);
+  assert.equal(result, "admin-platform-companies");
+});
+
+test("company switch stores scope token that survives simulated page refresh", async () => {
+  const originalToken = "super-admin-original-jwt";
+  const scopeToken = "scope-token-eb-chemical-test";
+  const originalUser = {
+    id: "super-1",
+    email: "super@admin.test",
+    role: "super_admin",
+    globalRole: "super_admin",
+    isActive: true,
+  };
+
+  const values = new Map([
+    [tokenStorageKey, originalToken],
+    [userStorageKey, JSON.stringify(originalUser)],
+    ["cpanelActiveCompany", JSON.stringify({ id: "eb-chemical", name: "EB Chemical" })],
+  ]);
+  const storage = {
+    get length() { return values.size; },
+    getItem(key) { return values.get(key) ?? null; },
+    key(index) { return [...values.keys()][index] ?? null; },
+    setItem(key, val) { values.set(key, String(val)); },
+    removeItem(key) { values.delete(key); },
+  };
+  for (const [k, v] of values) storage[k] = v;
+
+  const sessionValues = new Map();
+  const sessionStorage = {
+    get length() { return sessionValues.size; },
+    getItem(key) { return sessionValues.get(key) ?? null; },
+    key(index) { return [...sessionValues.keys()][index] ?? null; },
+    setItem(key, val) { sessionValues.set(key, String(val)); },
+    removeItem(key) { sessionValues.delete(key); },
+  };
+
+  const originalLocalStorage = globalThis.localStorage;
+  const originalSessionStorage = globalThis.sessionStorage;
+  const originalFetch = globalThis.fetch;
+
+  globalThis.localStorage = storage;
+  globalThis.sessionStorage = sessionStorage;
+
+  let scopeApiCalled = false;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes("/platform/companies/eb-chemical/scope")) {
+      scopeApiCalled = true;
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            token: scopeToken,
+            user: {
+              ...originalUser,
+              role: "company_admin",
+              globalRole: "super_admin",
+              isCompanyScope: true,
+              activeCompany: { id: "eb-chemical", name: "EB Chemical", slug: "eb-chemical" },
+            },
+            activeCompany: { id: "eb-chemical", name: "EB Chemical", slug: "eb-chemical" },
+          };
+        },
+      };
+    }
+    if (String(url).includes("/company/context")) {
+      return {
+        ok: true,
+        status: 200,
+        async json() { return { modules: [{ route: "/admin/dashboard", enabled: true }] }; },
+      };
+    }
+    return { ok: true, status: 200, async json() { return {}; } };
+  };
+
+  try {
+    const user = await enterCompanyScope("eb-chemical");
+    assert.ok(scopeApiCalled, "scope API must have been called");
+
+    const savedSession = JSON.parse(sessionStorage.getItem("cpanelPlatformSession"));
+    assert.equal(savedSession.token, originalToken, "original token saved in sessionStorage");
+
+    assert.equal(values.get(tokenStorageKey), scopeToken, "scope token stored as active JWT");
+
+    assert.equal(user.globalRole, "super_admin");
+    assert.equal(user.role, "company_admin");
+    assert.ok(user.isCompanyScope);
+    assert.equal(user.activeCompany.id, "eb-chemical");
+
+    assert.equal(storage.getItem(tokenStorageKey), scopeToken, "scope token persists in localStorage (simulated refresh)");
+  } finally {
+    globalThis.localStorage = originalLocalStorage;
+    globalThis.sessionStorage = originalSessionStorage;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Back to Platform removes scope token, restores original super_admin token, clears tenant cache", async () => {
+  const originalToken = "super-admin-original-jwt";
+  const scopeToken = "scope-token-eb-chemical";
+  const originalUser = {
+    id: "super-1",
+    email: "super@admin.test",
+    role: "super_admin",
+    globalRole: "super_admin",
+    isActive: true,
+  };
+  const scopedUser = {
+    ...originalUser,
+    role: "company_admin",
+    globalRole: "super_admin",
+    isCompanyScope: true,
+    activeCompany: { id: "eb-chemical", name: "EB Chemical", slug: "eb-chemical" },
+  };
+
+  const values = new Map([
+    [tokenStorageKey, scopeToken],
+    [userStorageKey, JSON.stringify(scopedUser)],
+    ["cpanelActiveCompany", JSON.stringify({ id: "eb-chemical", name: "EB Chemical" })],
+    ["cpanelTenant:eb-chemical:brands", JSON.stringify([{ id: "b1" }])],
+    ["cpanelTenant:eb-chemical:categories", JSON.stringify([{ id: "c1" }])],
+    ["epChemicalWebsiteMedia:eb-chemical", JSON.stringify([{ id: "m1" }])],
+  ]);
+  const storage = {
+    get length() { return values.size; },
+    getItem(key) { return values.get(key) ?? null; },
+    key(index) { return [...values.keys()][index] ?? null; },
+    setItem(key, val) { values.set(key, String(val)); },
+    removeItem(key) { values.delete(key); },
+  };
+  for (const [k, v] of values) storage[k] = v;
+
+  const sessionValues = new Map([
+    ["cpanelPlatformSession", JSON.stringify({ token: originalToken, user: originalUser })],
+  ]);
+  const sessionStorage = {
+    get length() { return sessionValues.size; },
+    getItem(key) { return sessionValues.get(key) ?? null; },
+    key(index) { return [...sessionValues.keys()][index] ?? null; },
+    setItem(key, val) { sessionValues.set(key, String(val)); },
+    removeItem(key) { sessionValues.delete(key); },
+  };
+
+  const originalLocalStorage = globalThis.localStorage;
+  const originalSessionStorage = globalThis.sessionStorage;
+  const originalFetch = globalThis.fetch;
+
+  globalThis.localStorage = storage;
+  globalThis.sessionStorage = sessionStorage;
+
+  let exitApiCalled = false;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes("/platform/company-scope/exit")) {
+      exitApiCalled = true;
+      return { ok: true, status: 200, async json() { return null; } };
+    }
+    return { ok: true, status: 200, async json() { return {}; } };
+  };
+
+  try {
+    const user = await exitCompanyScope();
+
+    assert.ok(exitApiCalled, "exit scope API must have been called");
+
+    assert.equal(values.get(tokenStorageKey), originalToken, "original super_admin token restored");
+
+    assert.equal(values.has("cpanelActiveCompany"), false, "company context cleared from localStorage");
+
+    assert.equal(values.has("cpanelTenant:eb-chemical:brands"), false, "tenant cache cleared (brands)");
+    assert.equal(values.has("cpanelTenant:eb-chemical:categories"), false, "tenant cache cleared (categories)");
+    assert.equal(values.has("epChemicalWebsiteMedia:eb-chemical"), false, "tenant cache cleared (website media)");
+
+    assert.equal(sessionValues.has("cpanelPlatformSession"), false, "platform session removed from sessionStorage");
+
+    assert.equal(user.globalRole, "super_admin");
+    assert.equal(user.activeCompany, null, "returned user has no active company (platform context restored)");
+  } finally {
+    globalThis.localStorage = originalLocalStorage;
+    globalThis.sessionStorage = originalSessionStorage;
+    globalThis.fetch = originalFetch;
+  }
 });

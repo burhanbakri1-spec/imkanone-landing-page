@@ -136,7 +136,7 @@ test("CPanel wiring includes dynamic modules, guarded routes, scope switch, and 
   assert.match(layout, /groupCompanyModules\(modules\)/);
   assert.match(layout, /onReturnToPlatform/);
   assert.match(companies, /Manage Modules/);
-  assert.match(companies, /Open CPanel/);
+  assert.match(companies, /Manage company/);
   assert.match(feature, /admin-website-texts/);
 });
 

@@ -9,7 +9,8 @@ import {
 const JWT_SECRET = process.env.JWT_SECRET || "ep-chemical-jwt-dev-secret";
 const JWT_EXPIRY_SECONDS = 86400;
 const COMPANY_SELECTION_EXPIRY_SECONDS = 300;
-export const COMPANY_SCOPE_EXPIRY_SECONDS = 900;
+export const COMPANY_SCOPE_EXPIRY_SECONDS = JWT_EXPIRY_SECONDS;
+export { JWT_EXPIRY_SECONDS };
 
 function signPayload(payload, expirySeconds) {
   const header = { alg: "HS256", typ: "JWT" };

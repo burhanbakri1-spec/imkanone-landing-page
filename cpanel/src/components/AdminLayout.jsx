@@ -29,7 +29,7 @@ import {
   Users,
   WalletCards,
 } from "lucide-react";
-import { fetchPlatformCompanies } from "../utils/platformCompaniesApi.js";
+import CompanySwitcher from "./CompanySwitcher.jsx";
 import { groupCompanyModules, normalizedModulePage } from "../utils/moduleRegistry.js";
 import { canAccessAdminPage } from "../utils/roles.js";
 
@@ -127,7 +127,6 @@ function AdminLayout({
   }, [company, currentUser, isSuperAdmin, modules]);
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const [openSections, setOpenSections] = React.useState({});
-  const [companies, setCompanies] = React.useState([]);
 
   React.useEffect(() => {
     setOpenSections((current) => {
@@ -147,19 +146,10 @@ function AdminLayout({
     });
   }, [activeKey, sections]);
 
-  React.useEffect(() => {
-    if (!isSuperAdmin || !company || !onSwitchCompany) return;
-    fetchPlatformCompanies()
-      .then(setCompanies)
-      .catch(() => setCompanies([]));
-  }, [company?.id, isSuperAdmin, onSwitchCompany]);
-
   const labels = {
     admin: language === "ar" ? "الإدارة" : "Admin",
     menu: language === "ar" ? "القائمة" : "Menu",
     signOut: language === "ar" ? "تسجيل الخروج" : "Sign Out",
-    returnPlatform: language === "ar" ? "العودة للمنصة" : "Return to platform",
-    switchCompany: language === "ar" ? "تبديل الشركة" : "Switch company",
     language: language === "ar" ? "English" : "العربية",
     darkMode: language === "ar" ? "الوضع الليلي" : "Dark mode",
     lightMode: language === "ar" ? "الوضع الفاتح" : "Light mode",
@@ -263,30 +253,13 @@ function AdminLayout({
             {subtitle && <p>{subtitle}</p>}
           </div>
           <div className="admin-userbar">
-            {isSuperAdmin && company && (
-              <>
-                <select
-                  aria-label={labels.switchCompany}
-                  onChange={(event) => event.target.value && onSwitchCompany?.(event.target.value)}
-                  value={company.id}
-                >
-                  {companies.length ? (
-                    companies
-                      .filter((item) => item.status === "active")
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name}
-                        </option>
-                      ))
-                  ) : (
-                    <option value={company.id}>{company.name}</option>
-                  )}
-                </select>
-                <button className="text-action" onClick={onReturnToPlatform} type="button">
-                  {labels.returnPlatform}
-                </button>
-              </>
-            )}
+            <CompanySwitcher
+              company={company}
+              currentUser={currentUser}
+              language={language}
+              onSwitchCompany={onSwitchCompany}
+              onReturnToPlatform={onReturnToPlatform}
+            />
             <button
               className="admin-icon-button admin-language-button"
               aria-label={labels.language}
