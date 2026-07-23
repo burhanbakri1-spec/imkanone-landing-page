@@ -16,6 +16,11 @@ export function isValidCpanelUser(user) {
   if (!user.activeCompany) return false;
   if (user.activeCompany.status === "inactive") return false;
   if (user.companyId && user.activeCompany.id !== user.companyId) return false;
+
+  if (user.globalRole === "super_admin" && user.isCompanyScope === true) {
+    return true;
+  }
+
   const membership = user.activeMembership;
   if (!membership) return false;
   if (membership.status !== "active") return false;
@@ -58,6 +63,7 @@ export function resolvePage(pathname, user, navigationModules) {
 const pagePaths = {
   "admin-login": "/admin/login",
   admin: "/admin/dashboard",
+  "admin-platform-overview": "/admin/platform/overview",
   "admin-platform-companies": "/admin/platform/companies",
   "admin-platform-domains": "/admin/platform/domains",
   "admin-products": "/admin/products",

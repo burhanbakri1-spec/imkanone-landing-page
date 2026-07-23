@@ -10,7 +10,7 @@ import {
   sanitizeCompanyContext,
   tenantStorageKey,
 } from "../src/utils/companyContext.js";
-import { enterCompanyScope, exitCompanyScope } from "../src/utils/auth.js";
+import { enterCompanyScope, exitCompanyScope, fetchCurrentUser } from "../src/utils/auth.js";
 import { getSelectableAdminCategories } from "../src/utils/adminCategories.js";
 import { getOrders } from "../src/utils/orders.js";
 import {
@@ -36,6 +36,7 @@ import {
 const pagePaths = {
   "admin-login": "/admin/login",
   admin: adminDashboardPath,
+  "admin-platform-overview": "/admin/platform/overview",
   "admin-platform-companies": "/admin/platform/companies",
   "admin-products": "/admin/products",
   "admin-products-new": "/admin/products/new",
@@ -685,6 +686,30 @@ test("isValidCpanelUser accepts active Super Admin without activeCompany or acti
   assert.equal(isValidCpanelUser(user), true);
 });
 
+test("isValidCpanelUser accepts scoped super_admin without activeMembership", () => {
+  const user = {
+    role: "company_admin",
+    globalRole: "super_admin",
+    isCompanyScope: true,
+    isActive: true,
+    activeCompany: { id: "eb-chemical", slug: "eb-chemical" },
+    activeMembership: null,
+  };
+  assert.equal(isValidCpanelUser(user), true);
+});
+
+test("isValidCpanelUser rejects scoped super_admin without activeCompany", () => {
+  const user = {
+    role: "company_admin",
+    globalRole: "super_admin",
+    isCompanyScope: true,
+    isActive: true,
+    activeCompany: null,
+    activeMembership: null,
+  };
+  assert.equal(isValidCpanelUser(user), false);
+});
+
 test("isValidCpanelUser rejects inactive Super Admin", () => {
   const user = { role: "super_admin", isActive: false };
   assert.equal(isValidCpanelUser(user), false);
@@ -906,6 +931,109 @@ test("company_admin cannot access platform-domains page", () => {
   assert.equal(canAccessAdminPage(user, "admin-platform-domains"), false);
 });
 
+test("super_admin can access platform-overview page", () => {
+  const user = { role: "super_admin" };
+  assert.equal(canAccessAdminPage(user, "admin-platform-overview"), true);
+});
+
+test("company_admin cannot access platform-overview page", () => {
+  const user = { role: "company_admin" };
+  assert.equal(canAccessAdminPage(user, "admin-platform-overview"), false);
+});
+
+test("/admin/platform/overview resolves to admin-platform-overview", () => {
+  const user = { role: "super_admin" };
+  const result = resolveAdminPage("/admin/platform/overview", user, pagePaths);
+  assert.equal(result, "admin-platform-overview");
+});
+
+test("Overview resolves exclusively and not as admin dashboard", () => {
+  const user = { role: "super_admin" };
+  const overview = resolveAdminPage("/admin/platform/overview", user, pagePaths);
+  assert.equal(overview, "admin-platform-overview");
+  assert.notEqual(overview, "admin");
+  assert.notEqual(overview, "admin-platform-companies");
+  const companies = resolveAdminPage("/admin/platform/companies", user, pagePaths);
+  assert.equal(companies, "admin-platform-companies");
+  assert.notEqual(companies, "admin-platform-overview");
+});
+
+test("Manage company calls enterCompanyScope with selected company ID", async () => {
+  const originalLocalStorage = globalThis.localStorage;
+  const originalSessionStorage = globalThis.sessionStorage;
+  const originalFetch = globalThis.fetch;
+
+  const values = new Map([
+    ["epChemicalJwt", "super-admin-original-jwt"],
+    ["epChemicalUser", JSON.stringify({ role: "super_admin", globalRole: "super_admin", isActive: true })],
+  ]);
+  const storage = {
+    get length() { return values.size; },
+    getItem(key) { return values.get(key) ?? null; },
+    key(index) { return [...values.keys()][index] ?? null; },
+    setItem(key, val) { values.set(key, String(val)); },
+    removeItem(key) { values.delete(key); },
+  };
+  for (const [k, v] of values) storage[k] = v;
+
+  const sessionValues = new Map();
+  const sessionStorage = {
+    get length() { return sessionValues.size; },
+    getItem(key) { return sessionValues.get(key) ?? null; },
+    key(index) { return [...sessionValues.keys()][index] ?? null; },
+    setItem(key, val) { sessionValues.set(key, String(val)); },
+    removeItem(key) { sessionValues.delete(key); },
+  };
+
+  globalThis.localStorage = storage;
+  globalThis.sessionStorage = sessionStorage;
+
+  let scopeCompanyId = null;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes("/platform/companies/")) {
+      scopeCompanyId = String(url).match(/\/platform\/companies\/([^/]+)\/scope/)?.[1] || null;
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            token: "scoped-token",
+            user: { role: "company_admin", globalRole: "super_admin", isCompanyScope: true, activeCompany: { id: "eb-chemical", slug: "eb-chemical" } },
+            activeCompany: { id: "eb-chemical", slug: "eb-chemical" },
+          };
+        },
+      };
+    }
+    if (String(url).includes("/company/context")) {
+      return { ok: true, status: 200, async json() { return { modules: [] }; } };
+    }
+    return { ok: true, status: 200, async json() { return {}; } };
+  };
+
+  try {
+    const user = await enterCompanyScope("eb-chemical");
+    assert.equal(scopeCompanyId, "eb-chemical", "enterCompanyScope called with correct company ID");
+    assert.equal(user.role, "company_admin");
+    assert.equal(user.activeCompany.id, "eb-chemical");
+    assert.equal(user.activeCompany.slug, "eb-chemical");
+  } finally {
+    globalThis.localStorage = originalLocalStorage;
+    globalThis.sessionStorage = originalSessionStorage;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("successful company switch lands on tenant dashboard", () => {
+  const user = {
+    role: "company_admin",
+    globalRole: "super_admin",
+    isCompanyScope: true,
+    activeCompany: { modules: [{ route: "/admin/dashboard", enabled: true }] },
+  };
+  const result = landingPage(user);
+  assert.equal(result, "admin");
+});
+
 test("super_admin in company scope lands on admin dashboard", () => {
   const user = {
     role: "company_admin",
@@ -1097,6 +1225,96 @@ test("Back to Platform removes scope token, restores original super_admin token,
 
     assert.equal(user.globalRole, "super_admin");
     assert.equal(user.activeCompany, null, "returned user has no active company (platform context restored)");
+  } finally {
+    globalThis.localStorage = originalLocalStorage;
+    globalThis.sessionStorage = originalSessionStorage;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("scope user passes isValidCpanelUser on simulated page refresh and lands on tenant dashboard", () => {
+  const scopedUser = {
+    id: "super-1",
+    email: "super@admin.test",
+    role: "company_admin",
+    globalRole: "super_admin",
+    isCompanyScope: true,
+    isActive: true,
+    activeCompany: { id: "eb-chemical", slug: "eb-chemical", name: "EB Chemical", modules: [{ route: "/admin/dashboard", enabled: true }] },
+    activeMembership: null,
+  };
+  assert.equal(isValidCpanelUser(scopedUser), true, "scoped user must be valid after refresh");
+  const result = landingPage(scopedUser);
+  assert.equal(result, "admin");
+});
+
+test("first bootstrap request after scope switch uses the scoped token", async () => {
+  const scopeToken = "scope-token-eb-chemical-bootstrap";
+  const scopedUser = {
+    id: "super-1",
+    email: "super@admin.test",
+    role: "company_admin",
+    globalRole: "super_admin",
+    isCompanyScope: true,
+    isActive: true,
+  };
+
+  const values = new Map([
+    [tokenStorageKey, scopeToken],
+    [userStorageKey, JSON.stringify(scopedUser)],
+  ]);
+  const storage = {
+    get length() { return values.size; },
+    getItem(key) { return values.get(key) ?? null; },
+    key(index) { return [...values.keys()][index] ?? null; },
+    setItem(key, val) { values.set(key, String(val)); },
+    removeItem(key) { values.delete(key); },
+  };
+  for (const [k, v] of values) storage[k] = v;
+
+  const originalLocalStorage = globalThis.localStorage;
+  const originalSessionStorage = globalThis.sessionStorage;
+  const originalFetch = globalThis.fetch;
+
+  globalThis.localStorage = storage;
+  globalThis.sessionStorage = { getItem() { return null; }, setItem() {}, removeItem() {}, get length() { return 0; }, key() { return null; } };
+
+  let bootstrapAuthHeader = null;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).includes("/auth/me")) {
+      bootstrapAuthHeader = options?.headers?.Authorization || null;
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            ...scopedUser,
+            user: scopedUser,
+            activeCompany: { id: "eb-chemical", slug: "eb-chemical", name: "EB Chemical" },
+            activeMembership: null,
+            availableCompanies: [],
+          };
+        },
+      };
+    }
+    if (String(url).includes("/company/context")) {
+      return { ok: true, status: 200, async json() { return { modules: [{ route: "/admin/dashboard", enabled: true }] }; } };
+    }
+    return { ok: true, status: 200, async json() { return {}; } };
+  };
+
+  try {
+    const user = await fetchCurrentUser();
+
+    assert.equal(bootstrapAuthHeader, `Bearer ${scopeToken}`, "bootstrap /auth/me must use the scoped token");
+    assert.ok(user, "user must be returned from bootstrap");
+    assert.equal(user.globalRole, "super_admin");
+    assert.equal(user.role, "company_admin");
+    assert.ok(user.isCompanyScope);
+    assert.ok(user.activeCompany);
+    assert.equal(user.activeCompany.id, "eb-chemical");
+    assert.equal(user.activeMembership, null);
+    assert.equal(isValidCpanelUser(user), true, "bootstrapped user must pass validation");
   } finally {
     globalThis.localStorage = originalLocalStorage;
     globalThis.sessionStorage = originalSessionStorage;

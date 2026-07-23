@@ -1,6 +1,7 @@
 import React from "react";
 import AdminCompaniesPage from "./pages/AdminCompaniesPage.jsx";
 import AdminDomainsPage from "./pages/AdminDomainsPage.jsx";
+import AdminPlatformOverview from "./pages/AdminPlatformOverview.jsx";
 import AdminDashboardPage from "./pages/AdminDashboardPage.jsx";
 import AdminEmployeesPage from "./pages/AdminEmployeesPage.jsx";
 import AdminLoginPage from "./pages/AdminLoginPage.jsx";
@@ -83,6 +84,7 @@ import "./styles/global.css";
 const pagePaths = {
   "admin-login": "/admin/login",
   admin: adminDashboardPath,
+  "admin-platform-overview": "/admin/platform/overview",
   "admin-platform-companies": "/admin/platform/companies",
   "admin-platform-domains": "/admin/platform/domains",
   "admin-products": "/admin/products",
@@ -522,6 +524,7 @@ function CPanelApp() {
       });
     } catch (error) {
       handleApiError(error);
+      throw error;
     }
   }
 
@@ -903,6 +906,7 @@ function CPanelApp() {
 
         {adminPageKeys.includes(activePage) &&
           activePage !== "admin-no-access" &&
+          activePage !== "admin-platform-overview" &&
           activePage !== "admin-platform-companies" &&
           activePage !== "admin-platform-domains" &&
           !dropshippingPageKeys.includes(activePage) &&
@@ -947,6 +951,7 @@ function CPanelApp() {
             />
           )}
 
+        {activePage === "admin-platform-overview" && <AdminPlatformOverview {...sharedLayoutProps} />}
         {activePage === "admin-platform-companies" && <AdminCompaniesPage {...sharedLayoutProps} />}
         {activePage === "admin-platform-domains" && <AdminDomainsPage {...sharedLayoutProps} />}
         {dropshippingPageKeys.includes(activePage) && (

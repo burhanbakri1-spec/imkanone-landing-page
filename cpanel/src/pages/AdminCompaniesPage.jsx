@@ -1,5 +1,6 @@
 import React from "react";
-import { Building2, Pencil, Plus, Settings, ShieldAlert, Users } from "lucide-react";
+import { Building2, LayoutGrid, List, Pencil, Plus, Search, Settings, ShieldAlert, Users } from "lucide-react";
+import { companyInitials } from "../utils/companySwitcher.js";
 import AdminLayout from "../components/AdminLayout.jsx";
 import CompanyMembershipsPanel from "../components/CompanyMembershipsPanel.jsx";
 
@@ -80,7 +81,7 @@ function CompanyModulesPanel({ company, onClose, onError, onSuccess }) {
   return (
     <section className="admin-panel-card">
       <div className="admin-section-head">
-        <div><h2>Manage modules — {company.name}</h2><p>Disabled modules disappear from navigation and are blocked by server-side API guards.</p></div>
+        <div><h2>Manage Modules — {company.name}</h2><p>Disabled modules disappear from navigation and are blocked by server-side API guards.</p></div>
         <button className="secondary-action" onClick={onClose} type="button">Close</button>
       </div>
       {busy && !modules.length ? <p>Loading modules...</p> : (
@@ -601,6 +602,10 @@ function AdminCompaniesPage({
   const [modulesCompany, setModulesCompany] = React.useState(null);
   const [form, setForm] = React.useState(cloneForm());
   const [addDialogOpen, setAddDialogOpen] = React.useState(false);
+  const [search, setSearch] = React.useState("");
+  const [statusFilter, setStatusFilter] = React.useState("all");
+  const [viewMode, setViewMode] = React.useState("grid");
+  const [switchingId, setSwitchingId] = React.useState(null);
   const onLogoutRef = React.useRef(onLogout);
 
   React.useEffect(() => {
@@ -758,6 +763,43 @@ function AdminCompaniesPage({
     }
   }
 
+  const filteredCompanies = React.useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return companies.filter((c) => {
+      if (statusFilter !== "all" && c.status !== statusFilter) return false;
+      if (!query) return true;
+      return (
+        c.name?.toLowerCase().includes(query) ||
+        c.id?.toLowerCase().includes(query) ||
+        c.slug?.toLowerCase().includes(query) ||
+        c.domain?.toLowerCase().includes(query)
+      );
+    });
+  }, [companies, search, statusFilter]);
+
+  const labels = {
+    companies: language === "ar" ? "الشركات" : "Companies",
+    total: language === "ar" ? "الإجمالي" : "Total",
+    addCompany: language === "ar" ? "إضافة شركة" : "Add Company",
+    search: language === "ar" ? "بحث..." : "Search companies...",
+    all: language === "ar" ? "الكل" : "All",
+    active: language === "ar" ? "نشط" : "Active",
+    draft: language === "ar" ? "مسودة" : "Draft",
+    inactive: language === "ar" ? "غير نشط" : "Inactive",
+    manage: language === "ar" ? "إدارة" : "Manage company",
+    modules: language === "ar" ? "الوحدات" : "Modules",
+    edit: language === "ar" ? "تعديل" : "Edit",
+    members: language === "ar" ? "الأعضاء" : "Members",
+    disable: language === "ar" ? "تعطيل" : "Disable",
+    notAssigned: language === "ar" ? "غير معين" : "Not assigned",
+    default: language === "ar" ? "افتراضي" : "Default",
+    grid: language === "ar" ? "شبكة" : "Grid",
+    list: language === "ar" ? "قائمة" : "List",
+    status: language === "ar" ? "الحالة" : "Status",
+    domain: language === "ar" ? "النطاق" : "Domain",
+    storefront: language === "ar" ? "المتجر" : "Storefront",
+  };
+
   return (
     <AdminLayout
       activePage="admin-platform-companies"
@@ -767,22 +809,60 @@ function AdminCompaniesPage({
       onLanguageChange={onLanguageChange}
       onLogout={onLogout}
       onNavigate={onNavigate}
+      onSwitchCompany={onSwitchCompany}
       onToggleDarkMode={onToggleDarkMode}
       subtitle="Manage company records without enabling public tenant switching."
-      title="Companies"
+      title={labels.companies}
     >
       {accessDenied ? (
         <AccessDenied />
       ) : (
         <div className="company-management-page">
           <div className="admin-toolbar company-toolbar">
-            <div>
-              <strong>Platform companies</strong>
-              <span>{companies.length} total</span>
+            <div className="company-search-bar">
+              <div className="company-search-field">
+                <Search size={15} />
+                <input
+                  type="text"
+                  placeholder={labels.search}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  aria-label={labels.search}
+                />
+              </div>
+              <select
+                className="company-filter-select"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                aria-label={labels.status}
+              >
+                <option value="all">{labels.all}</option>
+                <option value="active">{labels.active}</option>
+                <option value="draft">{labels.draft}</option>
+                <option value="inactive">{labels.inactive}</option>
+              </select>
+              <div className="company-view-toggle">
+                <button
+                  className={viewMode === "grid" ? "active" : ""}
+                  onClick={() => setViewMode("grid")}
+                  type="button"
+                  aria-label={labels.grid}
+                >
+                  <LayoutGrid size={15} />
+                </button>
+                <button
+                  className={viewMode === "list" ? "active" : ""}
+                  onClick={() => setViewMode("list")}
+                  type="button"
+                  aria-label={labels.list}
+                >
+                  <List size={15} />
+                </button>
+              </div>
             </div>
             <button className="admin-primary-button" onClick={() => setAddDialogOpen(true)} type="button">
               <Plus size={15} />
-              Add Company
+              {labels.addCompany}
             </button>
           </div>
 
@@ -801,99 +881,103 @@ function AdminCompaniesPage({
             <section className="admin-panel-card company-loading" aria-busy="true">
               Loading companies...
             </section>
-          ) : companies.length ? (
-            <div className="admin-table-wrap">
-              <table className="admin-table company-table">
-                <thead>
-                  <tr>
-                    <th>Company</th>
-                    <th>ID</th>
-                    <th>Slug</th>
-                    <th>Status</th>
-                    <th>Domain</th>
-                    <th>Storefront</th>
-                    <th>Default</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {companies.map((company) => (
-                    <tr key={company.id}>
-                      <td>
-                        <strong>{company.name}</strong>
-                      </td>
-                      <td>
-                        <code>{company.id}</code>
-                      </td>
-                      <td>{company.slug || "-"}</td>
-                      <td>
-                        <span
-                          className={`admin-status-pill ${company.status === "active" ? "active" : company.status === "draft" ? "warning" : "neutral"}`}
-                        >
-                          {company.status}
-                        </span>
-                      </td>
-                      <td>{company.domain || "Not assigned"}</td>
-                      <td>
-                        {company.storefrontUrl ? (
-                          <a href={company.storefrontUrl} rel="noreferrer" target="_blank">
-                            {company.storefrontPath || company.storefrontUrl}
-                          </a>
-                        ) : (
-                          "Not assigned"
-                        )}
-                      </td>
-                      <td>
-                        {company.isDefault ? (
-                          <span className="admin-status-pill active">Default</span>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td>
-                        <div className="company-row-actions">
-                          <button className="text-action" disabled={company.status !== "active"} onClick={() => onSwitchCompany(company.id)} type="button">
-                            <Building2 size={14} /> Manage company
-                          </button>
-                          <button className="text-action" onClick={() => setModulesCompany(company)} type="button">
-                            <Settings size={14} /> Manage Modules
-                          </button>
-                          <button
-                            className="text-action"
-                            onClick={() => beginEdit(company)}
-                            type="button"
-                          >
-                            <Pencil size={14} /> Edit
-                          </button>
-                          <button
-                            className="text-action"
-                            onClick={() => setSelectedCompanyId(company.id)}
-                            type="button"
-                          >
-                            <Users size={14} /> Members
-                          </button>
-                          {!company.isDefault && company.status !== "inactive" && (
-                            <button
-                              className="text-action company-disable-button"
-                              disabled={isSaving}
-                              onClick={() => disableCompany(company)}
-                              type="button"
-                            >
-                              Disable
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          ) : filteredCompanies.length ? (
+            <div className={viewMode === "grid" ? "company-cards-grid" : "company-cards-list"}>
+              {filteredCompanies.map((company) => (
+                <div key={company.id} className="company-card">
+                  <div className="company-card-top">
+                    {company.logoUrl ? (
+                      <img className="company-card-logo" src={company.logoUrl} alt="" />
+                    ) : (
+                      <span className="company-card-initials">
+                        {companyInitials(company.name)}
+                      </span>
+                    )}
+                    <div className="company-card-info">
+                      <h3 className="company-card-name">{company.name}</h3>
+                      <div className="company-card-id">{company.id}{company.slug && company.slug !== company.id ? ` / ${company.slug}` : ""}</div>
+                    </div>
+                    <span
+                      className={`admin-status-pill ${company.status === "active" ? "active" : company.status === "draft" ? "warning" : "neutral"}`}
+                    >
+                      {company.status}
+                    </span>
+                  </div>
+                  <dl className="company-card-meta">
+                    <dt>{labels.domain}</dt>
+                    <dd className="company-card-domain">{company.domain || labels.notAssigned}</dd>
+                    <dt>{labels.storefront}</dt>
+                    <dd className="company-card-storefront">
+                      {company.storefrontUrl ? (
+                        <a href={company.storefrontUrl} rel="noreferrer" target="_blank">
+                          {company.storefrontPath || company.storefrontUrl}
+                        </a>
+                      ) : (
+                        labels.notAssigned
+                      )}
+                    </dd>
+                    {company.isDefault && (
+                      <>
+                        <dt>{labels.default}</dt>
+                        <dd>
+                          <span className="admin-status-pill active">{labels.default}</span>
+                        </dd>
+                      </>
+                    )}
+                  </dl>
+                  <div className="company-card-actions">
+                    <button
+                      className="company-card-action"
+                      disabled={company.status !== "active" || switchingId === company.id}
+                      onClick={() => {
+                        setSwitchingId(company.id);
+                        setError("");
+                        onSwitchCompany(company.id).catch(() => setSwitchingId(null));
+                      }}
+                      type="button"
+                    >
+                      <Building2 size={14} /> {switchingId === company.id ? "Switching..." : labels.manage}
+                    </button>
+                    <button
+                      className="company-card-action"
+                      onClick={() => setModulesCompany(company)}
+                      type="button"
+                    >
+                      <Settings size={14} /> {labels.modules}
+                    </button>
+                    <button
+                      className="company-card-action"
+                      onClick={() => beginEdit(company)}
+                      type="button"
+                    >
+                      <Pencil size={14} /> {labels.edit}
+                    </button>
+                    <button
+                      className="company-card-action"
+                      onClick={() => setSelectedCompanyId(company.id)}
+                      type="button"
+                    >
+                      <Users size={14} /> {labels.members}
+                    </button>
+                    {!company.isDefault && company.status !== "inactive" && (
+                      <button
+                        className="company-card-action danger"
+                        disabled={isSaving}
+                        onClick={() => disableCompany(company)}
+                        type="button"
+                      >
+                        {labels.disable}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           ) : (
             <div className="admin-empty-state">
               <Building2 size={24} />
               <strong>No companies found</strong>
-              <span>Create a draft company to begin configuration.</span>
+              <span>{search ? "Try a different search term." : "Create a draft company to begin configuration."}</span>
             </div>
           )}
 

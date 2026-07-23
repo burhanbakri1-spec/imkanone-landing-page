@@ -1,4 +1,4 @@
-const platformPageKeys = new Set(["admin-platform-companies", "admin-platform-domains"]);
+const platformPageKeys = new Set(["admin-platform-companies", "admin-platform-domains", "admin-platform-overview"]);
 export const adminDashboardPath = "/admin/dashboard";
 
 export function isPlatformAdmin(role) {
