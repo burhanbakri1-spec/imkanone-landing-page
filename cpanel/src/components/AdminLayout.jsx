@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ClipboardList,
   Cuboid,
+  ExternalLink,
   FileText,
   Film,
   FolderTree,
@@ -57,7 +58,7 @@ const icons = {
   withdrawals: WalletCards,
 };
 const groupIcons = {
-  catalog: Cuboid,
+  catalog: Package,
   dashboard: Grid3X3,
   dropshipping: HandCoins,
   operations: ClipboardList,
@@ -67,7 +68,7 @@ const groupIcons = {
 };
 const groupLabels = {
   catalog: { en: "Catalog", ar: "الكتالوج" },
-  dashboard: { en: "Dashboard", ar: "لوحة التحكم" },
+  dashboard: { en: "Main", ar: "الرئيسية" },
   dropshipping: { en: "Dropshipping", ar: "الدروبشيبينغ" },
   operations: { en: "Operations", ar: "العمليات" },
   people: { en: "People", ar: "الأشخاص" },
@@ -89,6 +90,7 @@ function AdminLayout({
   onSwitchCompany,
   subtitle,
   title,
+  hideHeader = false,
   isDarkMode = false,
   onToggleDarkMode,
 }) {
@@ -96,6 +98,7 @@ function AdminLayout({
   const companyMark = companyName.slice(0, 2).toUpperCase();
   const activeKey = normalizedModulePage(activePage);
   const isSuperAdmin = (currentUser?.globalRole || currentUser?.role) === "super_admin";
+  const isTenant = Boolean(company);
   const sections = React.useMemo(() => {
     if (!company && isSuperAdmin)
       return [
@@ -144,6 +147,8 @@ function AdminLayout({
     language: language === "ar" ? "English" : "العربية",
     darkMode: language === "ar" ? "الوضع الليلي" : "Dark mode",
     lightMode: language === "ar" ? "الوضع الفاتح" : "Light mode",
+    storefront: language === "ar" ? "واجهة المتجر" : "Storefront",
+    backToPlatform: language === "ar" ? "العودة إلى المنصة" : "Back to Platform",
   };
 
   const renderItem = (item) => {
@@ -166,7 +171,7 @@ function AdminLayout({
 
   return (
     <section
-      className={`admin-layout ${isDarkMode ? "admin-dark" : ""}`}
+      className={`admin-layout ${isDarkMode ? "admin-dark" : ""} ${isTenant ? "admin-tenant" : ""}`}
       dir={language === "ar" ? "rtl" : "ltr"}
     >
       <header className="admin-topnav">
@@ -224,7 +229,9 @@ function AdminLayout({
             )}
             <div>
               <strong>{companyName}</strong>
-              <small>{labels.admin}</small>
+              {isSuperAdmin && isTenant && (
+                <small className="admin-sidebar-scope-badge">Scoped</small>
+              )}
             </div>
           </div>
           <nav className="admin-nav" aria-label="Admin navigation">
@@ -233,15 +240,14 @@ function AdminLayout({
                 section.id === "platform" ? Building2 : groupIcons[section.id] || Settings;
               const sectionActive = section.items.some((item) => item.pageKey === activeKey);
               const isOpen = openSections[section.id];
-              const single =
-                section.items.length === 1 && ["dashboard", "platform"].includes(section.id);
+              const isSingle = section.items.length === 1 && section.id === "dashboard";
               const sectionLabel =
                 section.id === "platform"
                   ? { en: "Platform", ar: "المنصة" }
                   : groupLabels[section.id] || { en: section.id, ar: section.id };
               return (
                 <div className="admin-nav-group" key={section.id}>
-                  {single ? (
+                  {isSingle ? (
                     renderItem(section.items[0])
                   ) : (
                     <>
@@ -256,10 +262,10 @@ function AdminLayout({
                         type="button"
                       >
                         <span>
-                          <SectionIcon size={16} />
+                          <SectionIcon size={15} />
                           {sectionLabel[language] || sectionLabel.en}
                         </span>
-                        <ChevronDown className={isOpen ? "open" : ""} size={15} />
+                        <ChevronDown className={`admin-nav-chevron-icon ${isOpen ? "open" : ""}`} size={13} />
                       </button>
                       {isOpen && (
                         <div className="admin-nav-items">{section.items.map(renderItem)}</div>
@@ -270,6 +276,29 @@ function AdminLayout({
               );
             })}
           </nav>
+
+          {isTenant && company?.storefrontUrl && (
+            <div className="admin-sidebar-footer">
+              <a
+                className="admin-sidebar-storefront-link"
+                href={company.storefrontUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <ExternalLink size={14} />
+                {labels.storefront}
+              </a>
+            </div>
+          )}
+
+          {isTenant && isSuperAdmin && onReturnToPlatform && (
+            <div className="admin-sidebar-footer">
+              <button className="admin-sidebar-platform-link" onClick={onReturnToPlatform} type="button">
+                <Building2 size={14} />
+                {labels.backToPlatform}
+              </button>
+            </div>
+          )}
         </aside>
         {mobileOpen && (
           <button
@@ -280,12 +309,14 @@ function AdminLayout({
           />
         )}
         <div className="admin-workspace">
-          <div className="admin-page-header">
-            <div>
-              <h1>{title}</h1>
-              {subtitle && <p>{subtitle}</p>}
+          {!hideHeader && (
+            <div className="admin-page-header">
+              <div>
+                <h1>{title}</h1>
+                {subtitle && <p>{subtitle}</p>}
+              </div>
             </div>
-          </div>
+          )}
           <main className="admin-content">{children}</main>
         </div>
       </div>

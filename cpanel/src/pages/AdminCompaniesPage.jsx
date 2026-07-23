@@ -1,5 +1,5 @@
 import React from "react";
-import { Building2, LayoutGrid, List, Pencil, Plus, Search, Settings, ShieldAlert, Users } from "lucide-react";
+import { Building2, LayoutGrid, List, MoreVertical, Pencil, Plus, Search, Settings, ShieldAlert, Users } from "lucide-react";
 import { companyInitials } from "../utils/companySwitcher.js";
 import AdminLayout from "../components/AdminLayout.jsx";
 import CompanyMembershipsPanel from "../components/CompanyMembershipsPanel.jsx";
@@ -606,6 +606,8 @@ function AdminCompaniesPage({
   const [statusFilter, setStatusFilter] = React.useState("all");
   const [viewMode, setViewMode] = React.useState("grid");
   const [switchingId, setSwitchingId] = React.useState(null);
+  const [menuOpenId, setMenuOpenId] = React.useState(null);
+  const menuRef = React.useRef(null);
   const onLogoutRef = React.useRef(onLogout);
 
   React.useEffect(() => {
@@ -653,6 +655,18 @@ function AdminCompaniesPage({
       active = false;
     };
   }, [currentUser?.role]);
+
+  React.useEffect(() => {
+    function handleClick(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpenId(null);
+      }
+    }
+    if (menuOpenId) {
+      document.addEventListener("mousedown", handleClick);
+      return () => document.removeEventListener("mousedown", handleClick);
+    }
+  }, [menuOpenId]);
 
   function beginCreate() {
     setEditorCompany(null);
@@ -882,93 +896,103 @@ function AdminCompaniesPage({
               Loading companies...
             </section>
           ) : filteredCompanies.length ? (
-            <div className={viewMode === "grid" ? "company-cards-grid" : "company-cards-list"}>
+            <div className={`company-cards-grid ${viewMode === "list" ? "company-cards-list" : ""}`}>
               {filteredCompanies.map((company) => (
-                <div key={company.id} className="company-card">
-                  <div className="company-card-top">
+                <div key={company.id} className={`company-card ${menuOpenId === company.id ? "menu-open" : ""}`}>
+                  <div className="company-card-preview">
                     {company.logoUrl ? (
-                      <img className="company-card-logo" src={company.logoUrl} alt="" />
+                      <img className="company-card-preview-img" src={company.logoUrl} alt="" />
                     ) : (
-                      <span className="company-card-initials">
-                        {companyInitials(company.name)}
-                      </span>
+                      <div className="company-card-preview-placeholder">
+                        <span className="company-card-preview-initials">
+                          {companyInitials(company.name)}
+                        </span>
+                        <span className="company-card-preview-name">{company.name}</span>
+                      </div>
                     )}
-                    <div className="company-card-info">
-                      <h3 className="company-card-name">{company.name}</h3>
-                      <div className="company-card-id">{company.id}{company.slug && company.slug !== company.id ? ` / ${company.slug}` : ""}</div>
-                    </div>
-                    <span
-                      className={`admin-status-pill ${company.status === "active" ? "active" : company.status === "draft" ? "warning" : "neutral"}`}
-                    >
-                      {company.status}
-                    </span>
-                  </div>
-                  <dl className="company-card-meta">
-                    <dt>{labels.domain}</dt>
-                    <dd className="company-card-domain">{company.domain || labels.notAssigned}</dd>
-                    <dt>{labels.storefront}</dt>
-                    <dd className="company-card-storefront">
-                      {company.storefrontUrl ? (
-                        <a href={company.storefrontUrl} rel="noreferrer" target="_blank">
-                          {company.storefrontPath || company.storefrontUrl}
-                        </a>
-                      ) : (
-                        labels.notAssigned
-                      )}
-                    </dd>
-                    {company.isDefault && (
-                      <>
-                        <dt>{labels.default}</dt>
-                        <dd>
-                          <span className="admin-status-pill active">{labels.default}</span>
-                        </dd>
-                      </>
-                    )}
-                  </dl>
-                  <div className="company-card-actions">
-                    <button
-                      className="company-card-action"
-                      disabled={company.status !== "active" || switchingId === company.id}
-                      onClick={() => {
-                        setSwitchingId(company.id);
-                        setError("");
-                        onSwitchCompany(company.id).catch(() => setSwitchingId(null));
-                      }}
-                      type="button"
-                    >
-                      <Building2 size={14} /> {switchingId === company.id ? "Switching..." : labels.manage}
-                    </button>
-                    <button
-                      className="company-card-action"
-                      onClick={() => setModulesCompany(company)}
-                      type="button"
-                    >
-                      <Settings size={14} /> {labels.modules}
-                    </button>
-                    <button
-                      className="company-card-action"
-                      onClick={() => beginEdit(company)}
-                      type="button"
-                    >
-                      <Pencil size={14} /> {labels.edit}
-                    </button>
-                    <button
-                      className="company-card-action"
-                      onClick={() => setSelectedCompanyId(company.id)}
-                      type="button"
-                    >
-                      <Users size={14} /> {labels.members}
-                    </button>
-                    {!company.isDefault && company.status !== "inactive" && (
+                    <div className="company-card-overlay">
                       <button
-                        className="company-card-action danger"
-                        disabled={isSaving}
-                        onClick={() => disableCompany(company)}
+                        className="company-card-manage-btn"
+                        disabled={company.status !== "active" || switchingId === company.id}
+                        onClick={() => {
+                          setSwitchingId(company.id);
+                          setError("");
+                          onSwitchCompany(company.id).catch(() => setSwitchingId(null));
+                        }}
                         type="button"
                       >
-                        {labels.disable}
+                        <Building2 size={16} />
+                        {switchingId === company.id ? "Switching..." : labels.manage}
                       </button>
-                    )}
+                    </div>
+                  </div>
+                  <div className="company-card-footer">
+                    <div className="company-card-footer-main">
+                      <div className="company-card-footer-left">
+                        <span className="company-card-footer-name">{company.name}</span>
+                        <span className="company-card-footer-domain">
+                          {company.domain || labels.notAssigned}
+                        </span>
+                      </div>
+                      <span
+                        className={`admin-status-pill company-card-status ${company.status === "active" ? "active" : company.status === "draft" ? "warning" : "neutral"}`}
+                      >
+                        {company.status}
+                      </span>
+                    </div>
+                    <div className="company-card-three-dot" ref={menuOpenId === company.id ? menuRef : null}>
+                      <button
+                        className="company-card-three-dot-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMenuOpenId(menuOpenId === company.id ? null : company.id);
+                        }}
+                        type="button"
+                        aria-label="Company actions"
+                        aria-expanded={menuOpenId === company.id}
+                      >
+                        <MoreVertical size={16} />
+                      </button>
+                      {menuOpenId === company.id && (
+                        <div className="company-card-menu" role="menu">
+                          <button
+                            className="company-card-menu-item"
+                            onClick={() => { beginEdit(company); setMenuOpenId(null); }}
+                            type="button"
+                            role="menuitem"
+                          >
+                            <Pencil size={14} /> {labels.edit}
+                          </button>
+                          <button
+                            className="company-card-menu-item"
+                            onClick={() => { setModulesCompany(company); setMenuOpenId(null); }}
+                            type="button"
+                            role="menuitem"
+                          >
+                            <Settings size={14} /> {labels.modules}
+                          </button>
+                          <button
+                            className="company-card-menu-item"
+                            onClick={() => { setSelectedCompanyId(company.id); setMenuOpenId(null); }}
+                            type="button"
+                            role="menuitem"
+                          >
+                            <Users size={14} /> {labels.members}
+                          </button>
+                          {!company.isDefault && company.status !== "inactive" && (
+                            <button
+                              className="company-card-menu-item company-card-menu-item-danger"
+                              disabled={isSaving}
+                              onClick={() => { disableCompany(company); setMenuOpenId(null); }}
+                              type="button"
+                              role="menuitem"
+                            >
+                              {labels.disable}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}

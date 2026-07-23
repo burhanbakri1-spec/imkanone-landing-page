@@ -1,5 +1,5 @@
 import React from "react";
-import { Minus, Plus, Search, Upload } from "lucide-react";
+import { AlertCircle, Clock, ExternalLink, FileText, Globe, HandCoins, Minus, Package, Plus, Search, Settings, ShoppingCart, ClipboardList, Upload, UserCircle, Users } from "lucide-react";
 import AdminLayout from "../components/AdminLayout.jsx";
 import AdminOrdersTable from "../components/AdminOrdersTable.jsx";
 import WebsiteMediaManager from "../components/WebsiteMediaManager.jsx";
@@ -11,6 +11,7 @@ import {
 } from "../utils/adminCategories.js";
 import { tenantStorageKey } from "../utils/companyContext.js";
 import { parseRequiredStock, preserveLegacySingleVariantStock } from "../utils/productStock.js";
+import { moduleAllowsPage, pageKeyForModule } from "../utils/moduleRegistry.js";
 import { canAccessAdminPage, isAdminPortalRole, isCompanyAdmin, isStaffRole, isTenantOperator, tenantAccessNotice } from "../utils/roles.js";
 import { hasPermission } from "../data/permissions.js";
 
@@ -350,16 +351,6 @@ function createProductFromForm(form) {
   };
 }
 
-function AdminMetricCard({ label, value, icon }) {
-  return (
-    <article className="admin-metric-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{icon || "+0% vs prev 30d"}</small>
-    </article>
-  );
-}
-
 function Toolbar({ children, onAdd, addLabel }) {
   return (
     <div className="admin-toolbar">
@@ -540,59 +531,220 @@ function EmptyState({ title, description }) {
   );
 }
 
-function DashboardHome({ customers, language, orders, products, t }) {
-  const revenue = orders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+function DashboardHome({ company, currentUser, employees, language, modules, onNavigate, orders, products, t }) {
+  const customers = React.useMemo(() => uniqueCustomersFromOrders(orders), [orders]);
+  const revenue = orders.reduce((sum, o) => sum + Number(o.total || 0), 0);
+  const activeProducts = products.filter((p) => p.isActive !== false && p.status !== "Inactive").length;
+  const pendingOrders = orders.filter((o) => /pending/i.test(o.status || "")).length;
+  const role = currentUser?.role;
+  const canCreate = isCompanyAdmin(role) || hasPermission(currentUser, "products.create") || hasPermission(currentUser, "products.manage");
+  const canManage = isCompanyAdmin(role);
+  const l = language;
+
+  const setupItems = [];
+  if (!products.length) setupItems.push({ icon: Package, message: t("admin.noProductsCreated") });
+  if (products.length > 0 && activeProducts === 0) setupItems.push({ icon: AlertCircle, message: t("admin.enableProductNotice") });
+  if (pendingOrders > 0) setupItems.push({ icon: Clock, message: `${pendingOrders} ${t("admin.pendingAttention")}` });
+  if (!company?.storefrontUrl) setupItems.push({ icon: Globe, message: t("admin.storefrontNotSet") });
+
+  const quickActions = [];
+  if (moduleAllowsPage(modules, "admin-products-new") && canCreate)
+    quickActions.push({ page: "admin-products-new", icon: Plus, label: t("admin.addProduct") });
+  if (moduleAllowsPage(modules, "admin-products") && canAccessAdminPage(currentUser, "admin-products"))
+    quickActions.push({ page: "admin-products", icon: Package, label: t("admin.totalProducts") });
+  if (moduleAllowsPage(modules, "admin-orders") && canAccessAdminPage(currentUser, "admin-orders"))
+    quickActions.push({ page: "admin-orders", icon: ClipboardList, label: t("admin.ordersManagement") });
+  if (moduleAllowsPage(modules, "admin-categories") && canAccessAdminPage(currentUser, "admin-categories"))
+    quickActions.push({ page: "admin-categories", icon: FileText, label: l === "ar" ? "الأقسام" : "Categories" });
+  if (moduleAllowsPage(modules, "admin-staff") && canAccessAdminPage(currentUser, "admin-staff"))
+    quickActions.push({ page: "admin-staff", icon: Users, label: t("admin.employees") });
+  if (moduleAllowsPage(modules, "admin-settings") && canManage)
+    quickActions.push({ page: "admin-settings", icon: Settings, label: t("admin.settingsLabel") });
+
+  const recentOrders = orders.slice(0, 5);
+
   return (
-    <>
-      <div className="admin-range-row">
-        <div className="admin-range-toggle">
-          <button type="button">7d</button>
-          <button className="active" type="button">30d</button>
-          <button type="button">90d</button>
+    <div className="dashboard">
+      <div className="dashboard-header">
+        <div className="dashboard-header-text">
+          <span className="dashboard-greeting">
+            {t("admin.welcomeBack")}{currentUser?.name ? `, ${currentUser.name}` : ""}
+          </span>
+          <h1>{company?.name || t("admin.dashboard")}</h1>
         </div>
-        <div className="admin-date-filter">
-          <span>or custom:</span>
-          <input type="date" />
-          <span>to</span>
-          <input type="date" />
+        <div className="dashboard-header-actions">
+          {company?.storefrontUrl && (
+            <a className="admin-outline-button" href={company.storefrontUrl} rel="noreferrer" target="_blank">
+              <ExternalLink size={14} /> {t("admin.viewStorefront")}
+            </a>
+          )}
+          {canCreate && moduleAllowsPage(modules, "admin-products-new") && (
+            <button className="admin-primary-button" onClick={() => onNavigate("admin-products-new")} type="button">
+              <Plus size={15} /> {t("admin.addProduct")}
+            </button>
+          )}
+          {canManage && moduleAllowsPage(modules, "admin-settings") && (
+            <button className="admin-secondary-button" onClick={() => onNavigate("admin-settings")} type="button">
+              <Settings size={14} /> {t("admin.settingsLabel")}
+            </button>
+          )}
         </div>
       </div>
-      <div className="admin-metric-grid">
-        <AdminMetricCard label="Sales" value={`${revenue} ${t("common.ils")}`} />
-        <AdminMetricCard label="Orders" value={orders.length} />
-        <AdminMetricCard label="Customers" value={customers.length} />
+
+      {(company?.storefrontUrl || company?.settings?.language || company?.settings?.currency) && (
+        <div className="dashboard-info-bar">
+          {company?.storefrontUrl && (
+            <>
+              <div className="dashboard-info-item">
+                <Globe size={14} />
+                <span>{company.storefrontUrl}</span>
+              </div>
+              <span className="dashboard-info-sep" />
+            </>
+          )}
+          {company?.settings?.language && (
+            <>
+              <div className="dashboard-info-item">
+                {company.settings.language === "ar" ? "العربية" : "English"}
+              </div>
+              <span className="dashboard-info-sep" />
+            </>
+          )}
+          {company?.settings?.currency && (
+            <div className="dashboard-info-item">{company.settings.currency}</div>
+          )}
+        </div>
+      )}
+
+      <div className="dashboard-section-card">
+        <div className="dashboard-section-card-head">
+          <h2>{t("admin.analytics")}</h2>
+        </div>
+        <div className="dashboard-metrics-row">
+          <div className="dashboard-metric-cell">
+            <div className="dashboard-metric-cell-icon" data-color="green">
+              <Package size={16} />
+            </div>
+            <div className="dashboard-metric-cell-body">
+              <span className="dashboard-metric-cell-label">{t("admin.totalProducts")}</span>
+              <strong className="dashboard-metric-cell-value">{products.length}</strong>
+              {activeProducts > 0 && (
+                <span className="dashboard-metric-cell-sub">{activeProducts} {t("admin.activeLabel")}</span>
+              )}
+            </div>
+          </div>
+          <div className="dashboard-metric-sep" />
+          <div className="dashboard-metric-cell">
+            <div className="dashboard-metric-cell-icon" data-color="blue">
+              <ClipboardList size={16} />
+            </div>
+            <div className="dashboard-metric-cell-body">
+              <span className="dashboard-metric-cell-label">{t("admin.totalOrders")}</span>
+              <strong className="dashboard-metric-cell-value">{orders.length}</strong>
+              {pendingOrders > 0 && (
+                <span className="dashboard-metric-cell-sub">{pendingOrders} {t("admin.pendingOrders")}</span>
+              )}
+            </div>
+          </div>
+          <div className="dashboard-metric-sep" />
+          <div className="dashboard-metric-cell">
+            <div className="dashboard-metric-cell-icon" data-color="red">
+              <Users size={16} />
+            </div>
+            <div className="dashboard-metric-cell-body">
+              <span className="dashboard-metric-cell-label">{t("admin.customersLabel")}</span>
+              <strong className="dashboard-metric-cell-value">{customers.length}</strong>
+            </div>
+          </div>
+          <div className="dashboard-metric-sep" />
+          <div className="dashboard-metric-cell">
+            <div className="dashboard-metric-cell-icon" data-color="purple">
+              <UserCircle size={16} />
+            </div>
+            <div className="dashboard-metric-cell-body">
+              <span className="dashboard-metric-cell-label">{t("admin.totalEmployees")}</span>
+              <strong className="dashboard-metric-cell-value">{employees?.length || 0}</strong>
+            </div>
+          </div>
+          {revenue > 0 && (
+            <>
+              <div className="dashboard-metric-sep" />
+              <div className="dashboard-metric-cell">
+                <div className="dashboard-metric-cell-icon" data-color="orange">
+                  <HandCoins size={16} />
+                </div>
+                <div className="dashboard-metric-cell-body">
+                  <span className="dashboard-metric-cell-label">{t("admin.revenue")}</span>
+                  <strong className="dashboard-metric-cell-value">{revenue}</strong>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
-      <div className="admin-dashboard-grid">
-        <section className="admin-panel-card">
-          <h2>Revenue over time</h2>
-          <p>Orders and revenue across the last 30 days</p>
-          <div className="admin-empty-chart">{orders.length ? `${revenue} ${t("common.ils")}` : "No revenue for this date range"}</div>
-        </section>
-        <section className="admin-panel-card">
-          <h2>Order status distribution</h2>
-          <p>Current order mix for the selected range</p>
-          <div className="admin-empty-chart">{orders.length ? `${orders.length} orders` : "No orders for this date range"}</div>
-        </section>
-        <section className="admin-panel-card">
-          <h2>Top selling products</h2>
-          <p>Ranked by units sold</p>
-          <div className="admin-empty-chart">{products.length ? `${products.length} products available` : "No product sales for this date range"}</div>
-        </section>
-        <section className="admin-panel-card">
-          <h2>Customer growth</h2>
-          <p>New customer trend</p>
-          <div className="admin-empty-chart">{customers.length ? `${customers.length} customers` : "No customers for this date range"}</div>
-        </section>
-      </div>
-      <section className="admin-panel-card">
-        <h2>Recent Orders</h2>
-        {orders.length ? (
-          <AdminOrdersTable canAssign={false} canDelete={false} canUpdateStatus={false} language={language} orders={orders.slice(0, 5)} products={products} t={t} />
-        ) : (
-          <EmptyState title="No recent orders" />
+
+      {setupItems.length > 0 && (
+        <div className="dashboard-section-card dashboard-setup-card">
+          <div className="dashboard-section-card-head">
+            <h2>{t("admin.attentionNeeded")}</h2>
+          </div>
+          <div className="dashboard-setup-list">
+            {setupItems.map((item, i) => {
+              const ItemIcon = item.icon;
+              return (
+                <div className="dashboard-setup-row" key={i}>
+                  <ItemIcon size={15} />
+                  <span>{item.message}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="dashboard-lower">
+        {quickActions.length > 0 && (
+          <div className="dashboard-section-card dashboard-quick-card">
+            <div className="dashboard-section-card-head">
+              <h2>{t("admin.quickActions")}</h2>
+            </div>
+            <div className="dashboard-quick-list">
+              {quickActions.map((action, i) => {
+                const ActionIcon = action.icon;
+                return (
+                  <button className="dashboard-quick-btn" key={i} onClick={() => onNavigate(action.page)} type="button">
+                    <ActionIcon size={14} />
+                    {action.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         )}
-      </section>
-    </>
+
+        <div className="dashboard-section-card dashboard-activity-card">
+          <div className="dashboard-section-card-head">
+            <h2>{l === "ar" ? "الطلبات الأخيرة" : "Recent Orders"}</h2>
+          </div>
+          {recentOrders.length > 0 ? (
+            <AdminOrdersTable
+              canAssign={false}
+              canDelete={false}
+              canUpdateStatus={false}
+              language={language}
+              orders={recentOrders}
+              products={products}
+              t={t}
+            />
+          ) : (
+            <div className="dashboard-empty-card">
+              <Package size={20} />
+              <strong>{t("admin.noOrders")}</strong>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1842,7 +1994,17 @@ function AdminDashboardPage({
         return canManageSensitive ? <SettingsPage company={company} onSave={onSaveCompanySettings} /> : <EmptyState title="Settings are restricted" description="Only admins can manage configuration." />;
       case "admin":
       default:
-        return <DashboardHome customers={customers} language={language} orders={orders} products={products} t={t} />;
+        return <DashboardHome
+          company={company}
+          currentUser={currentUser}
+          employees={employees}
+          language={language}
+          modules={modules}
+          onNavigate={onNavigate}
+          orders={orders}
+          products={products}
+          t={t}
+        />;
     }
   }
 
@@ -1851,6 +2013,7 @@ function AdminDashboardPage({
       activePage={activePage}
       company={company}
       currentUser={currentUser}
+      hideHeader={activePage === "admin"}
       isDarkMode={isDarkMode}
       language={language}
       modules={modules}
