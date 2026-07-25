@@ -13,6 +13,7 @@ import {
 import { enterCompanyScope, exitCompanyScope, fetchCurrentUser } from "../src/utils/auth.js";
 import { getSelectableAdminCategories } from "../src/utils/adminCategories.js";
 import { getOrders } from "../src/utils/orders.js";
+import { createProduct, fetchProducts, updateProduct } from "../src/utils/productsApi.js";
 import {
   fetchAllWebsiteMedia,
   normalizeWebsiteMediaResponse,
@@ -513,6 +514,45 @@ test("tenant API headers use only the authenticated token for company context", 
   assert.equal(headers.Authorization, "Bearer icare-membership-token");
   assert.equal(headers["X-Company-Id"], undefined);
   assert.equal(headers["x-company-id"], undefined);
+});
+
+test("iCare product create, edit, and list use the configured API client and scoped token", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLocalStorage = globalThis.localStorage;
+  const requests = [];
+  globalThis.localStorage = {
+    getItem(key) {
+      return key === tokenStorageKey ? "icare-scoped-token" : null;
+    },
+  };
+  globalThis.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options });
+    return {
+      ok: true,
+      status: options.method === "POST" ? 201 : 200,
+      async json() { return options.method ? { id: "icare-product" } : []; },
+    };
+  };
+
+  try {
+    await fetchProducts();
+    await createProduct({ id: "icare-product", companyId: "eb-chemical" });
+    await updateProduct({ id: "icare-product", companyId: "eb-chemical" });
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.localStorage = originalLocalStorage;
+  }
+
+  assert.deepEqual(requests.map((request) => request.url), [
+    "http://localhost:5000/api/products",
+    "http://localhost:5000/api/products",
+    "http://localhost:5000/api/products/icare-product",
+  ]);
+  assert.deepEqual(requests.map((request) => request.options.method || "GET"), ["GET", "POST", "PUT"]);
+  for (const request of requests) {
+    assert.equal(request.options.headers.Authorization, "Bearer icare-scoped-token");
+    assert.equal(request.options.headers["X-Company-Id"], undefined);
+  }
 });
 
 test("iCare company_admin loads tenant orders without an EB fallback or company override", async () => {

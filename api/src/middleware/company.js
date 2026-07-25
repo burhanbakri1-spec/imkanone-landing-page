@@ -1,5 +1,9 @@
-import { normalizeCompanyHost } from "../tenancy/company.js";
-import { companyRepository, resolveByActiveVerifiedDomain } from "../data/store.js";
+import { hasResolvableStorefront, normalizeCompanyHost } from "../tenancy/company.js";
+import {
+  companyRepository,
+  getCompanyDomainsByCompany,
+  resolveByActiveVerifiedDomain,
+} from "../data/store.js";
 import { cpanelOrigins } from "../cpanel.js";
 
 const cpanelHosts = new Set(
@@ -22,6 +26,21 @@ function requestHost(req) {
   return normalizeCompanyHost(host);
 }
 
+function publicCompanyHeader(req) {
+  if (!["GET", "HEAD"].includes(String(req.method || "GET").toUpperCase())) return null;
+  const value = req.headers["x-company-id"];
+  if (value === undefined) return null;
+  if (Array.isArray(value) || String(value).includes(",")) return { invalid: true };
+  const companyId = String(value).trim().toLowerCase();
+  if (!companyId || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(companyId)) return { invalid: true };
+  const company = companyRepository.getCompanyById(companyId);
+  const hasVerifiedDomain = company && getCompanyDomainsByCompany(company.id).some(
+    (entry) => entry.is_active === true && entry.is_verified === true,
+  );
+  if (!company || (!hasResolvableStorefront(company) && !hasVerifiedDomain)) return { invalid: true };
+  return { company };
+}
+
 export function resolveCompany(req, res, next) {
   const authHeader = String(req.headers.authorization || "");
   if (authHeader.startsWith("Bearer ") && authHeader.length > 7) {
@@ -29,6 +48,21 @@ export function resolveCompany(req, res, next) {
     req.requestedCompanyId = null;
     req.companyId = null;
     req.company = null;
+    return next();
+  }
+
+  // Public storefront reads use the company selected by the storefront
+  // resolver. Authenticated CPanel requests never reach this branch: their
+  // company remains exclusively derived from the verified scoped JWT.
+  const headerContext = publicCompanyHeader(req);
+  if (headerContext?.invalid) {
+    return res.status(404).json({ message: "Storefront company not found or inactive." });
+  }
+  if (headerContext?.company) {
+    req.companyHost = "";
+    req.requestedCompanyId = headerContext.company.id;
+    req.companyId = headerContext.company.id;
+    req.company = headerContext.company;
     return next();
   }
 

@@ -125,6 +125,13 @@ fs.writeFileSync(path.join(dataStoreDir, "store.json"), JSON.stringify({
       company_id: "icare",
     },
     {
+      id: "icare-inactive-product",
+      slug: "icare-inactive-product",
+      name: { en: "Inactive iCare Product", ar: "" },
+      isActive: false,
+      company_id: "icare",
+    },
+    {
       id: "eb-product",
       slug: "eb-product",
       name: { en: "EB Product", ar: "منتج" },
@@ -223,6 +230,26 @@ test("tenant catalog and company settings contracts", async (t) => {
   const eb = await login("admin@eb.test");
   const customer = await login("customer@icare.test");
   const superAdmin = await login("super@test.local");
+
+  await t.test("public product reads honor the resolved company header and expose only active products", async () => {
+    const icareCatalog = await request("/products", {
+      headers: { "X-Company-Id": "icare" },
+    });
+    assert.equal(icareCatalog.response.status, 200);
+    assert.deepEqual(icareCatalog.body.map((product) => product.id), ["icare-product"]);
+    assert.equal(icareCatalog.body.some((product) => product.id === "eb-product"), false);
+
+    const ebCatalog = await request("/products", {
+      headers: { "X-Company-Id": "eb-chemical" },
+    });
+    assert.equal(ebCatalog.response.status, 200);
+    assert.deepEqual(ebCatalog.body.map((product) => product.id), ["eb-product"]);
+
+    const unknownCatalog = await request("/products", {
+      headers: { "X-Company-Id": "unknown-company" },
+    });
+    assert.equal(unknownCatalog.response.status, 404);
+  });
 
   let createdCategory;
   let overrideCategory;
@@ -488,6 +515,23 @@ test("tenant catalog and company settings contracts", async (t) => {
   });
 
   await t.test("normalized product references are optional, tenant-safe, and authoritative", async () => {
+    const scopedOverride = await request("/products?companyId=eb-chemical", {
+      token: icare.token,
+      headers: { "X-Company-Id": "eb-chemical" },
+      body: {
+        id: "icare-scoped-product",
+        slug: "icare-scoped-product",
+        name: { en: "Scoped iCare Product", ar: "" },
+        isActive: true,
+        companyId: "eb-chemical",
+      },
+    });
+    assert.equal(scopedOverride.response.status, 201);
+    const scopedIcareProducts = await request("/products", { token: icare.token });
+    const scopedEbProducts = await request("/products", { token: eb.token });
+    assert.equal(scopedIcareProducts.body.some((product) => product.id === "icare-scoped-product"), true);
+    assert.equal(scopedEbProducts.body.some((product) => product.id === "icare-scoped-product"), false);
+
     const accepted = await request("/products", {
       token: icare.token,
       body: {

@@ -237,8 +237,14 @@ function requireProductListPermission(req, res, next) {
   return res.status(403).json({ message: "Product view permission required." });
 }
 
-router.get("/", optionalAuth, requireProductListPermission, (_req, res) => {
-  res.json(productRepository.getByCompany(_req.companyId).map(normalizeProduct));
+router.get("/", optionalAuth, requireProductListPermission, (req, res) => {
+  const products = productRepository.getByCompany(req.companyId);
+  // CPanel users must see inactive records so they can manage them. Public
+  // storefront callers receive only active, visible products.
+  const visibleProducts = req.user
+    ? products
+    : products.filter((product) => product.isActive !== false && product.visible !== false);
+  res.json(visibleProducts.map(normalizeProduct));
 });
 
 router.get("/:id/details", optionalAuth, requireProductListPermission, async (req, res, next) => {

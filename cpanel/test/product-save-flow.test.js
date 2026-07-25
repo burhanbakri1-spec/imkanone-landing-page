@@ -4,6 +4,18 @@ import test from "node:test";
 
 const dashboard = fs.readFileSync(new URL("../src/pages/AdminDashboardPage.jsx", import.meta.url), "utf8");
 const app = fs.readFileSync(new URL("../src/CPanelApp.jsx", import.meta.url), "utf8");
+const apiClient = fs.readFileSync(new URL("../src/utils/api.js", import.meta.url), "utf8");
+const productsApi = fs.readFileSync(new URL("../src/utils/productsApi.js", import.meta.url), "utf8");
+const stagingEnvironment = fs.readFileSync(new URL("../.env.staging", import.meta.url), "utf8");
+
+test("the staging CPanel build uses VITE_API_URL and no legacy product API host", () => {
+  assert.match(stagingEnvironment, /^VITE_API_URL=https:\/\/api-staging\.igroup\.website\s*$/m);
+  assert.match(apiClient, /import\.meta\.env\?\.VITE_API_URL/);
+  assert.doesNotMatch(apiClient, /backend\.igroup\.website/);
+  assert.doesNotMatch(productsApi, /https?:\/\//);
+  assert.match(productsApi, /apiRequest\("\/products"/);
+  assert.match(productsApi, /apiRequest\(`\/products\/\$\{product\.id\}`/);
+});
 
 test("new variants do not receive reusable client-generated product variant IDs", () => {
   assert.match(dashboard, /id: variant\.id \|\| ""/);

@@ -247,12 +247,12 @@ test("http Origin is rejected (null company)", async () => {
   assert.equal(body.company, null);
 });
 
-test("X-Company-Id is not trusted for public tenant resolution", async () => {
+test("X-Company-Id selects only a validated public tenant for unauthenticated reads", async () => {
   const { response, body } = await api("/company/resolve", {
     headers: { "x-company-id": "idesign" },
   });
   assert.equal(response.status, 200);
-  assert.equal(body.company, null);
+  assert.equal(body.company?.id, "idesign");
 });
 
 test("company_id in body is not trusted for public tenant resolution", async () => {
