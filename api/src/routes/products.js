@@ -113,6 +113,13 @@ function normalizeProduct(product) {
   };
 }
 
+function normalizeProductForRequest(product, authenticated) {
+  const normalized = normalizeProduct(product);
+  return authenticated
+    ? normalized
+    : { ...normalized, variants: (normalized.variants || []).filter(isVariantVisible) };
+}
+
 function productSchemaForCompany(companyId) {
   return companyProductSchemaRepository.findByCompany(companyId, () => true)?.schema || defaultProductSchema();
 }
@@ -244,12 +251,12 @@ router.get("/", optionalAuth, requireProductListPermission, (req, res) => {
   const visibleProducts = req.user
     ? products
     : products.filter((product) => product.isActive !== false && product.visible !== false);
-  res.json(visibleProducts.map(normalizeProduct));
+  res.json(visibleProducts.map((product) => normalizeProductForRequest(product, Boolean(req.user))));
 });
 
 router.get("/:id/details", optionalAuth, requireProductListPermission, async (req, res, next) => {
   const product = productRepository.findByCompany(req.companyId, req.params.id);
-  if (!product || product.isActive === false) return res.status(404).json({ message: "Product not found." });
+  if (!product || product.isActive === false || (!req.user && product.visible === false)) return res.status(404).json({ message: "Product not found." });
   try {
     const values = await listTenantProductFieldValues(req.companyId, req.params.id);
     const fields = {};
@@ -258,7 +265,7 @@ router.get("/:id/details", optionalAuth, requireProductListPermission, async (re
       if (entry.locale === "neutral") fields[key] = entry.value;
       else fields[key] = { ...(fields[key] || {}), [entry.locale]: entry.value };
     }
-    return res.json({ ...normalizeProduct(product), fields });
+    return res.json({ ...normalizeProductForRequest(product, Boolean(req.user)), fields });
   } catch (error) {
     return next(error);
   }

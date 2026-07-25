@@ -74,8 +74,10 @@ test("company admin and employee use the same tenant-aware product wizard", () =
 test("visual editors never require raw JSON and support ordered bilingual rows", () => {
   assert.doesNotMatch(structuredEditor, /JSON\.parse|JSON\.stringify/);
   assert.match(structuredEditor, /moveStructuredItem/);
-  assert.match(structuredEditor, /Question.*English/s);
-  assert.match(structuredEditor, /العربية/);
+  assert.match(structuredEditor, /createTranslator\(language\)/);
+  assert.match(structuredEditor, /productForm\.question/);
+  assert.match(structuredEditor, /productForm\.english/);
+  assert.match(structuredEditor, /productForm\.arabic/);
 });
 
 test("migration seed is repeatable and uses neutral structured FAQ values", () => {

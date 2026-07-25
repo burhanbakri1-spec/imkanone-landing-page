@@ -14,6 +14,7 @@ import { parseRequiredStock, preserveLegacySingleVariantStock } from "../utils/p
 import { moduleAllowsPage, pageKeyForModule } from "../utils/moduleRegistry.js";
 import { canAccessAdminPage, isAdminPortalRole, isCompanyAdmin, isStaffRole, isTenantOperator, tenantAccessNotice } from "../utils/roles.js";
 import { hasPermission } from "../data/permissions.js";
+import { createTranslator } from "../data/translations.js";
 
 const storageKeys = {
   inventory: "inventory",
@@ -128,9 +129,12 @@ function normalizeFormVariant(variant = {}, index = 0, product = {}) {
     color_value: variant.color_value || variant.colorValue || "",
     size: variant.size || product.size || "500ml",
     price: Number(variant.price ?? product.price ?? 0),
+    sale_price: variant.sale_price ?? variant.salePrice ?? "",
     stock: Math.max(0, Number(variant.stock ?? variant.stockQty ?? product.stockQty ?? 0)),
     image_url: variant.image_url || variant.imageUrl || variant.image || "",
     sort_order: Number(variant.sort_order ?? variant.sortOrder ?? index),
+    isActive: variant.isActive !== false && variant.is_active !== false,
+    isVisible: variant.isVisible !== false && variant.is_visible !== false,
   };
 }
 
@@ -276,6 +280,7 @@ function createProductFromForm(form) {
       ...normalizeFormVariant(variant, index, form),
       id: variant.id || undefined,
       price: Number(variant.price || 0),
+      sale_price: variant.sale_price === "" || variant.sale_price == null ? null : Number(variant.sale_price),
       stock: parseRequiredStock(variant.stock, `Variant ${index + 1} stock`),
       sort_order: index,
     }));
@@ -317,6 +322,8 @@ function createProductFromForm(form) {
     badge: createLocalizedCopy(form.label || "Featured", form.labelAr || "مميز"),
     status: form.active ? "Active" : "Inactive",
     isActive: form.active,
+    visible: form.visible,
+    isVisible: form.visible,
     isFeatured: form.featured,
     isNewArrival: form.newArrival,
     isBestseller: form.bestseller,
@@ -385,7 +392,8 @@ function Badge({ tone = "active", children }) {
   return <span className={`admin-status-pill ${tone}`}>{children}</span>;
 }
 
-function CardImageUpload({ label, helperText, buttonLabel, name, value, onChange, productId, tenantSpecific = false, variant = "primary" }) {
+function CardImageUpload({ label, helperText, buttonLabel, language = "en", name, value, onChange, onUploadingChange, productId, tenantSpecific = false, variant = "primary" }) {
+  const t = React.useMemo(() => createTranslator(language), [language]);
   const [isUploading, setIsUploading] = React.useState(false);
   const [uploadError, setUploadError] = React.useState("");
   const inputRef = React.useRef(null);
@@ -403,6 +411,7 @@ function CardImageUpload({ label, helperText, buttonLabel, name, value, onChange
     if (uploadingRef.current) return;
     uploadingRef.current = true;
     setIsUploading(true);
+    onUploadingChange?.(true);
     setUploadError("");
     try {
       validateProductMediaFile(file, { allowVideo: false });
@@ -413,10 +422,11 @@ function CardImageUpload({ label, helperText, buttonLabel, name, value, onChange
       onChange({ target: { name, value: uploaded.url || uploaded.path } });
       setUploadError("");
     } catch (error) {
-      const message = error?.message || "Image upload failed.";
+      const message = error?.message || t("productForm.errors.imageUpload");
       setUploadError(message);
     } finally {
       setIsUploading(false);
+      onUploadingChange?.(false);
       uploadingRef.current = false;
       if (inputRef.current) inputRef.current.value = "";
     }
@@ -444,7 +454,7 @@ function CardImageUpload({ label, helperText, buttonLabel, name, value, onChange
         />
         <label className="admin-upload-button">
           <Upload size={14} />
-          {isUploading ? "Uploading..." : uploadBlocked ? "Save product first" : buttonLabel}
+          {isUploading ? t("productForm.uploading") : uploadBlocked ? t("productForm.saveFirst") : buttonLabel}
           <input
             ref={inputRef}
             accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
@@ -461,12 +471,12 @@ function CardImageUpload({ label, helperText, buttonLabel, name, value, onChange
             type="button"
             disabled={isUploading}
           >
-            Remove
+            {t("productForm.removeImage")}
           </button>
         )}
       </div>
       {uploadError && <div className="message-panel error compact">{uploadError}</div>}
-      {isUploading && <div className="admin-upload-progress"><span>Uploading image...</span></div>}
+      {isUploading && <div className="admin-upload-progress"><span>{t("productForm.uploadingImage")}</span></div>}
       {value && (
         <div className="admin-media-preview">
           <img alt="" src={value} />
@@ -476,18 +486,27 @@ function CardImageUpload({ label, helperText, buttonLabel, name, value, onChange
   );
 }
 
-function MediaField({ label, name, value, onChange, productId, tenantSpecific = false }) {
+function MediaField({ label, language = "en", name, value, onChange, onUploadingChange, productId, tenantSpecific = false }) {
+  const t = React.useMemo(() => createTranslator(language), [language]);
   const [isUploading, setIsUploading] = React.useState(false);
+  const [uploadError, setUploadError] = React.useState("");
 
   async function handleUpload(event) {
     const file = event.target.files?.[0];
     if (!file) return;
     setIsUploading(true);
+    setUploadError("");
+    onUploadingChange?.(true);
     try {
+      validateProductMediaFile(file, { allowVideo: false });
       const uploaded = productId ? await uploadProductMedia(file, productId) : await uploadImage(file);
+      if (!uploaded?.url && !uploaded?.path) throw new Error(t("productForm.errors.missingUploadUrl"));
       onChange({ target: { name, value: uploaded.url || uploaded.path } });
+    } catch (error) {
+      setUploadError(error?.message || t("productForm.errors.imageUpload"));
     } finally {
       setIsUploading(false);
+      onUploadingChange?.(false);
       event.target.value = "";
     }
   }
@@ -500,9 +519,10 @@ function MediaField({ label, name, value, onChange, productId, tenantSpecific = 
       </label>
       <label className="admin-upload-button">
         <Upload size={14} />
-        {isUploading ? "Uploading..." : tenantSpecific && !productId ? "Save product first" : "Upload"}
+        {isUploading ? t("productForm.uploading") : tenantSpecific && !productId ? t("productForm.saveFirst") : t("productForm.uploadImage")}
         <input accept="image/*" disabled={tenantSpecific && !productId} hidden type="file" onChange={handleUpload} />
       </label>
+      {uploadError && <div className="message-panel error compact">{uploadError}</div>}
       {value && (
         <div className="admin-media-preview">
           <img alt="" src={value} />
@@ -748,7 +768,7 @@ function DashboardHome({ company, currentUser, employees, language, modules, onN
   );
 }
 
-function ProductsListPage({ brands, canCreate = true, canDelete = true, canUpdate = true, categories, filters, onAdd, onDeleteProduct, onEdit, products, setFilters }) {
+function ProductsListPage({ brands, canCreate = true, canDelete = true, canUpdate = true, categories, filters, onAdd, onDeleteProduct, onEdit, products, setFilters, t }) {
   const filtered = products.filter((product) => {
     const name = getText(product.name).toLowerCase();
     const sku = getProductSku(product).toLowerCase();
@@ -761,7 +781,7 @@ function ProductsListPage({ brands, canCreate = true, canDelete = true, canUpdat
 
   return (
     <section className="admin-panel-card">
-      <Toolbar addLabel="Add Product" onAdd={canCreate ? onAdd : null}>
+      <Toolbar addLabel={t("productForm.addProduct")} onAdd={canCreate ? onAdd : null}>
         <SearchField placeholder="Search by name, SKU..." value={filters.search} onChange={(value) => setFilters((current) => ({ ...current, search: value }))} />
         <select value={filters.category} onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value }))}>
           <option value="all">All categories</option>
@@ -824,8 +844,8 @@ function ProductsListPage({ brands, canCreate = true, canDelete = true, canUpdat
                 {(canUpdate || canDelete) && (
                   <td>
                     <div className="row-actions">
-                      {canUpdate && <button className="text-action" onClick={() => onEdit(product)} type="button">Edit</button>}
-                      {canDelete && <button className="text-action danger" onClick={() => onDeleteProduct(product.id)} type="button">Delete</button>}
+                      {canUpdate && <button className="text-action" onClick={() => onEdit(product)} type="button">{t("productForm.edit")}</button>}
+                      {canDelete && <button className="text-action danger" onClick={() => onDeleteProduct(product.id)} type="button">{t("productForm.delete")}</button>}
                     </div>
                   </td>
                 )}
@@ -839,6 +859,7 @@ function ProductsListPage({ brands, canCreate = true, canDelete = true, canUpdat
 }
 
 export function ProductWizard({ brands = [], categories = [], editingProduct, onCancel, onPersisted, onSave, canManageContent = true, canManageMedia = true, language = "en" }) {
+  const t = React.useMemo(() => createTranslator(language), [language]);
   const [step, setStep] = React.useState("basic");
   const initialCategoryOptions = getSelectableAdminCategories(categories, editingProduct?.categoryId);
   const [uploadError, setUploadError] = React.useState("");
@@ -849,6 +870,8 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
   const [tenantDefinitions, setTenantDefinitions] = React.useState([]);
   const [tenantValues, setTenantValues] = React.useState({});
   const [contentRetryId, setContentRetryId] = React.useState("");
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [activeChildUploads, setActiveChildUploads] = React.useState(0);
   const [variantGenerator, setVariantGenerator] = React.useState({
     colorsText: "Default|#1db7d8",
     sizesText: "500ml, 1L, 5L",
@@ -899,7 +922,9 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
     label: editingProduct?.badge?.en || "",
     labelAr: editingProduct?.badge?.ar || "",
     active: editingProduct?.isActive !== false,
+    visible: editingProduct?.visible !== false && editingProduct?.isVisible !== false,
     featured: Boolean(editingProduct?.isFeatured),
+    newArrival: Boolean(editingProduct?.isNewArrival),
     bestseller: Boolean(editingProduct?.isBestseller),
     detailStatements: editingProduct?.detailStatements || editingProduct?.detail_statements || [],
   }));
@@ -928,9 +953,12 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
   const updateTenantValue = (key, value) => setTenantValues((current) => ({ ...current, [key]: value }));
 
   const allTabs = ["basic", "pricing", "variants", "media", "details", "marketing", "preview"];
-  const tabName = { basic: "Basic", pricing: "Pricing and stock", variants: "Variants", media: "Media", details: "Product details", marketing: "Marketing and SEO", preview: "Preview" };
+  const tabName = { basic: t("productForm.tabs.basic"), pricing: t("productForm.tabs.pricing"), variants: t("productForm.tabs.variants"), media: t("productForm.tabs.media"), details: t("productForm.tabs.details"), marketing: t("productForm.tabs.marketing"), preview: t("productForm.tabs.preview") };
   const tabs = allTabs.filter((tab) => (tab !== "media" || canManageMedia) && (!["details", "marketing"].includes(tab) || canManageContent));
   const selectableCategories = getSelectableAdminCategories(categories, form.categoryId);
+  const trackChildUpload = React.useCallback((active) => {
+    setActiveChildUploads((count) => Math.max(0, count + (active ? 1 : -1)));
+  }, []);
 
   function change(event) {
     const { checked, name, type, value } = event.target;
@@ -1139,17 +1167,32 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
 
   async function submit(event) {
     event.preventDefault();
+    if (isSaving) return;
+    if (activeChildUploads > 0 || uploadingField || uploadingVariantIndex >= 0 || uploadingGalleryIndex >= 0) {
+      setUploadError(t("productForm.errors.waitForUploads"));
+      return;
+    }
+    setIsSaving(true);
     setUploadError("");
     let productPayload;
     try {
       productPayload = createProductFromForm(form);
     } catch (error) {
       setUploadError(error.message || "Product stock is invalid.");
+      setIsSaving(false);
       return;
     }
-    const result = await onSave(productPayload);
+    let result;
+    try {
+      result = await onSave(productPayload);
+    } catch (error) {
+      setUploadError(error?.message || t("productForm.errors.save"));
+      setIsSaving(false);
+      return;
+    }
     if (!result?.ok) {
-      setUploadError(result?.message || "Product could not be saved.");
+      setUploadError(result?.message || t("productForm.errors.save"));
+      setIsSaving(false);
       return;
     }
     setForm((current) => ({ ...current, id: result.product.id }));
@@ -1161,10 +1204,12 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
       } catch (error) {
         setContentRetryId(result.product.id);
         setUploadError(`Product saved, but its content fields were not saved: ${error.message || "Unknown error."}`);
+        setIsSaving(false);
         return;
       }
     }
     if (result?.ok) onCancel({ preserveStatusMessage: true });
+    setIsSaving(false);
   }
 
   async function retryContentSave() {
@@ -1216,7 +1261,7 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
   }
 
   return (
-    <section className="admin-panel-card">
+    <section className="admin-panel-card" dir={language === "ar" ? "rtl" : "ltr"}>
       <div className="admin-tabs">
         {tabs.map((tab, index) => (
           <button className={step === tab ? "active" : ""} key={tab} onClick={() => setStep(tab)} type="button">
@@ -1228,43 +1273,45 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
         {uploadError && <div className="message-panel error full-field" role="alert">{uploadError}{contentRetryId && <button className="secondary-action" onClick={retryContentSave} type="button">{language === "ar" ? "إعادة محاولة حفظ المحتوى" : "Retry content save"}</button>}</div>}
         {step === "basic" && (
           <>
-            <label>Product Name *<input name="nameEn" required value={form.nameEn} onChange={change} /></label>
-            <label>Arabic Product Name<input name="nameAr" value={form.nameAr} onChange={change} /></label>
-            <label>Slug<input name="slug" value={form.slug} onChange={change} /></label>
-            <label>SKU<input name="sku" value={form.sku} onChange={change} /></label>
-            <label>Category *<select name="categoryId" required value={form.categoryId} onChange={change}>{selectableCategories.map((category) => <option key={category.id} value={category.id}>{getText(category.name)}</option>)}</select></label>
+            <label>{t("productForm.productNameEn")} *<input dir="ltr" name="nameEn" required value={form.nameEn} onChange={change} /></label>
+            <label>{t("productForm.productNameAr")}<input dir="rtl" name="nameAr" value={form.nameAr} onChange={change} /></label>
+            <label>{t("productForm.slug")}<input dir="ltr" name="slug" value={form.slug} onChange={change} /></label>
+            <label>{t("productForm.sku")}<input dir="ltr" name="sku" value={form.sku} onChange={change} /></label>
+            <label>{t("productForm.category")} *<select name="categoryId" required value={form.categoryId} onChange={change}>{selectableCategories.map((category) => <option key={category.id} value={category.id}>{getText(category.name, language)}</option>)}</select></label>
             <label>
-              Brand
+              {t("productForm.brand")}
               <select name="brandId" value={form.brandId} onChange={change}>
-                <option value="">No brand</option>
+                <option value="">{t("productForm.noBrand")}</option>
                 {brands.map((brand) => (
                   <option key={brand.id} value={brand.id}>{brand.name}</option>
                 ))}
               </select>
             </label>
-            <label>Short Description<textarea name="shortDescription" value={form.shortDescription} onChange={change} /></label>
-            <label>Full Description<textarea name="fullDescription" value={form.fullDescription} onChange={change} /></label>
+            <label>{t("productForm.shortDescriptionEn")}<textarea dir="ltr" name="shortDescription" value={form.shortDescription} onChange={change} /></label>
+            <label>{t("productForm.shortDescriptionAr")}<textarea dir="rtl" name="shortDescriptionAr" value={form.shortDescriptionAr} onChange={change} /></label>
+            <label>{t("productForm.longDescriptionEn")}<textarea dir="ltr" name="fullDescription" value={form.fullDescription} onChange={change} /></label>
+            <label>{t("productForm.longDescriptionAr")}<textarea dir="rtl" name="fullDescriptionAr" value={form.fullDescriptionAr} onChange={change} /></label>
             <div className="admin-checkbox-grid full-field">
-              {["active", "featured", "newArrival", "bestseller"].map((field) => (
-                <label className="checkbox-line" key={field}><input name={field} type="checkbox" checked={form[field]} onChange={change} />{field.replace(/([A-Z])/g, " $1")}</label>
+              {["active", "visible", "featured", "newArrival", "bestseller"].map((field) => (
+                <label className="checkbox-line" key={field}><input name={field} type="checkbox" checked={Boolean(form[field])} onChange={change} />{t(`productForm.${field}`)}</label>
               ))}
             </div>
-            <label>Label<input name="label" value={form.label} onChange={change} /></label>
-            <label>Label Arabic<input name="labelAr" value={form.labelAr} onChange={change} /></label>
+            <label>{t("productForm.labelEn")}<input dir="ltr" name="label" value={form.label} onChange={change} /></label>
+            <label>{t("productForm.labelAr")}<input dir="rtl" name="labelAr" value={form.labelAr} onChange={change} /></label>
           </>
         )}
         {step === "pricing" && <div className="full-field">
-          <h3>Pricing and stock</h3>
-          <p className="admin-note">Pricing and stock are managed per variant so each shade, size, or volume can be controlled independently.</p>
+          <h3>{t("productForm.tabs.pricing")}</h3>
+          <p className="admin-note">{t("productForm.pricingHelp")}</p>
           <p><strong>{form.variants?.length || 0}</strong> variants · <strong>{(form.variants || []).reduce((sum, variant) => sum + Number(variant.stock || 0), 0)}</strong> units in stock</p>
-          <button className="secondary-action" onClick={() => setStep("variants")} type="button">Manage variant pricing</button>
+          <button className="secondary-action" onClick={() => setStep("variants")} type="button">{t("productForm.manageVariants")}</button>
         </div>}
         {step === "variants" && (
           <div className="full-field admin-variants-editor">
             <div className="admin-inline-heading">
               <strong>{usesTenantDefinitions ? "Shade / color, size or volume, price and stock" : "Color, size, price, and stock combinations"}</strong>
               <button className="secondary-action compact-action" onClick={addVariant} type="button">
-                Add Variant
+                {t("productForm.addVariant")}
               </button>
             </div>
             {!usesTenantDefinitions && <div className="variant-generator-panel">
@@ -1314,8 +1361,11 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
                   <label>{usesTenantDefinitions ? "Variant / shade name" : "Color name"}<input required value={variant.color_name} onChange={(event) => updateVariant(index, "color_name", event.target.value)} /></label>
                   <label>{usesTenantDefinitions ? "Swatch / color value" : "Color value"}<input value={variant.color_value} onChange={(event) => updateVariant(index, "color_value", event.target.value)} /></label>
                   <label>{usesTenantDefinitions ? "Size or volume" : "Size"}<input required value={variant.size} onChange={(event) => updateVariant(index, "size", event.target.value)} /></label>
-                  <label>Price<input min="0" required type="number" value={variant.price} onChange={(event) => updateVariant(index, "price", event.target.value)} /></label>
-                  <label>Stock<input min="0" required type="number" value={variant.stock} onChange={(event) => updateVariant(index, "stock", event.target.value)} /></label>
+                  <label>{t("productForm.price")}<input min="0" required type="number" value={variant.price} onChange={(event) => updateVariant(index, "price", event.target.value)} /></label>
+                  <label>{t("productForm.salePrice")}<input min="0" type="number" value={variant.sale_price ?? ""} onChange={(event) => updateVariant(index, "sale_price", event.target.value)} /></label>
+                  <label>{t("productForm.stock")}<input min="0" required type="number" value={variant.stock} onChange={(event) => updateVariant(index, "stock", event.target.value)} /></label>
+                  <label className="checkbox-line"><input checked={variant.isActive !== false} type="checkbox" onChange={(event) => updateVariant(index, "isActive", event.target.checked)} />{t("productForm.active")}</label>
+                  <label className="checkbox-line"><input checked={variant.isVisible !== false} type="checkbox" onChange={(event) => updateVariant(index, "isVisible", event.target.checked)} />{t("productForm.visible")}</label>
                   <label>
                     Variant image
                     <span className="image-upload-row">
@@ -1327,7 +1377,7 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
                     </span>
                     {variant.image_url && <img className="admin-image-preview small-preview" alt="" src={variant.image_url} />}
                   </label>
-                  <button className="text-action danger" onClick={() => removeVariant(index)} type="button">Remove</button>
+                  <button className="text-action danger" onClick={() => removeVariant(index)} type="button">{t("productForm.remove")}</button>
                 </div>
               ))}
             </div>
@@ -1336,27 +1386,34 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
         {step === "media" && (
           <>
             <CardImageUpload
-              label="Primary product image"
-              helperText="Displayed by default on the product card"
-              buttonLabel="Upload primary image"
+              label={t("productForm.mainImage")}
+              helperText={t("productForm.mainImageHelp")}
+              buttonLabel={t("productForm.uploadImage")}
+              language={language}
               name="image"
               productId={usesTenantDefinitions ? editingProduct?.id : undefined}
               tenantSpecific={usesTenantDefinitions}
               value={form.image}
               onChange={change}
+              onUploadingChange={trackChildUpload}
               variant="primary"
             />
             <CardImageUpload
-              label="Hover product image"
-              helperText="Displayed when the customer hovers over the product card"
-              buttonLabel="Upload hover image"
+              label={t("productForm.hoverImage")}
+              helperText={t("productForm.hoverImageHelp")}
+              buttonLabel={t("productForm.uploadImage")}
+              language={language}
               name="hoverImage"
               productId={usesTenantDefinitions ? editingProduct?.id : undefined}
               tenantSpecific={usesTenantDefinitions}
               value={form.hoverImage}
               onChange={change}
+              onUploadingChange={trackChildUpload}
               variant="hover"
             />
+            <CardImageUpload label={t("productForm.productsPageImage")} buttonLabel={t("productForm.uploadImage")} language={language} name="productsPageImage" onChange={change} onUploadingChange={trackChildUpload} productId={usesTenantDefinitions ? editingProduct?.id : undefined} tenantSpecific={usesTenantDefinitions} value={form.productsPageImage} />
+            <CardImageUpload label={t("productForm.productsPageHoverImage")} buttonLabel={t("productForm.uploadImage")} language={language} name="productsPageHoverImage" onChange={change} onUploadingChange={trackChildUpload} productId={usesTenantDefinitions ? editingProduct?.id : undefined} tenantSpecific={usesTenantDefinitions} value={form.productsPageHoverImage} variant="hover" />
+            <MediaField label={t("productForm.productDetailMainImage")} language={language} name="dsiMainImage" onChange={change} onUploadingChange={trackChildUpload} productId={usesTenantDefinitions ? editingProduct?.id : undefined} tenantSpecific={usesTenantDefinitions} value={form.dsiMainImage} />
             <div className="admin-media-field">
               <label>Product video URL<input name="videoUrl" value={form.videoUrl} onChange={change} /></label>
               {usesTenantDefinitions && <label className="admin-upload-button"><Upload size={14} />{uploadingField === "videoUrl" ? `Uploading ${videoProgress}%` : editingProduct?.id ? "Upload MP4/WebM" : "Save product first"}<input accept="video/mp4,video/webm" disabled={!editingProduct?.id} hidden type="file" onChange={uploadVideo} /></label>}
@@ -1401,7 +1458,7 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
                 ))}
               </div>
             </div>
-            {usesTenantDefinitions && <TenantProductFields definitions={additionalMediaDefinitions} section="media" value={tenantValues} onChange={updateTenantValue} />}
+            {usesTenantDefinitions && <TenantProductFields definitions={additionalMediaDefinitions} language={language} section="media" value={tenantValues} onChange={updateTenantValue} />}
             {!usesTenantDefinitions && <>
             <div className="full-field">
               <strong>Product Details Section Images</strong>
@@ -1417,7 +1474,7 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
                   { key: "dsiIngredients", label: "Ingredients section image" },
                   { key: "dsiFaq", label: "FAQ side image" },
                 ].map(({ key, label }) => (
-                  <MediaField key={key} label={label} name={key} value={form[key] || ""} onChange={change} />
+                  <MediaField key={key} label={label} language={language} name={key} onUploadingChange={trackChildUpload} value={form[key] || ""} onChange={change} />
                 ))}
               </div>
             </div>
@@ -1485,18 +1542,18 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
         )}
         {step === "details" && <>
           {!usesTenantDefinitions && <>
-            <label>How to Use<textarea name="howToUse" value={form.howToUse} onChange={change} /></label>
-            <label>Ingredients<textarea name="ingredients" value={form.ingredients} onChange={change} /></label>
-            <label>Benefits<textarea name="benefits" value={form.benefits} onChange={change} /></label>
-            <label>Skin Types<input name="skinTypes" value={form.skinTypes} onChange={change} /></label>
-            <label>Concerns<input name="concerns" value={form.concerns} onChange={change} /></label>
+            <label>{t("productForm.howToUse")}<textarea name="howToUse" value={form.howToUse} onChange={change} /></label>
+            <label>{t("productForm.ingredients")}<textarea name="ingredients" value={form.ingredients} onChange={change} /></label>
+            <label>{t("productForm.benefits")}<textarea name="benefits" value={form.benefits} onChange={change} /></label>
+            <label>{t("productForm.skinTypes")}<input name="skinTypes" value={form.skinTypes} onChange={change} /></label>
+            <label>{t("productForm.concerns")}<input name="concerns" value={form.concerns} onChange={change} /></label>
           </>}
-          {usesTenantDefinitions && <><TenantProductFields definitions={tenantDefinitions} section="details" value={tenantValues} onChange={updateTenantValue} /><TenantProductFields definitions={tenantDefinitions} section="showcase" value={tenantValues} onChange={updateTenantValue} /></>}
+          {usesTenantDefinitions && <><TenantProductFields definitions={tenantDefinitions} language={language} section="details" value={tenantValues} onChange={updateTenantValue} /><TenantProductFields definitions={tenantDefinitions} language={language} section="showcase" value={tenantValues} onChange={updateTenantValue} /></>}
         </>}
         {step === "marketing" && (
           <>
-            {!usesTenantDefinitions && <><label>Meta Title<input name="metaTitle" value={form.metaTitle} onChange={change} /></label><label>Meta Description<textarea name="metaDescription" value={form.metaDescription} onChange={change} /></label></>}
-            {usesTenantDefinitions && <><TenantProductFields definitions={tenantDefinitions} section="marketing" value={tenantValues} onChange={updateTenantValue} /><TenantProductFields definitions={tenantDefinitions} section="seo" value={tenantValues} onChange={updateTenantValue} /></>}
+            {!usesTenantDefinitions && <><label>{t("productForm.metaTitle")}<input name="metaTitle" value={form.metaTitle} onChange={change} /></label><label>{t("productForm.metaDescription")}<textarea name="metaDescription" value={form.metaDescription} onChange={change} /></label></>}
+            {usesTenantDefinitions && <><TenantProductFields definitions={tenantDefinitions} language={language} section="marketing" value={tenantValues} onChange={updateTenantValue} /><TenantProductFields definitions={tenantDefinitions} language={language} section="seo" value={tenantValues} onChange={updateTenantValue} /></>}
           </>
         )}
         {step === "preview" && <article className="full-field admin-product-preview">
@@ -1509,10 +1566,10 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
           {(tenantValues.product_faqs || []).filter((item) => item.is_active !== false).length > 0 && <p>{tenantValues.product_faqs.filter((item) => item.is_active !== false).length} active FAQ items</p>}
         </article>}
         <div className="form-actions full-field">
-          <button className="secondary-action" disabled={tabs.indexOf(step) === 0} onClick={() => setStep(tabs[tabs.indexOf(step) - 1])} type="button">Previous</button>
-          <button className="secondary-action" disabled={tabs.indexOf(step) === tabs.length - 1} onClick={() => setStep(tabs[tabs.indexOf(step) + 1])} type="button">Next</button>
-          <button className="secondary-action" onClick={() => onCancel()} type="button">{language === "ar" ? "إلغاء" : "Cancel"}</button>
-          <button className="admin-primary-button" type="submit">{language === "ar" ? ((editingProduct || form.id) ? "حفظ التغييرات" : "إنشاء") : ((editingProduct || form.id) ? "Save changes" : "Create")}</button>
+          <button className="secondary-action" disabled={isSaving || tabs.indexOf(step) === 0} onClick={() => setStep(tabs[tabs.indexOf(step) - 1])} type="button">{t("productForm.previous")}</button>
+          <button className="secondary-action" disabled={isSaving || tabs.indexOf(step) === tabs.length - 1} onClick={() => setStep(tabs[tabs.indexOf(step) + 1])} type="button">{t("productForm.next")}</button>
+          <button className="secondary-action" disabled={isSaving} onClick={() => onCancel()} type="button">{t("productForm.cancel")}</button>
+          <button className="admin-primary-button" disabled={isSaving || activeChildUploads > 0 || Boolean(uploadingField) || uploadingVariantIndex >= 0 || uploadingGalleryIndex >= 0} type="submit">{isSaving ? t("productForm.saving") : (editingProduct || form.id) ? t("productForm.saveChanges") : t("productForm.create")}</button>
         </div>
       </form>
     </section>
@@ -1952,7 +2009,7 @@ function AdminDashboardPage({
   function renderActivePage() {
     switch (activePage) {
       case "admin-products":
-        return <ProductsListPage brands={brands} canCreate={canCreateProducts} canDelete={canDeleteProducts} canUpdate={canUpdateProducts} categories={adminCategories} filters={filters} onAdd={() => { setEditingProduct(null); onNavigate("admin-products-new"); }} onDeleteProduct={onDeleteProduct} onEdit={(product) => { setEditingProduct(product); onNavigate("admin-products-new", { path: `/admin/products/${encodeURIComponent(product.id)}/edit` }); }} products={products} setFilters={setFilters} />;
+        return <ProductsListPage brands={brands} canCreate={canCreateProducts} canDelete={canDeleteProducts} canUpdate={canUpdateProducts} categories={adminCategories} filters={filters} onAdd={() => { setEditingProduct(null); onNavigate("admin-products-new"); }} onDeleteProduct={onDeleteProduct} onEdit={(product) => { setEditingProduct(product); onNavigate("admin-products-new", { path: `/admin/products/${encodeURIComponent(product.id)}/edit` }); }} products={products} setFilters={setFilters} t={t} />;
       case "admin-products-new":
       case "admin-products-edit": {
         const match = window.location.pathname.match(/^\/admin\/products\/([^/]+)\/edit$/);

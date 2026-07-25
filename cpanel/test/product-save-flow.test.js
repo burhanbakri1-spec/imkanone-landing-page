@@ -24,12 +24,37 @@ test("new variants do not receive reusable client-generated product variant IDs"
 });
 
 test("structured fields run only after the base product succeeds and retry is content-only", () => {
-  const baseSave = dashboard.indexOf("const result = await onSave(productPayload)");
+  const baseSave = dashboard.indexOf("result = await onSave(productPayload)");
   const fieldSave = dashboard.indexOf("await productFieldApi.saveValues(result.product.id");
   const retry = dashboard.slice(dashboard.indexOf("async function retryContentSave"), dashboard.indexOf("async function uploadVideo"));
   assert.ok(baseSave >= 0 && fieldSave > baseSave);
   assert.match(retry, /productFieldApi\.saveValues/);
   assert.doesNotMatch(retry, /onSave\(/);
+});
+
+test("product form preserves bilingual values and localizes repeaters", () => {
+  const translations = fs.readFileSync(new URL("../src/data/translations.js", import.meta.url), "utf8");
+  const tenantFields = fs.readFileSync(new URL("../src/components/TenantProductFields.jsx", import.meta.url), "utf8");
+  assert.match(dashboard, /name="shortDescriptionAr"/);
+  assert.match(dashboard, /name="fullDescriptionAr"/);
+  assert.match(dashboard, /dir=\{language === "ar" \? "rtl" : "ltr"\}/);
+  assert.match(translations, /"productForm\.addItem": "Add item"/);
+  assert.match(translations, /"productForm\.addItem": "إضافة عنصر"/);
+  assert.match(tenantFields, /createTranslator\(language\)/);
+  assert.match(tenantFields, /productForm\.remove/);
+});
+
+test("save is single-flight and waits for media uploads", () => {
+  assert.match(dashboard, /if \(isSaving\) return/);
+  assert.match(dashboard, /if \(activeChildUploads > 0 \|\| uploadingField \|\| uploadingVariantIndex >= 0 \|\| uploadingGalleryIndex >= 0\)/);
+  assert.match(dashboard, /disabled=\{isSaving \|\| activeChildUploads > 0 \|\| Boolean\(uploadingField\)/);
+});
+
+test("product and variant state round-trip through the save payload", () => {
+  assert.match(dashboard, /visible: editingProduct\?\.visible !== false/);
+  assert.match(dashboard, /newArrival: Boolean\(editingProduct\?\.isNewArrival\)/);
+  assert.match(dashboard, /isVisible: variant\.isVisible !== false/);
+  assert.match(dashboard, /sale_price:/);
 });
 
 test("product editing uses a reload-safe id route", () => {
@@ -39,8 +64,8 @@ test("product editing uses a reload-safe id route", () => {
 
 test("card image uploads use independent primary and hover controls", () => {
   assert.match(dashboard, /function CardImageUpload/);
-  assert.match(dashboard, /buttonLabel="Upload primary image"/);
-  assert.match(dashboard, /buttonLabel="Upload hover image"/);
+  assert.match(dashboard, /label=\{t\("productForm\.mainImage"\)\}/);
+  assert.match(dashboard, /label=\{t\("productForm\.hoverImage"\)\}/);
   assert.match(dashboard, /name="image"/);
   assert.match(dashboard, /name="hoverImage"/);
 });
@@ -52,7 +77,7 @@ test("card image form bootstrap reads primary and secondary aliases", () => {
 
 test("tenant card image uploads require a saved product first", () => {
   assert.match(dashboard, /tenantSpecific=\{usesTenantDefinitions\}/);
-  assert.match(dashboard, /uploadBlocked \? "Save product first"/);
+  assert.match(dashboard, /uploadBlocked \? t\("productForm\.saveFirst"\)/);
   assert.match(dashboard, /disabled=\{isUploading \|\| uploadBlocked\}/);
   assert.match(dashboard, /validateProductMediaFile\(file, \{ allowVideo: false \}\)/);
 });

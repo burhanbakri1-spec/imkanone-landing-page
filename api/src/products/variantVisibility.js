@@ -1,5 +1,7 @@
 export function isVariantVisible(variant = {}) {
-  return variant.isVisible !== false
+  return variant.isActive !== false
+    && variant.is_active !== false
+    && variant.isVisible !== false
     && variant.is_visible !== false
     && variant.hiddenFromStorefront !== true;
 }
