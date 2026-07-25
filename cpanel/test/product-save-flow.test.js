@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
+import { fieldStateToValues, normalizeLegacyLocalizedList, valuesToFieldState } from "../src/utils/productFields.js";
 
 const dashboard = fs.readFileSync(new URL("../src/pages/AdminDashboardPage.jsx", import.meta.url), "utf8");
 const app = fs.readFileSync(new URL("../src/CPanelApp.jsx", import.meta.url), "utf8");
 const apiClient = fs.readFileSync(new URL("../src/utils/api.js", import.meta.url), "utf8");
 const productsApi = fs.readFileSync(new URL("../src/utils/productsApi.js", import.meta.url), "utf8");
 const stagingEnvironment = fs.readFileSync(new URL("../.env.staging", import.meta.url), "utf8");
+const productImages = fs.readFileSync(new URL("../src/utils/productImages.js", import.meta.url), "utf8");
 
 test("the staging CPanel build uses VITE_API_URL and no legacy product API host", () => {
   assert.match(stagingEnvironment, /^VITE_API_URL=https:\/\/api-staging\.igroup\.website\s*$/m);
@@ -80,4 +82,48 @@ test("tenant card image uploads require a saved product first", () => {
   assert.match(dashboard, /uploadBlocked \? t\("productForm\.saveFirst"\)/);
   assert.match(dashboard, /disabled=\{isUploading \|\| uploadBlocked\}/);
   assert.match(dashboard, /validateProductMediaFile\(file, \{ allowVideo: false \}\)/);
+});
+
+test("CPanel resolves API images and bundles its broken-image placeholder", () => {
+  assert.match(productImages, /import productPlaceholderUrl from "\.\.\/assets\/product-placeholder\.svg"/);
+  assert.match(productImages, /resolveApiAssetUrl\(source\)/);
+  assert.match(apiClient, /new URL\(value, `\$\{new URL\(apiBaseUrl\)\.origin\}\/`\)/);
+  assert.match(dashboard, /resolveProductImageUrl\(product\.image \|\| product\.primaryImage\)/);
+  assert.match(dashboard, /onError=\{useProductImagePlaceholder\}/);
+});
+
+test("text-only edits omit empty image fields and preserve explicit per-field removal", () => {
+  assert.match(dashboard, /\.\.\.\(form\.image \? \{ image: form\.image \} : \{\}\)/);
+  assert.match(dashboard, /removedImageFields: form\.removedImageFields \|\| \[\]/);
+  assert.match(dashboard, /removeImage: true/);
+  assert.match(dashboard, /clearGalleryImages/);
+  assert.match(dashboard, /detailSectionImages: Object\.fromEntries/);
+});
+
+test("localized repeaters preserve legacy arrays and save English and Arabic independently", () => {
+  assert.deepEqual(normalizeLegacyLocalizedList("Sensitive"), ["Sensitive"]);
+  assert.deepEqual(normalizeLegacyLocalizedList(["Dry", "Oily"]), ["Dry", "Oily"]);
+  const definitions = [{ field_key: "skin_types", field_type: "repeatable_list", translatable: true }];
+  assert.deepEqual(valuesToFieldState([{ field_key: "skin_types", locale: "neutral", value: ["Dry"] }], definitions), {
+    skin_types: { en: ["Dry"], ar: [] },
+  });
+  assert.deepEqual(valuesToFieldState([
+    { field_key: "skin_types", locale: "en", value: "Dry" },
+    { field_key: "skin_types", locale: "ar", value: "جافة" },
+  ], definitions), { skin_types: { en: ["Dry"], ar: ["جافة"] } });
+  assert.deepEqual(fieldStateToValues(definitions, { skin_types: { en: ["Dry"], ar: ["جافة"] } }), [
+    { key: "skin_types", locale: "en", value: ["Dry"] },
+    { key: "skin_types", locale: "ar", value: ["جافة"] },
+  ]);
+});
+
+test("Arabic repeater actions use translated accessible labels and RTL", () => {
+  const tenantFields = fs.readFileSync(new URL("../src/components/TenantProductFields.jsx", import.meta.url), "utf8");
+  const translations = fs.readFileSync(new URL("../src/data/translations.js", import.meta.url), "utf8");
+  for (const key of ["item", "addItem", "remove", "moveUp", "moveDown", "english", "arabic"]) {
+    assert.match(tenantFields, new RegExp(`productForm\\.${key}`));
+  }
+  assert.match(tenantFields, /dir=\{language === "ar" \? "rtl" : "ltr"\}/);
+  assert.match(translations, /"productForm\.moveUp": "تحريك لأعلى"/);
+  assert.match(translations, /"productForm\.moveDown": "تحريك لأسفل"/);
 });

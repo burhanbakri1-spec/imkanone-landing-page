@@ -4,6 +4,7 @@ import test from "node:test";
 import { replaceTenantProductFieldValuesWithClient, validateTenantFieldValue } from "../src/productSchema/fieldValues.js";
 
 const migration = fs.readFileSync(new URL("../supabase/migrations/011_tenant_product_content.sql", import.meta.url), "utf8");
+const bilingualRepeatersMigration = fs.readFileSync(new URL("../supabase/migrations/015_icare_bilingual_product_repeaters.sql", import.meta.url), "utf8");
 const foundationMigration = fs.readFileSync(new URL("../supabase/migrations/001_multi_company_foundation.sql", import.meta.url), "utf8");
 const localeMigration = fs.readFileSync(new URL("../supabase/migrations/013_product_field_value_locale_uniqueness.sql", import.meta.url), "utf8");
 const defaultSchema = fs.readFileSync(new URL("../src/productSchema/schema.js", import.meta.url), "utf8");
@@ -17,6 +18,15 @@ test("iCare definitions contain beauty fields but no EB-only detail slots", () =
   assert.match(migration, /'icare','benefits'/);
   assert.match(migration, /'icare','complete_ingredients'/);
   for (const key of ["dsiHowItWorks1", "dsiImpact1", "dsiSafeToUse", "dsiPracticalBanner", "dsiFaq"]) assert.doesNotMatch(migration, new RegExp(`'icare','${key}'`, "i"));
+});
+
+test("iCare multilingual list fields migrate additively to bilingual repeaters", () => {
+  assert.match(bilingualRepeatersMigration, /where company_id='icare'/i);
+  for (const key of ["skin_types", "hair_types", "benefits", "featured_ingredients", "complete_ingredients", "warnings", "suitable_for"]) {
+    assert.match(bilingualRepeatersMigration, new RegExp(key));
+  }
+  assert.match(bilingualRepeatersMigration, /field_type='repeatable_list'.*repeatable=true.*translatable=true/is);
+  assert.doesNotMatch(bilingualRepeatersMigration, /delete from|truncate/i);
 });
 
 test("EB default schema retains its existing fields", () => {

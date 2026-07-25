@@ -15,6 +15,7 @@ import { moduleAllowsPage, pageKeyForModule } from "../utils/moduleRegistry.js";
 import { canAccessAdminPage, isAdminPortalRole, isCompanyAdmin, isStaffRole, isTenantOperator, tenantAccessNotice } from "../utils/roles.js";
 import { hasPermission } from "../data/permissions.js";
 import { createTranslator } from "../data/translations.js";
+import { resolveProductImageUrl, useProductImagePlaceholder } from "../utils/productImages.js";
 
 const storageKeys = {
   inventory: "inventory",
@@ -135,6 +136,7 @@ function normalizeFormVariant(variant = {}, index = 0, product = {}) {
     sort_order: Number(variant.sort_order ?? variant.sortOrder ?? index),
     isActive: variant.isActive !== false && variant.is_active !== false,
     isVisible: variant.isVisible !== false && variant.is_visible !== false,
+    clearImage: variant.clearImage === true,
   };
 }
 
@@ -295,7 +297,7 @@ function createProductFromForm(form) {
     }));
   const parsedSizes = sizesFromFormVariants(variants, form.size, form.price);
 
-  return {
+  const product = {
     id,
     slug,
     sku: form.sku || slug.toUpperCase(),
@@ -309,11 +311,11 @@ function createProductFromForm(form) {
     benefits: form.benefits,
     skinTypes: form.skinTypes,
     concerns: form.concerns,
-    image: form.image || "",
-    hoverImage: form.hoverImage || "",
-    productsPageImage: form.productsPageImage || "",
-    productsPageHoverImage: form.productsPageHoverImage || "",
-    fallbackImage: "/images/products/product-placeholder.svg",
+    ...(form.image ? { image: form.image } : {}),
+    ...(form.hoverImage ? { hoverImage: form.hoverImage } : {}),
+    ...(form.productsPageImage ? { productsPageImage: form.productsPageImage } : {}),
+    ...(form.productsPageHoverImage ? { productsPageHoverImage: form.productsPageHoverImage } : {}),
+    removedImageFields: form.removedImageFields || [],
     variants,
     gallery_images: galleryImages,
     galleryImages: galleryImages.map((image) => image.image_url),
@@ -338,24 +340,19 @@ function createProductFromForm(form) {
         : "Out of Stock",
     metaTitle: form.metaTitle,
     metaDescription: form.metaDescription,
-    detailSectionImages: {
-      howItWorks: form.dsiHowItWorks || "",
-      howItWorks1: form.dsiHowItWorks1 || "",
-      howItWorks2: form.dsiHowItWorks2 || "",
-      howItWorks3: form.dsiHowItWorks3 || "",
-      impact: form.dsiImpact || "",
-      impact1: form.dsiImpact1 || "",
-      impact2: form.dsiImpact2 || "",
-      safeToUse: form.dsiSafeToUse || "",
-      practicalBanner: form.dsiPracticalBanner || "",
-      ingredients: form.dsiIngredients || "",
-      faq: form.dsiFaq || "",
-      mainImage: form.dsiMainImage || "",
-    },
+    detailSectionImages: Object.fromEntries([
+      ["howItWorks", form.dsiHowItWorks], ["howItWorks1", form.dsiHowItWorks1],
+      ["howItWorks2", form.dsiHowItWorks2], ["howItWorks3", form.dsiHowItWorks3],
+      ["impact", form.dsiImpact], ["impact1", form.dsiImpact1], ["impact2", form.dsiImpact2],
+      ["safeToUse", form.dsiSafeToUse], ["practicalBanner", form.dsiPracticalBanner],
+      ["ingredients", form.dsiIngredients], ["faq", form.dsiFaq], ["mainImage", form.dsiMainImage],
+    ].filter(([, value]) => Boolean(value))),
     detailStatements: form.detailStatements || [],
     createdAt: form.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+  if (form.clearGalleryImages) product.clearGalleryImages = true;
+  return product;
 }
 
 function Toolbar({ children, onAdd, addLabel }) {
@@ -433,7 +430,7 @@ function CardImageUpload({ label, helperText, buttonLabel, language = "en", name
   }
 
   function handleRemove() {
-    onChange({ target: { name, value: "" } });
+    onChange({ target: { name, value: "", removeImage: true } });
     setUploadError("");
   }
 
@@ -479,7 +476,7 @@ function CardImageUpload({ label, helperText, buttonLabel, language = "en", name
       {isUploading && <div className="admin-upload-progress"><span>{t("productForm.uploadingImage")}</span></div>}
       {value && (
         <div className="admin-media-preview">
-          <img alt="" src={value} />
+          <img alt="" src={resolveProductImageUrl(value)} onError={useProductImagePlaceholder} />
         </div>
       )}
     </div>
@@ -525,7 +522,8 @@ function MediaField({ label, language = "en", name, value, onChange, onUploading
       {uploadError && <div className="message-panel error compact">{uploadError}</div>}
       {value && (
         <div className="admin-media-preview">
-          <img alt="" src={value} />
+          <img alt="" src={resolveProductImageUrl(value)} onError={useProductImagePlaceholder} />
+          <button className="text-action danger" disabled={isUploading} onClick={() => onChange({ target: { name, value: "", removeImage: true } })} type="button">{t("productForm.removeImage")}</button>
         </div>
       )}
     </div>
@@ -825,7 +823,7 @@ function ProductsListPage({ brands, canCreate = true, canDelete = true, canUpdat
             const stock = getStockQty(product);
             return (
               <tr key={product.id}>
-                <td><img className="admin-thumb" alt="" src={product.image || product.fallbackImage} /></td>
+                <td><img className="admin-thumb" alt="" src={resolveProductImageUrl(product.image || product.primaryImage)} onError={useProductImagePlaceholder} /></td>
                 <td><strong>{getText(product.name)}</strong><span className="table-muted">{getProductSku(product)}</span></td>
                 <td>{getText(category?.name) || "-"}</td>
                 <td>{brands.find((brand) => brand.id === product.brandId)?.name || product.brand || "-"}</td>
@@ -927,6 +925,8 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
     newArrival: Boolean(editingProduct?.isNewArrival),
     bestseller: Boolean(editingProduct?.isBestseller),
     detailStatements: editingProduct?.detailStatements || editingProduct?.detail_statements || [],
+    removedImageFields: [],
+    clearGalleryImages: false,
   }));
 
   React.useEffect(() => {
@@ -937,7 +937,7 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
     ]).then(([definitions, values]) => {
       if (cancelled) return;
       setTenantDefinitions(Array.isArray(definitions) ? definitions : []);
-      const fieldState = valuesToFieldState(values);
+      const fieldState = valuesToFieldState(values, definitions);
       setTenantValues(fieldState);
       if (fieldState.product_video) setForm((current) => ({ ...current, videoUrl: fieldState.product_video }));
       if (Array.isArray(definitions) && definitions.length) {
@@ -961,8 +961,13 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
   }, []);
 
   function change(event) {
-    const { checked, name, type, value } = event.target;
-    setForm((current) => ({ ...current, [name]: type === "checkbox" ? checked : value }));
+    const { checked, name, removeImage, type, value } = event.target;
+    setForm((current) => {
+      const removed = new Set(current.removedImageFields || []);
+      if (removeImage) removed.add(name);
+      else if (value) removed.delete(name);
+      return { ...current, [name]: type === "checkbox" ? checked : value, removedImageFields: [...removed] };
+    });
   }
 
   function addVariant() {
@@ -1071,6 +1076,7 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
         ? await uploadProductMedia(file, editingProduct.id)
         : await uploadImage(file);
       updateVariant(index, "image_url", uploaded.url || uploaded.path || "");
+      updateVariant(index, "clearImage", false);
     } catch (error) {
       setUploadError(error.message || "Variant image upload failed.");
     } finally {
@@ -1094,6 +1100,7 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
         const currentImages = current.galleryImages || [];
         return {
           ...current,
+          clearGalleryImages: false,
           galleryImages: [
             ...currentImages,
             ...uploaded
@@ -1124,6 +1131,7 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
       galleryImages: (current.galleryImages || [])
         .filter((_, imageIndex) => imageIndex !== index)
         .map((image, sortIndex) => ({ ...image, sort_order: sortIndex })),
+      clearGalleryImages: (current.galleryImages || []).filter((_, imageIndex) => imageIndex !== index).length === 0,
     }));
   }
 
@@ -1132,6 +1140,7 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
       const currentImages = current.galleryImages || [];
       return {
         ...current,
+        clearGalleryImages: false,
         galleryImages: [...currentImages, createGalleryImageEntry(currentImages.length)],
       };
     });
@@ -1140,6 +1149,7 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
   function updateGalleryImage(index, value) {
     setForm((current) => ({
       ...current,
+      clearGalleryImages: value ? false : current.clearGalleryImages,
       galleryImages: (current.galleryImages || []).map((image, imageIndex) =>
         imageIndex === index ? { ...image, image_url: value } : image,
       ),
@@ -1369,13 +1379,13 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
                   <label>
                     Variant image
                     <span className="image-upload-row">
-                      <input value={variant.image_url} onChange={(event) => updateVariant(index, "image_url", event.target.value)} />
+                      <input value={variant.image_url} onChange={(event) => { updateVariant(index, "image_url", event.target.value); if (event.target.value) updateVariant(index, "clearImage", false); }} />
                       <span className="upload-button-shell">
                         <input accept="image/*" type="file" onChange={(event) => uploadVariantImage(index, event)} />
                         <span>{uploadingVariantIndex === index ? "Uploading..." : "Upload"}</span>
                       </span>
                     </span>
-                    {variant.image_url && <img className="admin-image-preview small-preview" alt="" src={variant.image_url} />}
+                    {variant.image_url && <><img className="admin-image-preview small-preview" alt="" src={resolveProductImageUrl(variant.image_url)} onError={useProductImagePlaceholder} /><button className="text-action danger" onClick={() => setForm((current) => ({ ...current, variants: current.variants.map((item, itemIndex) => itemIndex === index ? { ...item, image_url: "", clearImage: true } : item) }))} type="button">{t("productForm.removeImage")}</button></>}
                   </label>
                   <button className="text-action danger" onClick={() => removeVariant(index)} type="button">{t("productForm.remove")}</button>
                 </div>
@@ -1452,7 +1462,7 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
                         </span>
                       </span>
                     </label>
-                    {image.image_url && <img alt="" src={image.image_url} />}
+                    {image.image_url && <img alt="" src={resolveProductImageUrl(image.image_url)} onError={useProductImagePlaceholder} />}
                     <div className="structured-row-actions"><button disabled={index === 0} onClick={() => moveGalleryImage(index, index - 1)} type="button">↑</button><button disabled={index === form.galleryImages.length - 1} onClick={() => moveGalleryImage(index, index + 1)} type="button">↓</button><button onClick={() => removeGalleryImage(index)} type="button">Remove</button></div>
                   </figure>
                 ))}
@@ -1557,7 +1567,7 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
           </>
         )}
         {step === "preview" && <article className="full-field admin-product-preview">
-          {form.image && <img className="admin-image-preview" alt="" src={form.image} />}
+          {form.image && <img className="admin-image-preview" alt="" src={resolveProductImageUrl(form.image)} onError={useProductImagePlaceholder} />}
           <h2>{form.nameEn || "Untitled product"}</h2>
           {form.nameAr && <h3 dir="rtl">{form.nameAr}</h3>}
           <p>{form.shortDescription}</p>

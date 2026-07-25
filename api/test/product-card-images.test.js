@@ -14,7 +14,6 @@ function isRealImageUrl(value) {
 }
 
 function preserveImageUrl(existingValue, incomingValue) {
-  if (incomingValue === null || incomingValue === "") return "";
   if (isRealImageUrl(incomingValue)) return incomingValue.trim();
   const existing = isRealImageUrl(existingValue) ? existingValue : "";
   return existing || incomingValue || "";
@@ -32,8 +31,8 @@ function normalizeCardImages(product) {
 test("product routes resolve primary and hover image aliases", () => {
   assert.match(productRoutes, /product\.image \|\| product\.primaryImage \|\| product\.primary_image/);
   assert.match(productRoutes, /product\.hoverImage \|\| product\.secondaryImage \|\| product\.secondary_image/);
-  assert.match(productRoutes, /incomingProduct\.primaryImage \|\| incomingProduct\.primary_image/);
-  assert.match(productRoutes, /incomingProduct\.secondaryImage \|\| incomingProduct\.secondary_image/);
+  assert.match(productRoutes, /cleanIncoming\.primaryImage \|\| cleanIncoming\.primary_image/);
+  assert.match(productRoutes, /cleanIncoming\.secondaryImage \|\| cleanIncoming\.secondary_image/);
 });
 
 test("placeholder detection rejects legacy-cleared placeholder variants", () => {
@@ -49,9 +48,18 @@ test("preserveImageUrl keeps existing URL when incoming is undefined", () => {
   assert.equal(preserveImageUrl(existing, undefined), existing);
 });
 
-test("preserveImageUrl clears on explicit empty string", () => {
-  assert.equal(preserveImageUrl("/uploads/icare/products/product-1/primary.jpg", ""), "");
-  assert.equal(preserveImageUrl("/uploads/icare/products/product-1/hover.jpg", null), "");
+test("empty browser image fields cannot erase existing media", () => {
+  assert.equal(preserveImageUrl("/uploads/icare/products/product-1/primary.jpg", ""), "/uploads/icare/products/product-1/primary.jpg");
+  assert.equal(preserveImageUrl("/uploads/icare/products/product-1/hover.jpg", null), "/uploads/icare/products/product-1/hover.jpg");
+  assert.match(productRoutes, /removedImageFields\.has\("image"\)/);
+  assert.match(productRoutes, /removedImageFields\.has\("hoverImage"\)/);
+  assert.match(productRoutes, /detailSectionImages = \{/);
+  assert.match(productRoutes, /delete cleanIncoming\.removedImageFields/);
+});
+
+test("variant image clearing is explicit while omitted images are preserved", () => {
+  assert.match(productRoutes, /variant\.clearImage === true/);
+  assert.match(productRoutes, /existingImage \? \{ \.\.\.withStock, image_url: existingImage \}/);
 });
 
 test("normalizeProduct card images map placeholders to empty strings", () => {

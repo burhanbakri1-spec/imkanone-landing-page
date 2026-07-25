@@ -15,8 +15,8 @@ export function moveStructuredItem(items, from, to) {
 
 function RowActions({ index, count, onMove, onRemove, t }) {
   return <div className="structured-row-actions">
-    <button disabled={index === 0} onClick={() => onMove(index, index - 1)} type="button">↑</button>
-    <button disabled={index === count - 1} onClick={() => onMove(index, index + 1)} type="button">↓</button>
+    <button aria-label={t("productForm.moveUp")} title={t("productForm.moveUp")} disabled={index === 0} onClick={() => onMove(index, index - 1)} type="button">↑</button>
+    <button aria-label={t("productForm.moveDown")} title={t("productForm.moveDown")} disabled={index === count - 1} onClick={() => onMove(index, index + 1)} type="button">↓</button>
     <button className="text-action danger" onClick={() => onRemove(index)} type="button">{t("productForm.remove")}</button>
   </div>;
 }
@@ -60,13 +60,15 @@ function StructuredRows({ definition, value, onChange, t }) {
       <label className="checkbox-line"><input checked={item.is_active !== false} type="checkbox" onChange={(event) => update(index, { is_active: event.target.checked })} />{t("productForm.active")}</label>
       <RowActions count={items.length} index={index} onMove={move} onRemove={remove} t={t} />
     </div>)}
-    <button className="secondary-action compact-action" onClick={add} type="button">+ Add {isFaq ? "FAQ" : isShowcase ? "section" : "attribute"}</button>
+    <button className="secondary-action compact-action" onClick={add} type="button">+ {isFaq ? t("productForm.addFaq") : isShowcase ? t("productForm.addSection") : t("productForm.addAttribute")}</button>
   </div>;
 }
 
 function LocalizedList({ value, onChange, t }) {
-  const en = Array.isArray(value?.en) ? value.en : [];
-  const ar = Array.isArray(value?.ar) ? value.ar : [];
+  const normalize = (entry) => Array.isArray(entry) ? entry : entry == null || entry === "" ? [] : [String(entry)];
+  const legacy = Array.isArray(value) || typeof value === "string" ? normalize(value) : [];
+  const en = value && !Array.isArray(value) && typeof value === "object" ? normalize(value.en) : legacy;
+  const ar = value && !Array.isArray(value) && typeof value === "object" ? normalize(value.ar) : [];
   const count = Math.max(en.length, ar.length);
   const rows = Array.from({ length: count }, (_, index) => ({ en: en[index] || "", ar: ar[index] || "" }));
   const commit = (next) => onChange({ en: next.map((row) => row.en), ar: next.map((row) => row.ar) });
@@ -87,7 +89,7 @@ function SimpleList({ value, onChange, itemLabel = "Item", t }) {
       <label>{itemLabel} {index + 1}<input value={item} onChange={(event) => commit(items.map((current, itemIndex) => itemIndex === index ? event.target.value : current))} /></label>
       <RowActions count={items.length} index={index} onMove={(from, to) => commit(moveStructuredItem(items.map((entry) => ({ value: entry })), from, to).map((entry) => entry.value))} onRemove={(removeIndex) => commit(items.filter((_, itemIndex) => itemIndex !== removeIndex))} t={t} />
     </div>)}
-    <button className="secondary-action compact-action" onClick={() => onChange([...items, ""])} type="button">+ Add {itemLabel.toLowerCase()}</button>
+    <button className="secondary-action compact-action" onClick={() => onChange([...items, ""])} type="button">+ {t("productForm.addItem")}</button>
   </div>;
 }
 
@@ -95,7 +97,7 @@ export default function TenantProductFields({ definitions, section, language = "
   const t = createTranslator(language);
   const fields = definitions.filter((item) => item.section === section && item.is_active !== false);
   if (!fields.length) return null;
-  return <div className="full-field tenant-product-fields">
+  return <div className="full-field tenant-product-fields" dir={language === "ar" ? "rtl" : "ltr"}>
     {fields.map((definition) => {
       const current = value[definition.field_key];
       const updateLocale = (locale, next) => onChange(definition.field_key, { ...(current || {}), [locale]: next });
@@ -108,8 +110,8 @@ export default function TenantProductFields({ definitions, section, language = "
         {isStructured && <StructuredRows definition={definition} t={t} value={current} onChange={(next) => onChange(definition.field_key, next)} />}
         {isSimpleList && <SimpleList itemLabel={definition.field_type === "multiple_images" ? t("productForm.imageUrl") : t("productForm.item")} t={t} value={current} onChange={(next) => onChange(definition.field_key, next)} />}
         {!isLocalizedList && !isStructured && !isSimpleList && definition.translatable && <div className="tenant-translations">
-          <label>English{["textarea", "rich_text"].includes(definition.field_type) ? <textarea required={definition.is_required} value={current?.en || ""} onChange={(event) => updateLocale("en", event.target.value)} /> : <input required={definition.is_required} value={current?.en || ""} onChange={(event) => updateLocale("en", event.target.value)} />}</label>
-          <label>العربية{["textarea", "rich_text"].includes(definition.field_type) ? <textarea dir="rtl" required={definition.is_required} value={current?.ar || ""} onChange={(event) => updateLocale("ar", event.target.value)} /> : <input dir="rtl" required={definition.is_required} value={current?.ar || ""} onChange={(event) => updateLocale("ar", event.target.value)} />}</label>
+          <label>{t("productForm.english")}{["textarea", "rich_text"].includes(definition.field_type) ? <textarea dir="ltr" required={definition.is_required} value={current?.en || ""} onChange={(event) => updateLocale("en", event.target.value)} /> : <input dir="ltr" required={definition.is_required} value={current?.en || ""} onChange={(event) => updateLocale("en", event.target.value)} />}</label>
+          <label>{t("productForm.arabic")}{["textarea", "rich_text"].includes(definition.field_type) ? <textarea dir="rtl" required={definition.is_required} value={current?.ar || ""} onChange={(event) => updateLocale("ar", event.target.value)} /> : <input dir="rtl" required={definition.is_required} value={current?.ar || ""} onChange={(event) => updateLocale("ar", event.target.value)} />}</label>
         </div>}
         {!isLocalizedList && !isStructured && !isSimpleList && !definition.translatable && definition.field_type === "boolean" && <label className="checkbox-line"><input checked={Boolean(current)} type="checkbox" onChange={(event) => onChange(definition.field_key, event.target.checked)} />Enabled</label>}
         {!isLocalizedList && !isStructured && !isSimpleList && !definition.translatable && definition.field_type !== "boolean" && ["textarea", "rich_text"].includes(definition.field_type) && <textarea required={definition.is_required} value={current || ""} onChange={(event) => onChange(definition.field_key, event.target.value)} />}

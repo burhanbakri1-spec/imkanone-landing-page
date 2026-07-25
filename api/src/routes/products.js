@@ -23,7 +23,6 @@ function isRealImageUrl(value) {
 }
 
 function preserveImageUrl(existingValue, incomingValue) {
-  if (incomingValue === null || incomingValue === "") return "";
   if (isRealImageUrl(incomingValue)) return incomingValue.trim();
   const existing = isRealImageUrl(existingValue) ? existingValue : "";
   return existing || incomingValue || "";
@@ -167,6 +166,10 @@ function mergeVariantImageUrls(existingProduct, incomingVariants) {
       existingById.get(variant.id) ||
       existingBySignature.get(variantSignature(variant));
     const withStock = preserveOmittedVariantStock(existing || {}, variant);
+    if (variant.clearImage === true) {
+      const { clearImage, ...cleared } = withStock;
+      return { ...cleared, image_url: "" };
+    }
     const incomingImage = variant.image_url || variant.imageUrl || variant.image || "";
     if (isRealImageUrl(incomingImage)) {
       return withStock;
@@ -178,17 +181,37 @@ function mergeVariantImageUrls(existingProduct, incomingVariants) {
 }
 
 function mergeProductUpdate(existingProduct, incomingProduct) {
+  const removedImageFields = new Set(Array.isArray(incomingProduct.removedImageFields) ? incomingProduct.removedImageFields : []);
+  const cleanIncoming = { ...incomingProduct };
+  delete cleanIncoming.removedImageFields;
+  delete cleanIncoming.clearGalleryImages;
+  const detailFieldMap = {
+    dsiHowItWorks: "howItWorks", dsiHowItWorks1: "howItWorks1", dsiHowItWorks2: "howItWorks2",
+    dsiHowItWorks3: "howItWorks3", dsiImpact: "impact", dsiImpact1: "impact1", dsiImpact2: "impact2",
+    dsiSafeToUse: "safeToUse", dsiPracticalBanner: "practicalBanner", dsiIngredients: "ingredients",
+    dsiFaq: "faq", dsiMainImage: "mainImage",
+  };
+  const detailSectionImages = {
+    ...(existingProduct.detailSectionImages || existingProduct.detail_section_images || {}),
+    ...(cleanIncoming.detailSectionImages || cleanIncoming.detail_section_images || {}),
+  };
+  for (const [formField, detailKey] of Object.entries(detailFieldMap)) {
+    if (removedImageFields.has(formField)) detailSectionImages[detailKey] = "";
+  }
   const merged = {
     ...existingProduct,
-    ...incomingProduct,
-    image: preserveImageUrl(
+    ...cleanIncoming,
+    image: removedImageFields.has("image") ? "" : preserveImageUrl(
       existingProduct.image || existingProduct.primaryImage || existingProduct.primary_image || "",
-      incomingProduct.image || incomingProduct.primaryImage || incomingProduct.primary_image || "",
+      cleanIncoming.image || cleanIncoming.primaryImage || cleanIncoming.primary_image || "",
     ),
-    hoverImage: preserveImageUrl(
+    hoverImage: removedImageFields.has("hoverImage") ? "" : preserveImageUrl(
       existingProduct.hoverImage || existingProduct.secondaryImage || existingProduct.secondary_image || "",
-      incomingProduct.hoverImage || incomingProduct.secondaryImage || incomingProduct.secondary_image || "",
+      cleanIncoming.hoverImage || cleanIncoming.secondaryImage || cleanIncoming.secondary_image || "",
     ),
+    productsPageImage: removedImageFields.has("productsPageImage") ? "" : preserveImageUrl(existingProduct.productsPageImage || "", cleanIncoming.productsPageImage),
+    productsPageHoverImage: removedImageFields.has("productsPageHoverImage") ? "" : preserveImageUrl(existingProduct.productsPageHoverImage || "", cleanIncoming.productsPageHoverImage),
+    detailSectionImages,
     updatedAt: new Date().toISOString(),
   };
 
@@ -275,8 +298,9 @@ router.post("/", requireAuth, requirePermission("products.create"), async (req, 
   let product;
   try {
     const normalizedReferences = canonicalNormalizedCatalogReferences(req.body);
+    const { removedImageFields, clearGalleryImages, ...productBody } = req.body;
     product = normalizeProduct(sanitizeProductSchemaData({
-      ...req.body,
+      ...productBody,
       ...normalizedReferences,
       id: req.body.id || `product-${Date.now()}`,
       slug: req.body.slug || `product-${Date.now()}`,
