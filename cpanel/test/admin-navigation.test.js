@@ -103,9 +103,59 @@ test("tenant shell uses the enlarged sidebar and real Quick Actions popover", ()
 
 test("platform shell has a separately scoped light sidebar and larger company cards", () => {
   const css = read("src/styles/global.css");
+  const cardCss = css.slice(css.indexOf("/* Super Admin Sites-style company cards */"));
   assert.match(css, /\.admin-studio-shell\.admin-platform \.admin-sidebar[\s\S]*?width:\s*304px[\s\S]*?background:\s*#fff/);
-  assert.match(css, /\.admin-platform \.company-cards-grid[\s\S]*?minmax\(400px, 1fr\)/);
-  assert.match(css, /\.admin-platform \.company-card-preview-img[\s\S]*?object-fit:\s*contain/);
+  assert.match(cardCss, /\.admin-platform \.company-cards-grid:not\(\.company-cards-list\)[\s\S]*?repeat\(5, minmax\(0, 1fr\)\)/);
+  assert.match(cardCss, /\.admin-platform \.company-card-preview-img[\s\S]*?object-fit:\s*cover/);
+});
+
+test("Super Admin companies render responsive Sites-style cards", () => {
+  const page = read("src/pages/AdminCompaniesPage.jsx");
+  const css = read("src/styles/global.css");
+  const cardCss = css.slice(css.indexOf("/* Super Admin Sites-style company cards */"));
+  assert.match(page, /<article[\s\S]*?data-company-card/);
+  assert.match(page, /company-card-preview[\s\S]*?company-card-footer/);
+  assert.match(cardCss, /gap:\s*16px/);
+  assert.match(cardCss, /\.admin-platform \.company-card-preview \{[\s\S]*?aspect-ratio:\s*1\.45 \/ 1/);
+  assert.match(cardCss, /\.admin-platform \.company-card-footer \{[\s\S]*?height:\s*62px/);
+  assert.match(cardCss, /\.admin-platform \.company-card-preview-img[\s\S]*?padding:\s*0;[\s\S]*?object-fit:\s*cover/);
+  assert.match(cardCss, /@media \(max-width: 1680px\)[\s\S]*?repeat\(4, minmax\(0, 1fr\)\)/);
+  assert.match(cardCss, /@media \(max-width: 1360px\)[\s\S]*?repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(cardCss, /@media \(max-width: 980px\)[\s\S]*?repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(cardCss, /@media \(max-width: 640px\)[\s\S]*?grid-template-columns:\s*1fr/);
+});
+
+test("company card Manage and Open CPanel actions share the secure switch handler", () => {
+  const page = read("src/pages/AdminCompaniesPage.jsx");
+  assert.match(page, /async function manageCompany\(companyId\)[\s\S]*?guardedSwitchRef\.current\(companyId\)/);
+  assert.match(page, /Building2[\s\S]*?cardLabels\.manageCompany/);
+  assert.match(page, /LogIn[\s\S]*?cardLabels\.openCpanel/);
+  assert.ok((page.match(/void manageCompany\(company\.id\)/g) || []).length >= 3);
+});
+
+test("company card action menu is isolated and closes outside or with Escape", () => {
+  const page = read("src/pages/AdminCompaniesPage.jsx");
+  assert.match(page, /event\.stopPropagation\(\)[\s\S]*?setMenuOpenId/);
+  assert.match(page, /className="company-card-menu"[\s\S]*?event\.stopPropagation\(\)/);
+  assert.match(page, /document\.addEventListener\("mousedown", handleClick\)/);
+  assert.match(page, /e\.key === "Escape"[\s\S]*?setMenuOpenId\(null\)/);
+});
+
+test("company cards use a neutral initials placeholder when media is unavailable", () => {
+  const page = read("src/pages/AdminCompaniesPage.jsx");
+  const css = read("src/styles/global.css");
+  const cardCss = css.slice(css.indexOf("/* Super Admin Sites-style company cards */"));
+  assert.match(page, /data-company-placeholder/);
+  assert.match(page, /companyInitials\(company\.name\)/);
+  assert.match(page, /onError=\{\(\) => markCompanyMediaFailed\(company\.id\)\}/);
+  assert.match(cardCss, /\.admin-platform \.company-card-preview-placeholder \{[\s\S]*?background:\s*#edf1f5/);
+  assert.match(cardCss, /\.admin-platform \.company-card-preview-initials \{[\s\S]*?border-radius:\s*0;[\s\S]*?box-shadow:\s*none/);
+});
+
+test("storefront card actions render only when a storefront URL exists", () => {
+  const page = read("src/pages/AdminCompaniesPage.jsx");
+  assert.ok((page.match(/\{company\.storefrontUrl && \(/g) || []).length >= 2);
+  assert.match(page, /href=\{company\.storefrontUrl\}[\s\S]*?target="_blank"/);
 });
 
 test("CPanel shell fixes the viewport and isolates sidebar and workspace scrolling", () => {

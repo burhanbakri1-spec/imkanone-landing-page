@@ -8,6 +8,12 @@ import AdminLoginPage from "./pages/AdminLoginPage.jsx";
 import AdminDropshippingPage from "./pages/AdminDropshippingPage.jsx";
 import AdminFeaturePage, { featurePageKeys } from "./pages/AdminFeaturePage.jsx";
 import AdminPlaceholderPage from "./pages/AdminPlaceholderPage.jsx";
+import AdminSalesPage from "./pages/AdminSalesPage.jsx";
+import AdminCatalogPage from "./pages/AdminCatalogPage.jsx";
+import AdminVideoAppsPage from "./pages/AdminVideoAppsPage.jsx";
+import AdminSiteMobilePage from "./pages/AdminSiteMobilePage.jsx";
+import AdminMarketingPage from "./pages/AdminMarketingPage.jsx";
+import AdminGettingPaidPage from "./pages/AdminGettingPaidPage.jsx";
 import {
   isNavigationPlaceholderPage,
   placeholderPageKeys,
@@ -27,7 +33,13 @@ import {
 import { moduleAllowsPage } from "./utils/moduleRegistry.js";
 import { performSecureCompanySwitch } from "./utils/companySwitcher.js";
 import { protectedApiErrorEvent } from "./utils/api.js";
-import { assignOrderEmployee, deleteOrder, getOrders, updateOrderStatus } from "./utils/orders.js";
+import { assignOrderEmployee, createOrder, deleteOrder, getOrders, updateOrderStatus } from "./utils/orders.js";
+import { salesPageKeys } from "./utils/sales.js";
+import { catalogPlaceholderPageKeys } from "./utils/catalog.js";
+import { videoAppsPageKeys } from "./utils/videoApps.js";
+import { siteMobilePageKeys } from "./utils/siteMobile.js";
+import { marketingPageKeys } from "./utils/marketing.js";
+import { gettingPaidPageKeys } from "./utils/gettingPaid.js";
 import {
   createEmployee as createEmployeeApi,
   deleteEmployee as deleteEmployeeApi,
@@ -760,6 +772,23 @@ function CPanelApp() {
     }
   }
 
+  async function handleCreateManualOrder(payload) {
+    try {
+      const order = await createOrder({
+        ...payload,
+        createdByEmployeeId: currentUser?.id || "",
+        createdByEmployeeName: currentUser?.name || "",
+      });
+      await refreshOrders();
+      setAdminMessageType("success");
+      setAdminMessage(language === "ar" ? "تم إنشاء الطلب بنجاح." : "Order created successfully.");
+      return { ok: true, order };
+    } catch (error) {
+      handleApiError(error);
+      return { ok: false, message: error.message };
+    }
+  }
+
   async function handleAssignEmployee(id, employeeId) {
     if (!employeeId) return undefined;
     try {
@@ -923,6 +952,11 @@ function CPanelApp() {
           activePage !== "admin-platform-domains" &&
           !dropshippingPageKeys.includes(activePage) &&
           !featurePageKeys.includes(activePage) &&
+          !salesPageKeys.includes(activePage) &&
+          !videoAppsPageKeys.includes(activePage) &&
+          !siteMobilePageKeys.includes(activePage) &&
+          !marketingPageKeys.includes(activePage) &&
+          !gettingPaidPageKeys.includes(activePage) &&
           !placeholderPageKeys.includes(activePage) &&
           !staffPageKeys.includes(activePage) && (
             <AdminDashboardPage
@@ -970,10 +1004,40 @@ function CPanelApp() {
         {dropshippingPageKeys.includes(activePage) && (
           <AdminDropshippingPage activePage={activePage} {...sharedLayoutProps} />
         )}
-        {featurePageKeys.includes(activePage) && (
+        {featurePageKeys.includes(activePage) && !gettingPaidPageKeys.includes(activePage) && (
           <AdminFeaturePage activePage={activePage} {...sharedLayoutProps} />
         )}
-        {placeholderPageKeys.includes(activePage) && (
+        {salesPageKeys.includes(activePage) && (
+          <AdminSalesPage
+            activePage={activePage}
+            employees={employees}
+            onAssignEmployee={handleAssignEmployee}
+            onCreateOrder={handleCreateManualOrder}
+            onDeleteOrder={handleDeleteOrder}
+            onStatusChange={handleOrderStatusChange}
+            orders={orders}
+            products={products}
+            statusMessage={adminMessage}
+            statusMessageType={adminMessageType}
+            {...sharedLayoutProps}
+          />
+        )}
+        {catalogPlaceholderPageKeys.includes(activePage) && (
+          <AdminCatalogPage activePage={activePage} {...sharedLayoutProps} />
+        )}
+        {videoAppsPageKeys.includes(activePage) && (
+          <AdminVideoAppsPage activePage={activePage} {...sharedLayoutProps} />
+        )}
+        {siteMobilePageKeys.includes(activePage) && (
+          <AdminSiteMobilePage activePage={activePage} {...sharedLayoutProps} />
+        )}
+        {marketingPageKeys.includes(activePage) && (
+          <AdminMarketingPage activePage={activePage} {...sharedLayoutProps} />
+        )}
+        {gettingPaidPageKeys.includes(activePage) && (
+          <AdminGettingPaidPage activePage={activePage} products={products} {...sharedLayoutProps} />
+        )}
+        {placeholderPageKeys.includes(activePage) && !salesPageKeys.includes(activePage) && !catalogPlaceholderPageKeys.includes(activePage) && !videoAppsPageKeys.includes(activePage) && !siteMobilePageKeys.includes(activePage) && !marketingPageKeys.includes(activePage) && !gettingPaidPageKeys.includes(activePage) && (
           <AdminPlaceholderPage activePage={activePage} {...sharedLayoutProps} />
         )}
 

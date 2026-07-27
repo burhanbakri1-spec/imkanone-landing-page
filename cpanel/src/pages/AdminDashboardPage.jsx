@@ -1,5 +1,29 @@
 import React from "react";
-import { AlertCircle, Clock, ExternalLink, FileText, Globe, HandCoins, Minus, Package, Plus, Search, Settings, ShoppingCart, ClipboardList, Upload, UserCircle, Users } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowUpDown,
+  BarChart3,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Clock,
+  ExternalLink,
+  FileText,
+  Globe,
+  HandCoins,
+  Mail,
+  Minus,
+  MoreHorizontal,
+  Package,
+  Plus,
+  Search,
+  Settings,
+  ShoppingCart,
+  ClipboardList,
+  Upload,
+  UserCircle,
+  Users,
+} from "lucide-react";
 import AdminLayout from "../components/AdminLayout.jsx";
 import AdminOrdersTable from "../components/AdminOrdersTable.jsx";
 import WebsiteMediaManager from "../components/WebsiteMediaManager.jsx";
@@ -16,6 +40,15 @@ import { canAccessAdminPage, isAdminPortalRole, isCompanyAdmin, isStaffRole, isT
 import { hasPermission } from "../data/permissions.js";
 import { createTranslator } from "../data/translations.js";
 import { resolveProductImageUrl, useProductImagePlaceholder } from "../utils/productImages.js";
+import {
+  buildDashboardActivity,
+  buildDashboardAnalytics,
+  buildDashboardChecklist,
+  dashboardDirection,
+  isDashboardActionAuthorized,
+  resolveDashboardDestination,
+  sortDashboardActivity,
+} from "../utils/dashboardHome.js";
 
 const storageKeys = {
   inventory: "inventory",
@@ -549,7 +582,7 @@ function EmptyState({ title, description }) {
   );
 }
 
-function DashboardHome({ company, currentUser, employees, language, modules, onNavigate, orders, products, t }) {
+function LegacyDashboardHome({ company, currentUser, employees, language, modules, onNavigate, orders, products, t }) {
   const customers = React.useMemo(() => uniqueCustomersFromOrders(orders), [orders]);
   const revenue = orders.reduce((sum, o) => sum + Number(o.total || 0), 0);
   const activeProducts = products.filter((p) => p.isActive !== false && p.status !== "Inactive").length;
@@ -762,6 +795,412 @@ function DashboardHome({ company, currentUser, employees, language, modules, onN
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function DashboardHome({
+  brands = [],
+  categories = [],
+  company,
+  currentUser,
+  employees = [],
+  language,
+  modules,
+  onNavigate,
+  orders = [],
+  products = [],
+}) {
+  const [activitySort, setActivitySort] = React.useState("priority");
+  const [expandedChecklist, setExpandedChecklist] = React.useState(() => new Set());
+  const [headerMenuOpen, setHeaderMenuOpen] = React.useState(false);
+  const [showAllChecklist, setShowAllChecklist] = React.useState(false);
+  const headerMenuRef = React.useRef(null);
+  const direction = dashboardDirection(language);
+  const ar = direction === "rtl";
+  const authorizationContext = { company, currentUser, modules };
+  const analytics = React.useMemo(
+    () => buildDashboardAnalytics({ employees, orders, products }),
+    [employees, orders, products],
+  );
+  const checklist = React.useMemo(
+    () => buildDashboardChecklist({
+      brands,
+      categories,
+      company,
+      currentUser,
+      employees,
+      modules,
+      orders,
+      products,
+    }),
+    [brands, categories, company, currentUser, employees, modules, orders, products],
+  );
+  const activity = React.useMemo(
+    () => sortDashboardActivity(
+      buildDashboardActivity({ company, employees, orders, products }),
+      activitySort,
+    ).slice(0, 8),
+    [activitySort, company, employees, orders, products],
+  );
+
+  React.useEffect(() => {
+    if (!headerMenuOpen) return undefined;
+    function closeOutside(event) {
+      if (headerMenuRef.current && !headerMenuRef.current.contains(event.target)) {
+        setHeaderMenuOpen(false);
+      }
+    }
+    function closeEscape(event) {
+      if (event.key === "Escape") setHeaderMenuOpen(false);
+    }
+    document.addEventListener("mousedown", closeOutside);
+    document.addEventListener("keydown", closeEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOutside);
+      document.removeEventListener("keydown", closeEscape);
+    };
+  }, [headerMenuOpen]);
+
+  const labels = ar ? {
+    active: "نشط",
+    activity: "موجز النشاط",
+    actionRequired: "إجراء مطلوب",
+    addProduct: "إضافة منتج",
+    analytics: "التحليلات",
+    analyticsDescription: "نظرة عامة مباشرة من بيانات شركتك الحالية",
+    businessEmail: "البريد الإلكتروني للنشاط",
+    businessInfo: "معلومات النشاط التجاري",
+    checklist: "تنمية نشاطك",
+    checklistDescription: "أكمل الخطوات الأساسية لتجهيز شركتك ومتجرك",
+    company: "الشركة الحالية",
+    connectDomain: "ربط النطاق",
+    customers: "العملاء",
+    date: "التاريخ",
+    editBusiness: "تعديل معلومات النشاط",
+    editSite: "تحرير الموقع",
+    employees: "الموظفون",
+    emptyActivity: "لا يوجد نشاط لعرضه بعد",
+    emptyActivityDescription: "ستظهر هنا تحديثات المنتجات والطلبات والموظفين.",
+    noDate: "بدون تاريخ",
+    orders: "الطلبات",
+    priority: "الأولوية",
+    products: "المنتجات",
+    settings: "الإعدادات",
+    showLess: "عرض أقل",
+    showMore: "عرض المزيد",
+    storefront: "المتجر والنطاق",
+    viewAll: "عرض الكل",
+    viewStorefront: "عرض المتجر",
+    welcome: "مرحباً بعودتك",
+    attentionRequired: "يحتاج إلى انتباه",
+    recentActivity: "نشاط حديث",
+  } : {
+    active: "active",
+    activity: "Activity Feed",
+    actionRequired: "Action Required",
+    addProduct: "Add Product",
+    analytics: "Analytics",
+    analyticsDescription: "A live overview from your current company data",
+    businessEmail: "Business email",
+    businessInfo: "Business information",
+    checklist: "Grow your business",
+    checklistDescription: "Complete the essentials for your company and storefront",
+    company: "Current company",
+    connectDomain: "Connect Domain",
+    customers: "Customers",
+    date: "Date",
+    editBusiness: "Edit Business Info",
+    editSite: "Edit Site",
+    employees: "Employees",
+    emptyActivity: "No activity to show yet",
+    emptyActivityDescription: "Product, order, and employee updates will appear here.",
+    noDate: "No date",
+    orders: "Orders",
+    priority: "Priority",
+    products: "Products",
+    settings: "Settings",
+    showLess: "Show Less",
+    showMore: "Show More",
+    storefront: "Storefront & domain",
+    viewAll: "View all",
+    viewStorefront: "View Storefront",
+    welcome: "Welcome back",
+    attentionRequired: "Attention Required",
+    recentActivity: "Recent Activity",
+  };
+
+  const checklistCopy = ar ? {
+    "first-product": ["أضف منتجك الأول", "أنشئ أول منتج متاح في كتالوج الشركة.", "إضافة منتج"],
+    "storefront-domain": ["اربط المتجر أو النطاق", "أكمل عنوان المتجر العام وإعدادات النطاق المتاحة.", "إعداد المتجر"],
+    "first-employee": ["أضف موظفاً", "أضف أول عضو فريق ضمن صلاحيات الشركة.", "الموظفون"],
+    "company-settings": ["اضبط إعدادات الشركة", "راجع اللغة والعملة ومعلومات النشاط.", "الإعدادات"],
+    "review-orders": ["راجع الطلبات", "تابع الطلبات الحالية وحالاتها من صفحة الطلبات.", "عرض الطلبات"],
+    "catalog-organization": ["أضف تصنيفاً أو علامة تجارية", "نظّم الكتالوج باستخدام البيانات الحالية.", "تنظيم الكتالوج"],
+    "storefront-setup": ["أكمل إعداد المتجر", "راجع هوية المتجر ومحتواه المرئي.", "تحرير الموقع"],
+  } : {
+    "first-product": ["Add your first product", "Create the first available product in this company catalog.", "Add product"],
+    "storefront-domain": ["Connect storefront or domain", "Complete the public storefront address and available domain settings.", "Set up storefront"],
+    "first-employee": ["Add an employee", "Add the first team member within this company scope.", "Employees"],
+    "company-settings": ["Configure company settings", "Review language, currency, and available business information.", "Settings"],
+    "review-orders": ["Review orders", "Follow current orders and their real statuses.", "View orders"],
+    "catalog-organization": ["Add a category or brand", "Organize the catalog with existing category and brand tools.", "Organize catalog"],
+    "storefront-setup": ["Complete storefront setup", "Review storefront identity and website content.", "Edit site"],
+  };
+
+  function authorized(action) {
+    return isDashboardActionAuthorized(action, authorizationContext);
+  }
+
+  function go(action) {
+    const destination = resolveDashboardDestination(action);
+    if (destination && authorized(action)) onNavigate(destination);
+  }
+
+  function toggleChecklist(id) {
+    setExpandedChecklist((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function formatMoney(value) {
+    const currency = company?.settings?.currency;
+    if (!currency || !value) return "";
+    try {
+      return new Intl.NumberFormat(ar ? "ar" : "en", {
+        currency,
+        maximumFractionDigits: 2,
+        style: "currency",
+      }).format(value);
+    } catch {
+      return `${value} ${currency}`;
+    }
+  }
+
+  function formatShortDate(value) {
+    return new Intl.DateTimeFormat(ar ? "ar" : "en", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }).format(new Date(value));
+  }
+
+  const businessItems = [
+    company?.settings?.plan || company?.settings?.subscription
+      ? { id: "plan", label: ar ? "الخطة" : "Plan", value: company.settings.plan || company.settings.subscription }
+      : null,
+    company?.domain || company?.storefrontUrl
+      ? { id: "storefront", icon: Globe, label: labels.storefront, value: company.domain || company.storefrontUrl }
+      : null,
+    company?.settings?.businessEmail || company?.settings?.supportEmail
+      ? { id: "email", icon: Mail, label: labels.businessEmail, value: company.settings.businessEmail || company.settings.supportEmail }
+      : null,
+  ].filter(Boolean);
+
+  const metricCards = [
+    { action: "products", color: "green", icon: Package, label: labels.products, sub: analytics.activeProducts ? `${analytics.activeProducts} ${labels.active}` : "", value: analytics.products },
+    { action: "orders", color: "blue", icon: ClipboardList, label: labels.orders, sub: formatMoney(analytics.revenue), value: analytics.orders },
+    { action: "customers", color: "orange", icon: Users, label: labels.customers, sub: "", value: analytics.customers },
+    { action: "employees", color: "purple", icon: UserCircle, label: labels.employees, sub: "", value: analytics.employees },
+  ];
+  const analyticsDates = [...orders, ...products, ...employees]
+    .map((record) => record?.updatedAt || record?.createdAt || null)
+    .filter((value) => value && !Number.isNaN(new Date(value).getTime()))
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+  const analyticsRange = analyticsDates.length
+    ? analyticsDates[0] === analyticsDates.at(-1)
+      ? formatShortDate(analyticsDates[0])
+      : `${formatShortDate(analyticsDates[0])} – ${formatShortDate(analyticsDates.at(-1))}`
+    : ar ? "كل السجلات الحالية" : "All current records";
+  const visibleChecklist = showAllChecklist ? checklist : checklist.slice(0, 4);
+
+  function activityCopy(item) {
+    if (item.type === "order") {
+      const orderName = item.record?.number || item.record?.orderNumber || item.record?.id;
+      const customerName = item.record?.customer?.name;
+      return {
+        description: customerName || item.meta,
+        title: ar ? `طلب ${orderName}` : `Order ${orderName}`,
+      };
+    }
+    if (item.type === "product") {
+      return {
+        description: item.meta,
+        title: getText(item.record?.name, language) || item.record?.sku || item.record?.id,
+      };
+    }
+    if (item.type === "employee") {
+      return {
+        description: item.meta,
+        title: item.record?.name || item.record?.email || item.record?.id,
+      };
+    }
+    if (item.type === "storefront-warning") {
+      return {
+        description: ar ? "لم يتم تعيين رابط متجر عام للشركة." : "No public storefront URL is configured for this company.",
+        title: ar ? "إعداد المتجر غير مكتمل" : "Storefront setup is incomplete",
+      };
+    }
+    if (item.type === "settings-warning") {
+      return {
+        description: ar ? "أكمل اللغة والعملة ومعلومات النشاط المتاحة." : "Complete the available language, currency, and business settings.",
+        title: ar ? "معلومات الشركة غير مكتملة" : "Company setup is incomplete",
+      };
+    }
+    return {
+      description: "",
+      title: "",
+    };
+  }
+
+  function activityPresentation(item) {
+    if (item.type === "order") return { icon: ClipboardList, label: item.priority === 3 ? labels.actionRequired : labels.recentActivity };
+    if (item.type === "product") return { icon: Package, label: labels.recentActivity };
+    if (item.type === "employee") return { icon: UserCircle, label: labels.recentActivity };
+    return { icon: AlertCircle, label: item.priority === 3 ? labels.actionRequired : labels.attentionRequired };
+  }
+
+  function activityActionLabel(item) {
+    if (item.action === "orders") return ar ? "عرض الطلب" : "View order";
+    if (item.action === "products") return ar ? "عرض المنتجات" : "View products";
+    if (item.action === "employees") return ar ? "عرض الموظفين" : "View employees";
+    return labels.settings;
+  }
+
+  return (
+    <div className="dashboard tenant-dashboard-home" dir={direction} data-dashboard-direction={direction}>
+      <section className="tenant-dashboard-hero">
+        <div className="tenant-dashboard-welcome">
+          <div className="tenant-dashboard-title-row">
+            <h1>{labels.welcome}{currentUser?.name ? `, ${currentUser.name}` : ""}</h1>
+            <div className="tenant-dashboard-more" ref={headerMenuRef}>
+              <button aria-expanded={headerMenuOpen} aria-haspopup="menu" aria-label="Dashboard actions" onClick={() => setHeaderMenuOpen((value) => !value)} type="button">
+                <MoreHorizontal size={20} />
+              </button>
+              {headerMenuOpen && (
+                <div className="tenant-dashboard-more-menu" role="menu">
+                  {authorized("analytics") && <button onClick={() => go("analytics")} role="menuitem" type="button"><BarChart3 size={15} />{labels.analytics}</button>}
+                  {authorized("editSite") && <button onClick={() => go("editSite")} role="menuitem" type="button"><ExternalLink size={15} />{labels.editSite}</button>}
+                  {authorized("settings") && <button onClick={() => go("settings")} role="menuitem" type="button"><Settings size={15} />{labels.settings}</button>}
+                </div>
+              )}
+            </div>
+          </div>
+          <p><span>{labels.company}</span><strong>{company?.name}</strong></p>
+        </div>
+        <div className="tenant-dashboard-primary-actions" data-dashboard-authorized-actions>
+          {authorized("viewStorefront") && (
+            <a href={company.storefrontUrl} rel="noreferrer" target="_blank"><ExternalLink size={15} />{labels.viewStorefront}</a>
+          )}
+          {authorized("addProduct") && (
+            <button className="primary" onClick={() => go("addProduct")} type="button"><Plus size={16} />{labels.addProduct}</button>
+          )}
+          {authorized("settings") && (
+            <button onClick={() => go("settings")} type="button"><Settings size={15} />{labels.settings}</button>
+          )}
+        </div>
+      </section>
+
+      <section className="tenant-dashboard-business-strip">
+        <div className="tenant-dashboard-strip-title"><strong>{labels.businessInfo}</strong></div>
+        <div className="tenant-dashboard-business-items">
+          {businessItems.map((item) => {
+            const ItemIcon = item.icon;
+            return <div className="tenant-dashboard-business-item" key={item.id}>{ItemIcon && <ItemIcon size={16} />}<span><small>{item.label}</small><b title={String(item.value)}>{item.value}</b></span></div>;
+          })}
+          {!businessItems.length && <span className="tenant-dashboard-business-empty">{ar ? "لا تتوفر معلومات إضافية بعد." : "No additional business information is available yet."}</span>}
+        </div>
+        <div className="tenant-dashboard-business-actions">
+          {authorized("connectDomain") && <button onClick={() => go("connectDomain")} type="button">{labels.connectDomain}</button>}
+          {authorized("settings") && <button onClick={() => go("settings")} type="button">{labels.editBusiness}</button>}
+        </div>
+      </section>
+
+      <section className="tenant-dashboard-card tenant-dashboard-analytics" data-dashboard-analytics>
+        <header className="tenant-dashboard-section-head">
+          <div><h2>{labels.analytics}</h2><p>{labels.analyticsDescription}</p></div>
+          <div className="tenant-dashboard-section-actions">
+            <span data-dashboard-date-range>{analyticsRange}</span>
+            {authorized("analytics") && <button onClick={() => go("analytics")} type="button">{labels.viewAll}<ChevronRight size={15} /></button>}
+          </div>
+        </header>
+        <div className="tenant-dashboard-stat-grid">
+          {metricCards.map((metric) => {
+            const MetricIcon = metric.icon;
+            const canOpen = authorized(metric.action);
+            return (
+              <button className="tenant-dashboard-stat" data-color={metric.color} disabled={!canOpen} key={metric.action} onClick={() => go(metric.action)} type="button">
+                <span className="tenant-dashboard-stat-icon"><MetricIcon size={18} /></span>
+                <span className="tenant-dashboard-stat-copy"><small>{metric.label}</small><strong>{metric.value}</strong>{metric.sub && <em>{metric.sub}</em>}</span>
+                <span className="tenant-dashboard-stat-indicator" aria-hidden="true"><i /></span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="tenant-dashboard-card tenant-dashboard-checklist" data-dashboard-checklist>
+        <header className="tenant-dashboard-section-head">
+          <div><h2>{labels.checklist}</h2><p>{labels.checklistDescription}</p></div>
+          <span className="tenant-dashboard-progress">{checklist.filter((item) => item.completed).length}/{checklist.length}</span>
+        </header>
+        <div className="tenant-dashboard-checklist-list">
+          {visibleChecklist.map((item) => {
+            const copy = checklistCopy[item.id];
+            const expanded = expandedChecklist.has(item.id);
+            return (
+              <div className={`tenant-dashboard-check-row ${item.completed ? "completed" : "attention"}`} key={item.id}>
+                <button aria-expanded={expanded} className="tenant-dashboard-check-main" onClick={() => toggleChecklist(item.id)} type="button">
+                  <span className="tenant-dashboard-check-state">{item.completed ? <Check size={15} /> : <span />}</span>
+                  <span><strong>{copy[0]}</strong>{expanded && <small>{copy[1]}</small>}</span>
+                  <span className="tenant-dashboard-check-chevron">{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span>
+                </button>
+                {item.action && !item.completed && (
+                  <button className="tenant-dashboard-check-action" onClick={() => go(item.action)} type="button">{copy[2]}</button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {checklist.length > 4 && (
+          <button className="tenant-dashboard-show-more" onClick={() => setShowAllChecklist((value) => !value)} type="button">
+            {showAllChecklist ? labels.showLess : labels.showMore}
+            {showAllChecklist ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+          </button>
+        )}
+      </section>
+
+      <section className="tenant-dashboard-card tenant-dashboard-activity" data-dashboard-activity>
+        <header className="tenant-dashboard-section-head">
+          <div><h2>{labels.activity}</h2><p>{ar ? "آخر التغييرات الفعلية في شركتك" : "Recent changes from your current company data"}</p></div>
+          <label className="tenant-dashboard-sort"><ArrowUpDown size={14} /><select aria-label={labels.activity} onChange={(event) => setActivitySort(event.target.value)} value={activitySort}><option value="priority">{labels.priority}</option><option value="date">{labels.date}</option></select></label>
+        </header>
+        {activity.length ? (
+          <div className="tenant-dashboard-activity-list">
+            {activity.map((item) => {
+              const copy = activityCopy(item);
+              const presentation = activityPresentation(item);
+              const ActivityIcon = presentation.icon;
+              const canAct = item.action && authorized(item.action);
+              return (
+                <article className="tenant-dashboard-activity-row" data-priority={item.priority} key={item.id}>
+                  <span className="tenant-dashboard-activity-icon"><ActivityIcon size={17} /></span>
+                  <span className="tenant-dashboard-activity-copy"><em>{presentation.label}</em><strong>{copy.title}</strong>{copy.description && <small>{copy.description}</small>}</span>
+                  <span className="tenant-dashboard-activity-tail">
+                    <time dateTime={item.date || undefined}>{item.date ? formatDate(item.date) : labels.noDate}</time>
+                    {canAct && <button onClick={() => go(item.action)} type="button">{activityActionLabel(item)}</button>}
+                  </span>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="tenant-dashboard-activity-empty" data-dashboard-empty-activity><Clock size={22} /><strong>{labels.emptyActivity}</strong><span>{labels.emptyActivityDescription}</span></div>
+        )}
+      </section>
     </div>
   );
 }
@@ -2062,6 +2501,8 @@ function AdminDashboardPage({
       case "admin":
       default:
         return <DashboardHome
+          brands={brands}
+          categories={categories}
           company={company}
           currentUser={currentUser}
           employees={employees}
