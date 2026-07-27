@@ -111,24 +111,37 @@ export async function logoutUser() {
 export async function enterCompanyScope(companyId) {
   const currentToken = getToken();
   const currentUser = getStoredUser();
+  const currentCompany = getStoredCompanyContext();
   if (!currentToken || (currentUser?.globalRole || currentUser?.role) !== "super_admin") {
     throw new Error("A Super Admin session is required.");
   }
-  if (!sessionStorage.getItem(platformSessionKey)) {
-    sessionStorage.setItem(platformSessionKey, JSON.stringify({ token: currentToken, user: currentUser }));
-  }
-
+  const storedPlatformSession = sessionStorage.getItem(platformSessionKey);
   const session = await requestCompanyScope(companyId);
-  clearTenantCaches();
-  setAuthSession(session);
-  const companyContext = await apiRequest("/company/context");
-  const activeCompany = setStoredCompanyContext({
-    ...session.activeCompany,
-    ...companyContext,
-  });
-  const user = authenticatedUser({ ...session, activeCompany });
-  localStorage.setItem("epChemicalUser", JSON.stringify(user));
-  return user;
+
+  try {
+    // The context endpoint must use the scoped JWT. Keep the transition
+    // transactional so a failed context refresh cannot strand the UI with it.
+    setAuthSession(session);
+    const companyContext = await apiRequest("/company/context");
+    clearTenantCaches();
+    const activeCompany = setStoredCompanyContext({
+      ...session.activeCompany,
+      ...companyContext,
+    });
+    const user = authenticatedUser({ ...session, activeCompany });
+    localStorage.setItem("epChemicalUser", JSON.stringify(user));
+    if (!storedPlatformSession) {
+      sessionStorage.setItem(
+        platformSessionKey,
+        JSON.stringify({ token: currentToken, user: currentUser }),
+      );
+    }
+    return user;
+  } catch (error) {
+    setAuthSession({ token: currentToken, user: currentUser });
+    setStoredCompanyContext(currentCompany);
+    throw error;
+  }
 }
 
 export async function exitCompanyScope() {

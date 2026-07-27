@@ -1,6 +1,6 @@
 import React from "react";
 import { Building2, LayoutGrid, List, MoreVertical, Pencil, Plus, Search, Settings, ShieldAlert, Users } from "lucide-react";
-import { companyInitials } from "../utils/companySwitcher.js";
+import { companyInitials, createCompanySwitchGuard } from "../utils/companySwitcher.js";
 import AdminLayout from "../components/AdminLayout.jsx";
 import CompanyMembershipsPanel from "../components/CompanyMembershipsPanel.jsx";
 
@@ -609,6 +609,15 @@ function AdminCompaniesPage({
   const [menuOpenId, setMenuOpenId] = React.useState(null);
   const menuRef = React.useRef(null);
   const onLogoutRef = React.useRef(onLogout);
+  const onSwitchCompanyRef = React.useRef(onSwitchCompany);
+  const guardedSwitchRef = React.useRef(null);
+
+  onSwitchCompanyRef.current = onSwitchCompany;
+  if (!guardedSwitchRef.current) {
+    guardedSwitchRef.current = createCompanySwitchGuard((companyId) =>
+      onSwitchCompanyRef.current(companyId),
+    );
+  }
 
   React.useEffect(() => {
     onLogoutRef.current = onLogout;
@@ -693,6 +702,19 @@ function AdminCompaniesPage({
       return;
     }
     setForm((current) => ({ ...current, [name]: value }));
+  }
+
+  async function manageCompany(companyId) {
+    if (switchingId) return;
+    setSwitchingId(companyId);
+    setError("");
+    try {
+      await guardedSwitchRef.current(companyId);
+    } catch (requestError) {
+      setError(requestError?.message || "Unable to switch company.");
+    } finally {
+      setSwitchingId(null);
+    }
   }
 
   async function submitCompany(event) {
@@ -913,12 +935,8 @@ function AdminCompaniesPage({
                     <div className="company-card-overlay">
                       <button
                         className="company-card-manage-btn"
-                        disabled={company.status !== "active" || switchingId === company.id}
-                        onClick={() => {
-                          setSwitchingId(company.id);
-                          setError("");
-                          onSwitchCompany(company.id).catch(() => setSwitchingId(null));
-                        }}
+                        disabled={company.status !== "active" || Boolean(switchingId)}
+                        onClick={() => void manageCompany(company.id)}
                         type="button"
                       >
                         <Building2 size={16} />

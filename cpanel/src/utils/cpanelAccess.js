@@ -7,6 +7,7 @@ import {
   resolveAdminPage,
 } from "./roles.js";
 import { pageKeyForModule } from "./moduleRegistry.js";
+import { placeholderPagePaths } from "../data/adminNavigation.js";
 
 export function isValidCpanelUser(user) {
   if (!user) return false;
@@ -102,4 +103,5 @@ const pagePaths = {
   "admin-dropshipping-reports": "/admin/dropshipping/reports",
   "admin-dropshipping-settings": "/admin/dropshipping/settings",
   "admin-no-access": "/admin/no-access",
+  ...placeholderPagePaths,
 };

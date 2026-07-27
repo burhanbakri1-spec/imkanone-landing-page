@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { hasPermission } from "../src/data/permissions.js";
-import { companyInitials } from "../src/utils/companySwitcher.js";
+import {
+  companyInitials,
+  createCompanySwitchGuard,
+  performSecureCompanySwitch,
+} from "../src/utils/companySwitcher.js";
 import { createApiHeaders, tokenStorageKey, userStorageKey } from "../src/utils/api.js";
 import { fetchBrands, fetchCategories } from "../src/utils/catalogApi.js";
 import {
@@ -1074,6 +1078,65 @@ test("successful company switch lands on tenant dashboard", () => {
   assert.equal(result, "admin");
 });
 
+test("selecting a company invokes the secure switch once and navigates to the tenant dashboard", async () => {
+  const calls = [];
+  const scopedUser = {
+    role: "company_admin",
+    globalRole: "super_admin",
+    activeCompany: {
+      id: "icare",
+      name: "iCare",
+      modules: [{ route: "/admin/dashboard", enabled: true }],
+    },
+  };
+  let resolveScope;
+  const scopeRequest = new Promise((resolve) => { resolveScope = resolve; });
+  const guardedSwitch = createCompanySwitchGuard((companyId) => {
+    calls.push(["scope", companyId]);
+    return scopeRequest;
+  });
+
+  const first = guardedSwitch("icare");
+  const duplicate = guardedSwitch("eb-chemical");
+  resolveScope(scopedUser);
+  await Promise.all([first, duplicate]);
+
+  assert.deepEqual(calls, [["scope", "icare"]], "repeated clicks share one scope request");
+
+  const sessionUpdates = [];
+  const navigations = [];
+  await performSecureCompanySwitch("icare", {
+    enterScope: async (companyId) => {
+      calls.push(["secure", companyId]);
+      return scopedUser;
+    },
+    onSession: (user, company) => sessionUpdates.push({ user, company }),
+    navigate: (page, options) => navigations.push({ page, options }),
+  });
+
+  assert.deepEqual(calls.at(-1), ["secure", "icare"]);
+  assert.equal(sessionUpdates[0].company.name, "iCare");
+  assert.equal(navigations[0].page, "admin");
+  assert.equal(navigations[0].options.path, "/admin/dashboard");
+});
+
+test("failed secure switch does not update the platform UI session or navigate", async () => {
+  let sessionUpdates = 0;
+  let navigations = 0;
+
+  await assert.rejects(
+    performSecureCompanySwitch("icare", {
+      enterScope: async () => { throw new Error("Scope request failed."); },
+      onSession: () => { sessionUpdates += 1; },
+      navigate: () => { navigations += 1; },
+    }),
+    /Scope request failed/,
+  );
+
+  assert.equal(sessionUpdates, 0);
+  assert.equal(navigations, 0);
+});
+
 test("super_admin in company scope lands on admin dashboard", () => {
   const user = {
     role: "company_admin",
@@ -1179,6 +1242,80 @@ test("company switch stores scope token that survives simulated page refresh", a
     assert.equal(user.activeCompany.id, "eb-chemical");
 
     assert.equal(storage.getItem(tokenStorageKey), scopeToken, "scope token persists in localStorage (simulated refresh)");
+  } finally {
+    globalThis.localStorage = originalLocalStorage;
+    globalThis.sessionStorage = originalSessionStorage;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("failed company context refresh restores the unchanged platform session", async () => {
+  const originalToken = "super-admin-original-jwt";
+  const originalUser = {
+    id: "super-1",
+    role: "super_admin",
+    globalRole: "super_admin",
+    isActive: true,
+  };
+  const values = new Map([
+    [tokenStorageKey, originalToken],
+    [userStorageKey, JSON.stringify(originalUser)],
+  ]);
+  const storage = {
+    get length() { return values.size; },
+    getItem(key) { return values.get(key) ?? null; },
+    key(index) { return [...values.keys()][index] ?? null; },
+    setItem(key, value) { values.set(key, String(value)); },
+    removeItem(key) { values.delete(key); },
+  };
+  const sessionValues = new Map();
+  const scopedSessionStorage = {
+    get length() { return sessionValues.size; },
+    getItem(key) { return sessionValues.get(key) ?? null; },
+    key(index) { return [...sessionValues.keys()][index] ?? null; },
+    setItem(key, value) { sessionValues.set(key, String(value)); },
+    removeItem(key) { sessionValues.delete(key); },
+  };
+  const originalLocalStorage = globalThis.localStorage;
+  const originalSessionStorage = globalThis.sessionStorage;
+  const originalFetch = globalThis.fetch;
+  globalThis.localStorage = storage;
+  globalThis.sessionStorage = scopedSessionStorage;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("/platform/companies/icare/scope")) {
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            token: "scoped-icare-token",
+            user: {
+              ...originalUser,
+              role: "company_admin",
+              isCompanyScope: true,
+              activeCompany: { id: "icare", slug: "icare", name: "iCare" },
+            },
+            activeCompany: { id: "icare", slug: "icare", name: "iCare" },
+          };
+        },
+      };
+    }
+    if (String(url).includes("/company/context")) {
+      return {
+        ok: false,
+        status: 502,
+        async json() { return { message: "Context unavailable." }; },
+      };
+    }
+    return { ok: true, status: 200, async json() { return {}; } };
+  };
+
+  try {
+    await assert.rejects(enterCompanyScope("icare"), /Context unavailable/);
+    assert.equal(values.get(tokenStorageKey), originalToken);
+    assert.deepEqual(JSON.parse(values.get(userStorageKey)), originalUser);
+    assert.equal(values.has("cpanelActiveCompany"), false);
+    assert.equal(sessionValues.has("cpanelPlatformSession"), false);
   } finally {
     globalThis.localStorage = originalLocalStorage;
     globalThis.sessionStorage = originalSessionStorage;

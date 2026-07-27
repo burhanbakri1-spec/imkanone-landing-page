@@ -17,6 +17,11 @@ export const translations = {
       demoStorefront: "Storefront",
       temporaryContent: "Please wait",
     },
+    adminShell: {
+      underDevelopment: "This page is under development",
+      preparingFeature: "We are preparing this feature for you.",
+      futureUpdate: "This feature will be available in a future update.",
+    },
     nav: {
       home: "Home",
       products: "Products",
@@ -404,6 +409,11 @@ export const translations = {
       changeLanguage: "تغيير اللغة",
       demoStorefront: "المتجر",
       temporaryContent: "يرجى الانتظار",
+    },
+    adminShell: {
+      underDevelopment: "هذه الصفحة قيد التطوير",
+      preparingFeature: "نعمل على تجهيز هذه الميزة لك.",
+      futureUpdate: "ستتوفر هذه الميزة في تحديث قادم.",
     },
     nav: {
       home: "الرئيسية",

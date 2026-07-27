@@ -22,7 +22,7 @@ export function isAdminPortalRole(role) {
 }
 
 export function isPlatformPage(page) {
-  return platformPageKeys.has(page);
+  return platformPageKeys.has(page) || page?.startsWith("admin-platform-placeholder-");
 }
 
 export function landingPageForRole(role) {

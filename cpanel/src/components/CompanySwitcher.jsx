@@ -1,7 +1,7 @@
 import React from "react";
 import { Building2, Check, ChevronDown, Search, ArrowLeft } from "lucide-react";
 import { fetchPlatformCompanies } from "../utils/platformCompaniesApi.js";
-import { companyInitials } from "../utils/companySwitcher.js";
+import { companyInitials, createCompanySwitchGuard } from "../utils/companySwitcher.js";
 
 function CompanySwitcher({
   company,
@@ -13,9 +13,20 @@ function CompanySwitcher({
   const [open, setOpen] = React.useState(false);
   const [companies, setCompanies] = React.useState([]);
   const [search, setSearch] = React.useState("");
+  const [switchError, setSwitchError] = React.useState("");
+  const [switchingCompanyId, setSwitchingCompanyId] = React.useState("");
   const buttonRef = React.useRef(null);
   const searchRef = React.useRef(null);
+  const onSwitchCompanyRef = React.useRef(onSwitchCompany);
+  const guardedSwitchRef = React.useRef(null);
   const isSuperAdmin = (currentUser?.globalRole || currentUser?.role) === "super_admin";
+
+  onSwitchCompanyRef.current = onSwitchCompany;
+  if (!guardedSwitchRef.current) {
+    guardedSwitchRef.current = createCompanySwitchGuard((companyId) =>
+      onSwitchCompanyRef.current(companyId),
+    );
+  }
 
   React.useEffect(() => {
     if (!isSuperAdmin) return;
@@ -27,6 +38,7 @@ function CompanySwitcher({
   React.useEffect(() => {
     if (!open) {
       setSearch("");
+      setSwitchError("");
     } else {
       searchRef.current?.focus();
     }
@@ -38,11 +50,49 @@ function CompanySwitcher({
         setOpen(false);
       }
     }
+    function handleEscape(e) {
+      if (e.key === "Escape") {
+        setOpen(false);
+        buttonRef.current?.querySelector(".company-switcher-toggle")?.focus();
+      }
+    }
     if (open) {
       document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleEscape);
+      return () => {
+        document.removeEventListener("mousedown", handleClickOutside);
+        document.removeEventListener("keydown", handleEscape);
+      };
     }
   }, [open]);
+
+  async function selectCompany(selectedCompany) {
+    if (switchingCompanyId || company?.id === selectedCompany.id) return;
+    setSwitchError("");
+    setSwitchingCompanyId(selectedCompany.id);
+    try {
+      await guardedSwitchRef.current(selectedCompany.id);
+      setOpen(false);
+    } catch (error) {
+      setSwitchError(error?.message || "Unable to switch company.");
+    } finally {
+      setSwitchingCompanyId("");
+    }
+  }
+
+  async function returnToPlatform() {
+    if (switchingCompanyId) return;
+    setSwitchError("");
+    setSwitchingCompanyId("platform");
+    try {
+      await onReturnToPlatform();
+      setOpen(false);
+    } catch (error) {
+      setSwitchError(error?.message || "Unable to return to the platform.");
+    } finally {
+      setSwitchingCompanyId("");
+    }
+  }
 
   if (!isSuperAdmin) return null;
 
@@ -72,6 +122,7 @@ function CompanySwitcher({
         type="button"
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-busy={Boolean(switchingCompanyId)}
       >
         {inScope ? (
           <>
@@ -113,6 +164,7 @@ function CompanySwitcher({
             />
           </div>
           <div className="company-switcher-list">
+            {switchError && <div className="company-switcher-error" role="alert">{switchError}</div>}
             {!inScope && (
               <div className="company-switcher-item current" role="option" aria-selected="true">
                 <span className="company-switcher-item-initials platform-initials">
@@ -132,13 +184,9 @@ function CompanySwitcher({
               return (
                 <button
                   key={c.id}
-                  className={`company-switcher-item ${isCurrent ? "current" : ""}`}
-                  onClick={() => {
-                    if (!isCurrent) {
-                      onSwitchCompany(c.id);
-                    }
-                    setOpen(false);
-                  }}
+                  className={`company-switcher-item ${isCurrent ? "current" : ""} ${switchingCompanyId === c.id ? "switching" : ""}`}
+                  disabled={Boolean(switchingCompanyId)}
+                  onClick={() => void selectCompany(c)}
                   type="button"
                   role="option"
                   aria-selected={isCurrent}
@@ -151,6 +199,9 @@ function CompanySwitcher({
                     </span>
                   )}
                   <span className="company-switcher-item-name">{c.name}</span>
+                  {switchingCompanyId === c.id && (
+                    <span className="company-switcher-switching" role="status">Switching...</span>
+                  )}
                   {isCurrent && <Check size={14} className="company-switcher-check" />}
                 </button>
               );
@@ -159,14 +210,12 @@ function CompanySwitcher({
           {inScope && (
             <button
               className="company-switcher-back"
-              onClick={() => {
-                onReturnToPlatform();
-                setOpen(false);
-              }}
+              disabled={Boolean(switchingCompanyId)}
+              onClick={() => void returnToPlatform()}
               type="button"
             >
               <ArrowLeft size={14} />
-              {labels.backToPlatform}
+              {switchingCompanyId === "platform" ? "Returning..." : labels.backToPlatform}
             </button>
           )}
         </div>

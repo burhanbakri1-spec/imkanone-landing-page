@@ -7,6 +7,12 @@ import AdminEmployeesPage from "./pages/AdminEmployeesPage.jsx";
 import AdminLoginPage from "./pages/AdminLoginPage.jsx";
 import AdminDropshippingPage from "./pages/AdminDropshippingPage.jsx";
 import AdminFeaturePage, { featurePageKeys } from "./pages/AdminFeaturePage.jsx";
+import AdminPlaceholderPage from "./pages/AdminPlaceholderPage.jsx";
+import {
+  isNavigationPlaceholderPage,
+  placeholderPageKeys,
+  placeholderPagePaths,
+} from "./data/adminNavigation.js";
 import { hasPermission } from "./data/permissions.js";
 import { createTranslator } from "./data/translations.js";
 import {
@@ -18,7 +24,8 @@ import {
   logoutUser,
   setCurrentUser as persistCurrentUser,
 } from "./utils/auth.js";
-import { moduleAllowsPage, pageKeyForModule } from "./utils/moduleRegistry.js";
+import { moduleAllowsPage } from "./utils/moduleRegistry.js";
+import { performSecureCompanySwitch } from "./utils/companySwitcher.js";
 import { protectedApiErrorEvent } from "./utils/api.js";
 import { assignOrderEmployee, deleteOrder, getOrders, updateOrderStatus } from "./utils/orders.js";
 import {
@@ -123,6 +130,7 @@ const pagePaths = {
   "admin-dropshipping-reports": "/admin/dropshipping/reports",
   "admin-dropshipping-settings": "/admin/dropshipping/settings",
   "admin-no-access": "/admin/no-access",
+  ...placeholderPagePaths,
 };
 
 const adminPageKeys = Object.keys(pagePaths).filter((page) => page !== "admin-login");
@@ -182,6 +190,7 @@ function CPanelApp() {
       page === "admin-platform-companies" ||
       page === "admin-platform-domains" ||
       page === "admin-login" ||
+      isNavigationPlaceholderPage(page) ||
       moduleAllowsPage(navigationModules, page);
     const safePage =
       roleAllowed && moduleAllowed ? page : landingPage(authorizationUser || {}, navigationModules);
@@ -308,7 +317,10 @@ function CPanelApp() {
     if (!company || !currentUser || activePage === "admin-login") return;
     if (currentUser.role === "manager") return;
     if (["company_admin", "admin"].includes(currentUser.role)) return;
-    const allowedByModule = !modules.length || moduleAllowsPage(modules, activePage);
+    const allowedByModule =
+      !modules.length ||
+      isNavigationPlaceholderPage(activePage) ||
+      moduleAllowsPage(modules, activePage);
     const allowedByPermission = canAccessAdminPage(currentUser, activePage);
     if (!allowedByModule || !allowedByPermission) {
       const target = landingPage(currentUser, modules);
@@ -513,14 +525,13 @@ function CPanelApp() {
 
   async function handleSwitchCompany(companyId) {
     try {
-      const user = await enterCompanyScope(companyId);
-      setUser(user);
-      setCompany(user.activeCompany);
-      navigate(pageKeyForModule(user.activeCompany?.modules?.[0]) || "admin", {
-        company: user.activeCompany,
-        modules: user.activeCompany?.modules || [],
-        role: user.role,
-        replace: true,
+      return await performSecureCompanySwitch(companyId, {
+        enterScope: enterCompanyScope,
+        onSession: (user, activeCompany) => {
+          setUser(user);
+          setCompany(activeCompany);
+        },
+        navigate,
       });
     } catch (error) {
       handleApiError(error);
@@ -857,6 +868,7 @@ function CPanelApp() {
     isDarkMode,
     language,
     modules,
+    t,
     onLanguageChange: () => setLanguage((value) => (value === "en" ? "ar" : "en")),
     onLogout: handleLogout,
     onNavigate: navigate,
@@ -911,6 +923,7 @@ function CPanelApp() {
           activePage !== "admin-platform-domains" &&
           !dropshippingPageKeys.includes(activePage) &&
           !featurePageKeys.includes(activePage) &&
+          !placeholderPageKeys.includes(activePage) &&
           !staffPageKeys.includes(activePage) && (
             <AdminDashboardPage
               activePage={activePage}
@@ -959,6 +972,9 @@ function CPanelApp() {
         )}
         {featurePageKeys.includes(activePage) && (
           <AdminFeaturePage activePage={activePage} {...sharedLayoutProps} />
+        )}
+        {placeholderPageKeys.includes(activePage) && (
+          <AdminPlaceholderPage activePage={activePage} {...sharedLayoutProps} />
         )}
 
         {staffPageKeys.includes(activePage) && (
