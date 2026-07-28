@@ -4,7 +4,7 @@ import { canAccessAdminPage, isCompanyAdmin } from "./roles.js";
 
 const destinations = Object.freeze({
   addProduct: "admin-products-new",
-  analytics: "admin-tenant-placeholder-analytics-highlights",
+  analytics: "admin-analytics-highlights",
   brands: "admin-brands",
   categories: "admin-categories",
   connectDomain: "admin-platform-domains",
@@ -25,6 +25,7 @@ const moduleDestinations = new Set([
   "admin-categories",
   "admin-brands",
   "admin-settings",
+  "admin-analytics-highlights",
 ]);
 
 export function resolveDashboardDestination(action) {

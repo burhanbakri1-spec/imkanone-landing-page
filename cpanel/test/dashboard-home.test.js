@@ -30,6 +30,7 @@ const modules = [
   { enabled: true, route: "/admin/categories" },
   { enabled: true, route: "/admin/brands" },
   { enabled: true, route: "/admin/settings" },
+  { enabled: true, route: "/admin/reports" },
 ];
 
 test("tenant dashboard actions resolve only to existing route keys", () => {
@@ -40,7 +41,7 @@ test("tenant dashboard actions resolve only to existing route keys", () => {
   assert.equal(resolveDashboardDestination("brands"), "admin-brands");
   assert.equal(resolveDashboardDestination("employees"), "admin-staff");
   assert.equal(resolveDashboardDestination("settings"), "admin-settings");
-  assert.equal(resolveDashboardDestination("analytics"), "admin-tenant-placeholder-analytics-highlights");
+  assert.equal(resolveDashboardDestination("analytics"), "admin-analytics-highlights");
   assert.equal(resolveDashboardDestination("editSite"), "admin-tenant-placeholder-edit-site");
   assert.equal(resolveDashboardDestination("unknown"), null);
 });
@@ -149,10 +150,10 @@ test("activity feed never expands into the full product catalog", () => {
 });
 
 test("dashboard proportions match compact Wix-style hierarchy", () => {
-  assert.match(dashboardCss, /\.tenant-dashboard-title-row h1 \{[\s\S]*?font-size:\s*clamp\(27px, 2\.2vw, 35px\)[\s\S]*?white-space:\s*nowrap/);
-  assert.match(dashboardCss, /\.tenant-dashboard-business-strip \{[\s\S]*?min-height:\s*66px/);
-  assert.match(dashboardCss, /\.tenant-dashboard-stat \{[\s\S]*?min-height:\s*96px/);
-  assert.match(dashboardCss, /\.tenant-dashboard-check-row \{[\s\S]*?min-height:\s*66px/);
+  assert.match(dashboardCss, /\.tenant-dashboard-title-row h1 \{[\s\S]*?font-size:\s*clamp\(22px, 2vw, 28px\)[\s\S]*?white-space:\s*nowrap/);
+  assert.match(dashboardCss, /\.tenant-dashboard-business-strip \{[\s\S]*?min-height:\s*48px/);
+  assert.match(dashboardCss, /\.tenant-dashboard-stat \{[\s\S]*?min-height:\s*64px/);
+  assert.match(dashboardCss, /\.tenant-dashboard-check-row \{[\s\S]*?min-height:\s*48px/);
   assert.match(dashboardSource, /tenant-dashboard-stat-indicator/);
   assert.match(dashboardSource, /data-dashboard-date-range/);
 });

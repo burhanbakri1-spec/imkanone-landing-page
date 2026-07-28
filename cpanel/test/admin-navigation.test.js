@@ -95,8 +95,8 @@ test("tenant shell uses the enlarged sidebar and real Quick Actions popover", ()
   assert.match(layout, /admin-sidebar-quick-actions/);
   assert.match(layout, /activePopover === "quickActions"/);
   assert.match(layout, /admin-quick-actions-popover/);
-  assert.match(css, /--studio-sidebar-width:\s*300px/);
-  assert.match(css, /\.admin-studio-shell \.admin-nav-button[\s\S]*?font-size:\s*14px/);
+  assert.match(css, /--studio-sidebar-width:\s*240px/);
+  assert.match(css, /\.admin-studio-shell \.admin-nav-button[\s\S]*?font-size:\s*12px/);
   assert.match(css, /\.admin-studio-shell\.admin-tenant \.dashboard[\s\S]*?max-width:\s*none/);
   assert.match(css, /width:\s*min\(100%, 1500px\)/);
 });
@@ -104,7 +104,7 @@ test("tenant shell uses the enlarged sidebar and real Quick Actions popover", ()
 test("platform shell has a separately scoped light sidebar and larger company cards", () => {
   const css = read("src/styles/global.css");
   const cardCss = css.slice(css.indexOf("/* Super Admin Sites-style company cards */"));
-  assert.match(css, /\.admin-studio-shell\.admin-platform \.admin-sidebar[\s\S]*?width:\s*304px[\s\S]*?background:\s*#fff/);
+  assert.match(css, /\.admin-studio-shell\.admin-platform \.admin-sidebar[\s\S]*?width:\s*270px[\s\S]*?background:\s*#fff/);
   assert.match(cardCss, /\.admin-platform \.company-cards-grid:not\(\.company-cards-list\)[\s\S]*?repeat\(5, minmax\(0, 1fr\)\)/);
   assert.match(cardCss, /\.admin-platform \.company-card-preview-img[\s\S]*?object-fit:\s*cover/);
 });

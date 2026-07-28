@@ -14,6 +14,15 @@ import AdminVideoAppsPage from "./pages/AdminVideoAppsPage.jsx";
 import AdminSiteMobilePage from "./pages/AdminSiteMobilePage.jsx";
 import AdminMarketingPage from "./pages/AdminMarketingPage.jsx";
 import AdminGettingPaidPage from "./pages/AdminGettingPaidPage.jsx";
+import AdminInboxPage from "./pages/AdminInboxPage.jsx";
+import AdminContactsPage from "./pages/AdminContactsPage.jsx";
+import AdminContactDetailPage from "./pages/AdminContactDetailPage.jsx";
+import AdminFormsPage from "./pages/AdminFormsPage.jsx";
+import AdminMeetingsPage from "./pages/AdminMeetingsPage.jsx";
+import AdminPipelinesPage from "./pages/AdminPipelinesPage.jsx";
+import AdminCommunityPage from "./pages/AdminCommunityPage.jsx";
+import AdminLoyaltyPage from "./pages/AdminLoyaltyPage.jsx";
+import AdminAnalyticsPage from "./pages/AdminAnalyticsPage.jsx";
 import {
   isNavigationPlaceholderPage,
   placeholderPageKeys,
@@ -40,6 +49,7 @@ import { videoAppsPageKeys } from "./utils/videoApps.js";
 import { siteMobilePageKeys } from "./utils/siteMobile.js";
 import { marketingPageKeys } from "./utils/marketing.js";
 import { gettingPaidPageKeys } from "./utils/gettingPaid.js";
+import { analyticsPageKeys, analyticsRoutes } from "./utils/analytics.js";
 import {
   createEmployee as createEmployeeApi,
   deleteEmployee as deleteEmployeeApi,
@@ -86,7 +96,7 @@ import {
   fetchAllWebsiteMedia,
   saveWebsiteMedia as saveWebsiteMediaApi,
 } from "./utils/websiteMediaApi.js";
-import { isValidCpanelUser, landingPage, resolvePage } from "./utils/cpanelAccess.js";
+import { canonicalAdminPageKey, isValidCpanelUser, landingPage, resolvePage } from "./utils/cpanelAccess.js";
 import {
   canAccessAdminPage,
   adminDashboardPath,
@@ -123,6 +133,14 @@ const pagePaths = {
   "admin-reviews": "/admin/reviews",
   "admin-inventory": "/admin/inventory",
   "admin-customers": "/admin/customers",
+  "admin-customers-detail": "/admin/customers/contact",
+  "admin-inbox": "/admin/inbox",
+  "admin-forms": "/admin/forms",
+  "admin-meetings": "/admin/meetings",
+  "admin-pipelines": "/admin/pipelines",
+  "admin-community": "/admin/community",
+  "admin-loyalty": "/admin/loyalty",
+  ...analyticsRoutes,
   "admin-staff": "/admin/staff",
   "admin-staff-new": "/admin/staff/new",
   "admin-employees": "/admin/staff",
@@ -150,6 +168,7 @@ const staffPageKeys = ["admin-staff", "admin-staff-new", "admin-employees"];
 const dropshippingPageKeys = Object.keys(pagePaths).filter((key) =>
   key.startsWith("admin-dropshipping"),
 );
+const customerPageKeys = ["admin-customers", "admin-customers-detail", "admin-inbox", "admin-forms", "admin-meetings", "admin-pipelines", "admin-community", "admin-loyalty"];
 
 function CPanelApp() {
   const storedUser = React.useMemo(() => getCurrentUser(), []);
@@ -185,6 +204,7 @@ function CPanelApp() {
   const t = React.useMemo(() => createTranslator(language), [language]);
 
   function navigate(page, options = {}) {
+    const requestedPage = canonicalAdminPageKey(page);
     const authorizationUser =
       options.user ||
       (Object.prototype.hasOwnProperty.call(options, "role")
@@ -196,20 +216,28 @@ function CPanelApp() {
       ? options.company
       : company;
     const navigationModules = options.modules || modules;
-    const roleAllowed = pagePaths[page] && canAccessAdminPage(authorizationUser, page);
+    const routeRecognized = Boolean(pagePaths[requestedPage]);
+    const roleAllowed = routeRecognized && canAccessAdminPage(authorizationUser, requestedPage);
     const moduleAllowed =
+      !navigationModules.length ||
       !navigationCompany ||
-      page === "admin-platform-companies" ||
-      page === "admin-platform-domains" ||
-      page === "admin-login" ||
-      isNavigationPlaceholderPage(page) ||
-      moduleAllowsPage(navigationModules, page);
+      requestedPage === "admin-platform-companies" ||
+      requestedPage === "admin-platform-domains" ||
+      requestedPage === "admin-login" ||
+      isNavigationPlaceholderPage(requestedPage) ||
+      moduleAllowsPage(navigationModules, requestedPage);
     const safePage =
-      roleAllowed && moduleAllowed ? page : landingPage(authorizationUser || {}, navigationModules);
+      roleAllowed && moduleAllowed
+        ? requestedPage
+        : routeRecognized && isAdminPortalRole(authorizationUser?.role)
+          ? "admin-no-access"
+          : landingPage(authorizationUser || {}, navigationModules);
     if (!options.preserveStatusMessage) setAdminMessage("");
     if (!options.preserveLoginMessage) setAdminLoginMessage("");
     setActivePage(safePage);
-    const destinationPath = options.path || pagePaths[safePage];
+    const destinationPath = safePage === requestedPage && options.path
+      ? options.path
+      : pagePaths[safePage];
     if (window.location.pathname !== destinationPath) {
       window.history[options.replace ? "replaceState" : "pushState"]({}, "", destinationPath);
     }
@@ -244,7 +272,10 @@ function CPanelApp() {
     const isProductEditPath =
       ["admin-products-new", "admin-products-edit"].includes(activePage) &&
       /^\/admin\/products\/[^/]+\/edit$/.test(window.location.pathname);
-    if (canonicalPath && canonicalPath !== window.location.pathname && !isProductEditPath) {
+    const isCustomerDetailPath =
+      activePage === "admin-customers-detail" &&
+      /^\/admin\/customers\/[^/]+$/.test(window.location.pathname);
+    if (canonicalPath && canonicalPath !== window.location.pathname && !isProductEditPath && !isCustomerDetailPath) {
       window.history.replaceState({}, "", canonicalPath);
     }
   }, []);
@@ -335,7 +366,7 @@ function CPanelApp() {
       moduleAllowsPage(modules, activePage);
     const allowedByPermission = canAccessAdminPage(currentUser, activePage);
     if (!allowedByModule || !allowedByPermission) {
-      const target = landingPage(currentUser, modules);
+      const target = "admin-no-access";
       if (target !== activePage) navigate(target, { replace: true });
     }
   }, [activePage, company?.id, currentUser, modules, modules.length]);
@@ -957,8 +988,10 @@ function CPanelApp() {
           !siteMobilePageKeys.includes(activePage) &&
           !marketingPageKeys.includes(activePage) &&
           !gettingPaidPageKeys.includes(activePage) &&
+          !analyticsPageKeys.includes(activePage) &&
           !placeholderPageKeys.includes(activePage) &&
-          !staffPageKeys.includes(activePage) && (
+          !staffPageKeys.includes(activePage) &&
+          !customerPageKeys.includes(activePage) && (
             <AdminDashboardPage
               activePage={activePage}
               brands={brands}
@@ -1037,7 +1070,40 @@ function CPanelApp() {
         {gettingPaidPageKeys.includes(activePage) && (
           <AdminGettingPaidPage activePage={activePage} products={products} {...sharedLayoutProps} />
         )}
-        {placeholderPageKeys.includes(activePage) && !salesPageKeys.includes(activePage) && !catalogPlaceholderPageKeys.includes(activePage) && !videoAppsPageKeys.includes(activePage) && !siteMobilePageKeys.includes(activePage) && !marketingPageKeys.includes(activePage) && !gettingPaidPageKeys.includes(activePage) && (
+        {analyticsPageKeys.includes(activePage) && (
+          <AdminAnalyticsPage
+            activePage={activePage}
+            employees={employees}
+            orders={orders}
+            products={products}
+            {...sharedLayoutProps}
+          />
+        )}
+        {activePage === "admin-customers" && (
+          <AdminContactsPage orders={orders} {...sharedLayoutProps} />
+        )}
+        {activePage === "admin-customers-detail" && (
+          <AdminContactDetailPage orders={orders} {...sharedLayoutProps} />
+        )}
+        {activePage === "admin-inbox" && (
+          <AdminInboxPage {...sharedLayoutProps} />
+        )}
+        {activePage === "admin-forms" && (
+          <AdminFormsPage {...sharedLayoutProps} />
+        )}
+        {activePage === "admin-meetings" && (
+          <AdminMeetingsPage {...sharedLayoutProps} />
+        )}
+        {activePage === "admin-pipelines" && (
+          <AdminPipelinesPage {...sharedLayoutProps} />
+        )}
+        {activePage === "admin-community" && (
+          <AdminCommunityPage {...sharedLayoutProps} />
+        )}
+        {activePage === "admin-loyalty" && (
+          <AdminLoyaltyPage {...sharedLayoutProps} />
+        )}
+        {placeholderPageKeys.includes(activePage) && !salesPageKeys.includes(activePage) && !catalogPlaceholderPageKeys.includes(activePage) && !videoAppsPageKeys.includes(activePage) && !siteMobilePageKeys.includes(activePage) && !marketingPageKeys.includes(activePage) && !gettingPaidPageKeys.includes(activePage) && !analyticsPageKeys.includes(activePage) && !customerPageKeys.includes(activePage) && (
           <AdminPlaceholderPage activePage={activePage} {...sharedLayoutProps} />
         )}
 

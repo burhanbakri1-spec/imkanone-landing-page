@@ -37,6 +37,22 @@ const aliases = Object.freeze({
   "admin-store-locator-new": "admin-store-locator",
   "admin-staff-new": "admin-staff",
   "admin-employees": "admin-staff",
+  "admin-customers-detail": "admin-customers",
+  "admin-inbox": "admin-customers",
+  "admin-forms": "admin-customers",
+  "admin-meetings": "admin-customers",
+  "admin-pipelines": "admin-customers",
+  "admin-community": "admin-customers",
+  "admin-loyalty": "admin-customers",
+  "admin-analytics-highlights": "admin-reports",
+  "admin-analytics-realtime": "admin-reports",
+  "admin-analytics-traffic": "admin-reports",
+  "admin-analytics-behavior": "admin-reports",
+  "admin-analytics-marketing": "admin-reports",
+  "admin-analytics-session-recordings": "admin-reports",
+  "admin-analytics-insights": "admin-reports",
+  "admin-analytics-benchmarks": "admin-reports",
+  "admin-analytics-reports": "admin-reports",
 });
 
 export function pageKeyForModule(module) {

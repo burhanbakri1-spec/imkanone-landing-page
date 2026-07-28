@@ -50,6 +50,13 @@ const PAGE_PERMISSIONS = {
   "admin-reviews": null,
   "admin-inventory": null,
   "admin-customers": ["customers.view"],
+  "admin-customers-detail": ["customers.view"],
+  "admin-inbox": ["customers.view"],
+  "admin-forms": ["customers.view"],
+  "admin-meetings": ["customers.view"],
+  "admin-pipelines": ["customers.view"],
+  "admin-community": ["customers.view"],
+  "admin-loyalty": ["customers.view"],
   "admin-staff": ["employees.view"],
   "admin-staff-new": ["employees.view"],
   "admin-employees": ["employees.view"],
@@ -57,7 +64,16 @@ const PAGE_PERMISSIONS = {
   "admin-product-settings": null,
   "admin-invoices": null,
   "admin-delivery": null,
-  "admin-reports": null,
+  "admin-reports": ["reports.view"],
+  "admin-analytics-highlights": ["reports.view"],
+  "admin-analytics-realtime": ["reports.view"],
+  "admin-analytics-traffic": ["reports.view"],
+  "admin-analytics-behavior": ["reports.view"],
+  "admin-analytics-marketing": ["reports.view"],
+  "admin-analytics-session-recordings": ["reports.view"],
+  "admin-analytics-insights": ["reports.view"],
+  "admin-analytics-benchmarks": ["reports.view"],
+  "admin-analytics-reports": ["reports.view"],
   "admin-activity-log": null,
   "admin-unit-creator": null,
   "admin-dropshipping": ["dropshipping.reports.read"],
@@ -91,6 +107,7 @@ function userHasPagePermission(user, page) {
 export function canAccessAdminPage(user, page) {
   const role = roleFromUser(user);
   if (page === "admin-login") return !isAdminPortalRole(role);
+  if (page === "admin-no-access") return isAdminPortalRole(role);
   if (isPlatformPage(page)) return isPlatformAdmin(role);
   return userHasPagePermission(user, page);
 }

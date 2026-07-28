@@ -14,10 +14,13 @@ import {
   ExternalLink,
   Film,
   FolderTree,
+  GitBranch,
   Globe2,
+  HeartHandshake,
   Inbox,
   Languages,
   LayoutDashboard,
+  ListTodo,
   Menu,
   MessageCircle,
   Moon,
@@ -36,6 +39,7 @@ import {
   Tags,
   UserCircle,
   Users,
+  Video,
   X,
   Zap,
 } from "lucide-react";
@@ -48,6 +52,7 @@ import {
   toggleExclusivePopover,
 } from "../data/adminNavigation.js";
 import { groupCompanyModules, normalizedModulePage } from "../utils/moduleRegistry.js";
+import { canonicalAdminPageKey } from "../utils/cpanelAccess.js";
 import { canAccessAdminPage } from "../utils/roles.js";
 
 const iconMap = {
@@ -62,6 +67,10 @@ const iconMap = {
   chartSpline: ChartNoAxesCombined,
   contact: Users,
   contactRound: Users,
+  gitBranch: GitBranch,
+  heartHandshake: HeartHandshake,
+  listTodo: ListTodo,
+  video: Video,
   database: Blocks,
   film: Film,
   folderTree: FolderTree,
@@ -176,7 +185,7 @@ function ShellPopover({ active, companyScoped, language, onClose, onLogout, onNa
       <div className="admin-panel-tabs"><button className="active" type="button">{ar ? "هذا الموقع" : "This Site"}<span>3</span></button><button type="button">{ar ? "كل المواقع" : "All Sites"}</button></div>
       <div className="admin-panel-action-row"><strong>{active === "inbox" ? (ar ? "الرسائل الحديثة" : "Recent messages") : (ar ? "النشاط الحديث" : "Recent activity")}</strong><button type="button">{active === "inbox" ? (ar ? "تحديد الكل كمقروء" : "Mark All as Read") : (ar ? "التفضيلات" : "Preferences")}</button></div>
       <div className="admin-panel-feed">{[1, 2, 3].map((number) => <article key={number}><span className="admin-feed-dot" /><div><strong>{active === "inbox" ? (ar ? "رسالة عميل جديدة" : "New customer message") : (ar ? "تحديث في مساحة العمل" : "Workspace update")}</strong><p>{ar ? "راجع آخر التفاصيل والإجراءات المتاحة." : "Review the latest details and available actions."}</p></div></article>)}</div>
-      {active === "inbox" && <button className="admin-panel-primary admin-panel-sticky-action" type="button" onClick={() => { onClose(); onNavigate("admin-tenant-placeholder-inbox"); }}>{ar ? "الانتقال إلى البريد" : "Go to Inbox"}</button>}
+      {active === "inbox" && <button className="admin-panel-primary admin-panel-sticky-action" type="button" onClick={() => { onClose(); onNavigate("admin-inbox"); }}>{ar ? "الانتقال إلى البريد" : "Go to Inbox"}</button>}
     </>}
     {active === "news" && <>
       <div className="admin-news-filter">{[ar ? "إصدارات جديدة" : "New Releases", ar ? "تجريبي" : "Betas", ar ? "تحديثات" : "Updates"].map((item, index) => <button className={index === 0 ? "active" : ""} key={item} type="button">{item}</button>)}</div>
@@ -208,7 +217,7 @@ function AdminLayout({
   const ar = language === "ar";
   const companyName = company?.name || "iGroup Platform";
   const companyMark = companyName.slice(0, 2).toUpperCase();
-  const activeKey = normalizedModulePage(activePage);
+  const activeKey = canonicalAdminPageKey(activePage);
   const isSuperAdmin = (currentUser?.globalRole || currentUser?.role) === "super_admin";
   const isTenant = Boolean(company);
   const modulePages = React.useMemo(() => new Set(groupCompanyModules(modules).flatMap((section) => section.items.map((item) => item.pageKey))), [modules]);
@@ -287,7 +296,7 @@ function AdminLayout({
   };
 
   const go = (pageKey) => {
-    onNavigate(pageKey);
+    if (typeof onNavigate === "function") onNavigate(pageKey);
     setMobileOpen(false);
   };
 

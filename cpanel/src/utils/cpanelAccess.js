@@ -6,8 +6,13 @@ import {
   landingPageForRole,
   resolveAdminPage,
 } from "./roles.js";
-import { pageKeyForModule } from "./moduleRegistry.js";
+import { moduleAllowsPage, pageKeyForModule } from "./moduleRegistry.js";
 import { placeholderPagePaths } from "../data/adminNavigation.js";
+import {
+  analyticsRoutes,
+  canonicalAnalyticsPageKey,
+  resolveAnalyticsPage,
+} from "./analytics.js";
 
 export function isValidCpanelUser(user) {
   if (!user) return false;
@@ -47,13 +52,95 @@ export function landingPage(user, overrideModules) {
   return "admin-no-access";
 }
 
+const customerLeadPaths = Object.freeze({
+  "admin-customers": "/admin/customers",
+  "admin-inbox": "/admin/inbox",
+  "admin-forms": "/admin/forms",
+  "admin-meetings": "/admin/meetings",
+  "admin-pipelines": "/admin/pipelines",
+  "admin-community": "/admin/community",
+  "admin-loyalty": "/admin/loyalty",
+});
+
+const legacyCustomerLeadPaths = Object.freeze({
+  "/admin/coming-soon/inbox": "admin-inbox",
+  "/admin/coming-soon/customers": "admin-customers",
+  "/admin/coming-soon/customers-leads": "admin-customers",
+  "/admin/coming-soon/customers/forms": "admin-forms",
+  "/admin/coming-soon/customers/meetings": "admin-meetings",
+  "/admin/coming-soon/customers/pipelines": "admin-pipelines",
+  "/admin/coming-soon/customers/community": "admin-community",
+  "/admin/coming-soon/customers/loyalty": "admin-loyalty",
+  "/admin/coming-soon/customers-leads/forms": "admin-forms",
+  "/admin/coming-soon/customers-leads/meetings": "admin-meetings",
+  "/admin/coming-soon/customers-leads/pipelines": "admin-pipelines",
+  "/admin/coming-soon/customers-leads/community": "admin-community",
+  "/admin/coming-soon/customers-leads/loyalty": "admin-loyalty",
+});
+
+const legacyCustomerLeadPageKeys = Object.freeze({
+  "admin-tenant-placeholder-inbox": "admin-inbox",
+  "admin-tenant-placeholder-customers": "admin-customers",
+  "admin-tenant-placeholder-customers-leads": "admin-customers",
+  "admin-tenant-placeholder-customers-forms": "admin-forms",
+  "admin-tenant-placeholder-customers-meetings": "admin-meetings",
+  "admin-tenant-placeholder-customers-pipelines": "admin-pipelines",
+  "admin-tenant-placeholder-customers-community": "admin-community",
+  "admin-tenant-placeholder-customers-loyalty": "admin-loyalty",
+  "admin-tenant-placeholder-customers-leads-forms": "admin-forms",
+  "admin-tenant-placeholder-customers-leads-meetings": "admin-meetings",
+  "admin-tenant-placeholder-customers-leads-pipelines": "admin-pipelines",
+  "admin-tenant-placeholder-customers-leads-community": "admin-community",
+  "admin-tenant-placeholder-customers-leads-loyalty": "admin-loyalty",
+});
+
+function normalizedPathname(pathname) {
+  if (!pathname || pathname === "/") return pathname || "/";
+  return pathname.replace(/\/+$/, "");
+}
+
+function unauthorizedPage(user) {
+  return isAdminPortalRole(user?.role) ? "admin-no-access" : landingPageForRole(user?.role);
+}
+
+function canOpenCustomerLeadPage(user, page, navigationModules) {
+  if (!canAccessAdminPage(user, page)) return false;
+  const modules = navigationModules?.length
+    ? navigationModules
+    : user?.activeCompany?.modules || [];
+  return !modules.length || moduleAllowsPage(modules, page);
+}
+
+export function canonicalAdminPageKey(page) {
+  return canonicalAnalyticsPageKey(legacyCustomerLeadPageKeys[page] || page);
+}
+
 export function resolvePage(pathname, user, navigationModules) {
-  if (/^\/admin\/products\/[^/]+\/edit$/.test(pathname)) {
+  const normalizedPath = normalizedPathname(pathname);
+  if (/^\/admin\/products\/[^/]+\/edit$/.test(normalizedPath)) {
     return canAccessAdminPage(user, "admin-products-edit")
       ? "admin-products-edit"
       : landingPage(user, navigationModules);
   }
-  const resolved = resolveAdminPage(pathname, user, pagePaths);
+  if (/^\/admin\/customers\/[^/]+$/.test(normalizedPath)) {
+    return canOpenCustomerLeadPage(user, "admin-customers-detail", navigationModules)
+      ? "admin-customers-detail"
+      : unauthorizedPage(user);
+  }
+  const customerLeadPage = legacyCustomerLeadPaths[normalizedPath]
+    || Object.entries(customerLeadPaths).find(([, path]) => path === normalizedPath)?.[0];
+  if (customerLeadPage) {
+    return canOpenCustomerLeadPage(user, customerLeadPage, navigationModules)
+      ? customerLeadPage
+      : unauthorizedPage(user);
+  }
+  const analyticsPage = resolveAnalyticsPage(normalizedPath);
+  if (analyticsPage) {
+    return canOpenCustomerLeadPage(user, analyticsPage, navigationModules)
+      ? analyticsPage
+      : unauthorizedPage(user);
+  }
+  const resolved = resolveAdminPage(normalizedPath, user, pagePaths);
   if (resolved === "admin" && !["company_admin", "admin"].includes(user?.role)) {
     return landingPage(user, navigationModules);
   }
@@ -84,6 +171,13 @@ const pagePaths = {
   "admin-reviews": "/admin/reviews",
   "admin-inventory": "/admin/inventory",
   "admin-customers": "/admin/customers",
+  "admin-inbox": "/admin/inbox",
+  "admin-forms": "/admin/forms",
+  "admin-meetings": "/admin/meetings",
+  "admin-pipelines": "/admin/pipelines",
+  "admin-community": "/admin/community",
+  "admin-loyalty": "/admin/loyalty",
+  ...analyticsRoutes,
   "admin-staff": "/admin/staff",
   "admin-staff-new": "/admin/staff/new",
   "admin-employees": "/admin/staff",
