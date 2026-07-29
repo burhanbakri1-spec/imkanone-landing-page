@@ -66,10 +66,10 @@ export const tenantNavigation = Object.freeze([
     placeholder("tenant", "ai-agents/smart-chat", "Smart Chat", "الدردشة الذكية", "messagesSquare"),
   ]),
   group("tenant-booking", "Booking Calendar", "تقويم الحجوزات", "calendarDays", [
-    placeholder("tenant", "booking/calendar", "Calendar", "التقويم", "calendar"),
-    placeholder("tenant", "booking/list", "Booking List", "قائمة الحجوزات", "listChecks"),
-    placeholder("tenant", "booking/work-schedule", "Work Schedule", "جدول العمل", "clock3"),
-    placeholder("tenant", "booking/analytics", "Bookings Analytics", "تحليلات الحجوزات", "chartSpline"),
+    existing("admin-bookings-calendar", "Calendar", "التقويم", "calendar", { requiresModule: true }),
+    existing("admin-bookings-list", "Booking List", "قائمة الحجوزات", "listChecks", { requiresModule: true }),
+    existing("admin-bookings-work-schedule", "Work Schedule", "جدول العمل", "clock3", { requiresModule: true }),
+    existing("admin-bookings-analytics", "Bookings Analytics", "تحليلات الحجوزات", "chartSpline", { requiresModule: true }),
   ]),
   group("tenant-sales", "Sales", "المبيعات", "shoppingBag", [
     existing("admin-orders", "Orders", "الطلبات", "shoppingCart", { requiresModule: true }),
@@ -160,16 +160,20 @@ export const tenantNavigation = Object.freeze([
     existing("admin-analytics-benchmarks", "Benchmarks", "المعايير", "scale", { requiresModule: true }),
     existing("admin-analytics-reports", "All Reports", "كل التقارير", "files", { requiresModule: true }),
   ]),
-  placeholder("tenant", "automations", "Automations", "الأتمتة", "workflow"),
+  existing("admin-automations", "Automations", "الأتمتة", "workflow", { requiresModule: true }),
   existing("admin-settings", "Settings", "الإعدادات", "settings", { requiresModule: true }),
   group("tenant-website-content", "Website Content", "محتوى الموقع", "panelsTopLeft", [
-    existing("admin-website-media", "Media", "الوسائط", "images", { requiresModule: true }),
-    existing("admin-website-texts", "CMS", "نظام إدارة المحتوى", "database", { requiresModule: true }),
-    placeholder("tenant", "website-content/multilingual", "Multilingual", "متعدد اللغات", "languages"),
+    existing("admin-website-content-cms", "CMS", "نظام إدارة المحتوى", "database", { requiresModule: true }),
+    existing("admin-website-content-multilingual", "Multilingual", "متعدد اللغات", "languages", { requiresModule: true }),
   ]),
   group("tenant-developer-tools", "Developer Tools", "أدوات المطور", "codeXml", [
-    existing("admin-activity-log", "Activity Log", "سجل النشاط", "activity", { requiresModule: true }),
-    existing("admin-unit-creator", "Unit Creator", "منشئ الوحدات", "cuboid", { requiresModule: true }),
+    group("tenant-logging-tools", "Logging Tools", "أدوات التسجيل", "activity", [
+      existing("admin-developer-site-logs", "Wix Logs", "سجلات الموقع", "activity", { requiresModule: true }),
+      existing("admin-developer-advanced-log-tools", "Advanced Log Tools", "أدوات السجل المتقدمة", "settings", { requiresModule: true }),
+    ]),
+    existing("admin-developer-monitoring", "Monitoring", "المراقبة", "chartNoAxesCombined", { requiresModule: true }),
+    existing("admin-developer-secrets-manager", "Secrets Manager", "مدير الأسرار", "blocks", { requiresModule: true }),
+    existing("admin-developer-triggered-emails", "Triggered Emails", "رسائل البريد المشغلة", "inbox", { requiresModule: true }),
   ]),
   placeholder("tenant", "edit-site", "Edit Site", "تحرير الموقع", "paintbrush"),
 ]);
@@ -185,6 +189,12 @@ export const utilityNavigation = Object.freeze([
   placeholder("platform", "news/roadmap", "Product Roadmap", "خارطة طريق المنتج", "route"),
 ]);
 
+const routedTenantItems = Object.freeze([
+  existing("admin-website-media", "Media", "الوسائط", "images", { requiresModule: true }),
+  existing("admin-activity-log", "Activity Log", "سجل النشاط", "activity", { requiresModule: true }),
+  existing("admin-unit-creator", "Unit Creator", "منشئ الوحدات", "cuboid", { requiresModule: true }),
+]);
+
 function flatten(items) {
   return items.flatMap((item) => [item, ...(item.children ? flatten(item.children) : [])]);
 }
@@ -192,6 +202,7 @@ function flatten(items) {
 export const allNavigationItems = Object.freeze([
   ...flatten(platformNavigation),
   ...flatten(tenantNavigation),
+  ...routedTenantItems,
   ...utilityNavigation,
 ]);
 

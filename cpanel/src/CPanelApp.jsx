@@ -23,6 +23,19 @@ import AdminPipelinesPage from "./pages/AdminPipelinesPage.jsx";
 import AdminCommunityPage from "./pages/AdminCommunityPage.jsx";
 import AdminLoyaltyPage from "./pages/AdminLoyaltyPage.jsx";
 import AdminAnalyticsPage from "./pages/AdminAnalyticsPage.jsx";
+import AdminBookingCalendarPage from "./pages/AdminBookingCalendarPage.jsx";
+import AdminBookingListPage from "./pages/AdminBookingListPage.jsx";
+import AdminWorkSchedulePage from "./pages/AdminWorkSchedulePage.jsx";
+import AdminBookingsAnalyticsPage from "./pages/AdminBookingsAnalyticsPage.jsx";
+import AdminAutomationsPage from "./pages/AdminAutomationsPage.jsx";
+import AdminSettingsPage from "./pages/AdminSettingsPage.jsx";
+import AdminBookingSettingsPage from "./pages/AdminBookingSettingsPage.jsx";
+import AdminWebsiteContentPage from "./pages/AdminWebsiteContentPage.jsx";
+import AdminSiteLogsPage from "./pages/AdminSiteLogsPage.jsx";
+import AdminAdvancedLogToolsPage from "./pages/AdminAdvancedLogToolsPage.jsx";
+import AdminMonitoringPage from "./pages/AdminMonitoringPage.jsx";
+import AdminSecretsManagerPage from "./pages/AdminSecretsManagerPage.jsx";
+import AdminTriggeredEmailsPage from "./pages/AdminTriggeredEmailsPage.jsx";
 import {
   isNavigationPlaceholderPage,
   placeholderPageKeys,
@@ -50,6 +63,14 @@ import { siteMobilePageKeys } from "./utils/siteMobile.js";
 import { marketingPageKeys } from "./utils/marketing.js";
 import { gettingPaidPageKeys } from "./utils/gettingPaid.js";
 import { analyticsPageKeys, analyticsRoutes } from "./utils/analytics.js";
+import { bookingPageKeys, bookingRoutes } from "./utils/bookings.js";
+import {
+  bookingSettingsPageKeys,
+  financeSettingsPageKeys,
+  tenantManagementRoutes,
+} from "./utils/tenantManagement.js";
+import { websiteContentPageKeys, websiteContentRoutes } from "./utils/websiteContent.js";
+import { developerToolsPageKeys, developerToolsRoutes } from "./utils/developerTools.js";
 import {
   createEmployee as createEmployeeApi,
   deleteEmployee as deleteEmployeeApi,
@@ -141,10 +162,13 @@ const pagePaths = {
   "admin-community": "/admin/community",
   "admin-loyalty": "/admin/loyalty",
   ...analyticsRoutes,
+  ...bookingRoutes,
+  ...tenantManagementRoutes,
+  ...websiteContentRoutes,
+  ...developerToolsRoutes,
   "admin-staff": "/admin/staff",
   "admin-staff-new": "/admin/staff/new",
   "admin-employees": "/admin/staff",
-  "admin-settings": "/admin/settings",
   "admin-product-settings": "/admin/product-settings",
   "admin-invoices": "/admin/invoices",
   "admin-delivery": "/admin/delivery",
@@ -989,6 +1013,13 @@ function CPanelApp() {
           !marketingPageKeys.includes(activePage) &&
           !gettingPaidPageKeys.includes(activePage) &&
           !analyticsPageKeys.includes(activePage) &&
+          !bookingPageKeys.includes(activePage) &&
+          activePage !== "admin-automations" &&
+          activePage !== "admin-settings" &&
+          !financeSettingsPageKeys.includes(activePage) &&
+          !bookingSettingsPageKeys.includes(activePage) &&
+          !websiteContentPageKeys.includes(activePage) &&
+          !developerToolsPageKeys.includes(activePage) &&
           !placeholderPageKeys.includes(activePage) &&
           !staffPageKeys.includes(activePage) &&
           !customerPageKeys.includes(activePage) && (
@@ -1079,6 +1110,45 @@ function CPanelApp() {
             {...sharedLayoutProps}
           />
         )}
+        {activePage === "admin-bookings-calendar" && (
+          <AdminBookingCalendarPage activePage={activePage} employees={employees} {...sharedLayoutProps} />
+        )}
+        {activePage === "admin-bookings-list" && (
+          <AdminBookingListPage activePage={activePage} bookings={null} {...sharedLayoutProps} />
+        )}
+        {activePage === "admin-bookings-work-schedule" && (
+          <AdminWorkSchedulePage activePage={activePage} availability={null} employees={employees} {...sharedLayoutProps} />
+        )}
+        {activePage === "admin-bookings-analytics" && (
+          <AdminBookingsAnalyticsPage activePage={activePage} bookings={null} {...sharedLayoutProps} />
+        )}
+        {activePage === "admin-automations" && (
+          <AdminAutomationsPage activePage={activePage} {...sharedLayoutProps} />
+        )}
+        {(activePage === "admin-settings" || financeSettingsPageKeys.includes(activePage)) && (
+          <AdminSettingsPage activePage={activePage} {...sharedLayoutProps} />
+        )}
+        {bookingSettingsPageKeys.includes(activePage) && (
+          <AdminBookingSettingsPage activePage={activePage} employees={employees} {...sharedLayoutProps} />
+        )}
+        {websiteContentPageKeys.includes(activePage) && (
+          <AdminWebsiteContentPage activePage={activePage} {...sharedLayoutProps} />
+        )}
+        {activePage === "admin-developer-site-logs" && (
+          <AdminSiteLogsPage activePage={activePage} {...sharedLayoutProps} />
+        )}
+        {activePage === "admin-developer-advanced-log-tools" && (
+          <AdminAdvancedLogToolsPage activePage={activePage} {...sharedLayoutProps} />
+        )}
+        {activePage === "admin-developer-monitoring" && (
+          <AdminMonitoringPage activePage={activePage} {...sharedLayoutProps} />
+        )}
+        {activePage === "admin-developer-secrets-manager" && (
+          <AdminSecretsManagerPage activePage={activePage} {...sharedLayoutProps} />
+        )}
+        {activePage === "admin-developer-triggered-emails" && (
+          <AdminTriggeredEmailsPage activePage={activePage} {...sharedLayoutProps} />
+        )}
         {activePage === "admin-customers" && (
           <AdminContactsPage orders={orders} {...sharedLayoutProps} />
         )}
@@ -1103,7 +1173,7 @@ function CPanelApp() {
         {activePage === "admin-loyalty" && (
           <AdminLoyaltyPage {...sharedLayoutProps} />
         )}
-        {placeholderPageKeys.includes(activePage) && !salesPageKeys.includes(activePage) && !catalogPlaceholderPageKeys.includes(activePage) && !videoAppsPageKeys.includes(activePage) && !siteMobilePageKeys.includes(activePage) && !marketingPageKeys.includes(activePage) && !gettingPaidPageKeys.includes(activePage) && !analyticsPageKeys.includes(activePage) && !customerPageKeys.includes(activePage) && (
+        {placeholderPageKeys.includes(activePage) && !salesPageKeys.includes(activePage) && !catalogPlaceholderPageKeys.includes(activePage) && !videoAppsPageKeys.includes(activePage) && !siteMobilePageKeys.includes(activePage) && !marketingPageKeys.includes(activePage) && !gettingPaidPageKeys.includes(activePage) && !analyticsPageKeys.includes(activePage) && !bookingPageKeys.includes(activePage) && !customerPageKeys.includes(activePage) && (
           <AdminPlaceholderPage activePage={activePage} {...sharedLayoutProps} />
         )}
 

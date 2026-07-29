@@ -2051,56 +2051,6 @@ function GenericEntityForm({ fields, initial, isEditing = false, language = "en"
   );
 }
 
-function SettingsPage({ company, onSave }) {
-  const [settings, setSettings] = React.useState(() => ({
-    currency: company?.settings?.currency || "",
-    direction: company?.settings?.direction || "",
-    faviconUrl: company?.faviconUrl || "",
-    language: company?.settings?.language || "",
-    locale: company?.settings?.locale || "",
-    logoUrl: company?.logoUrl || "",
-    name: company?.name || "",
-  }));
-  const [message, setMessage] = React.useState("");
-
-  React.useEffect(() => {
-    setSettings({
-      currency: company?.settings?.currency || "",
-      direction: company?.settings?.direction || "",
-      faviconUrl: company?.faviconUrl || "",
-      language: company?.settings?.language || "",
-      locale: company?.settings?.locale || "",
-      logoUrl: company?.logoUrl || "",
-      name: company?.name || "",
-    });
-  }, [company]);
-
-  async function save() {
-    await onSave(Object.fromEntries(
-      Object.entries(settings).map(([key, value]) => [key, value || null]),
-    ));
-    setMessage("Company settings saved.");
-  }
-
-  return (
-    <section className="admin-panel-card">
-      {message && <div className="message-panel success">{message}</div>}
-      <form className="admin-form settings-form" onSubmit={(event) => { event.preventDefault(); save(); }}>
-        <label>Company Name<input required value={settings.name} onChange={(event) => setSettings((current) => ({ ...current, name: event.target.value }))} /></label>
-        <MediaField label="Company Logo" name="logoUrl" value={settings.logoUrl} onChange={(event) => setSettings((current) => ({ ...current, logoUrl: event.target.value }))} />
-        <MediaField label="Favicon" name="faviconUrl" value={settings.faviconUrl} onChange={(event) => setSettings((current) => ({ ...current, faviconUrl: event.target.value }))} />
-        <label>Language<input value={settings.language} onChange={(event) => setSettings((current) => ({ ...current, language: event.target.value }))} /></label>
-        <label>Locale<input value={settings.locale} onChange={(event) => setSettings((current) => ({ ...current, locale: event.target.value }))} /></label>
-        <label>Direction<select value={settings.direction} onChange={(event) => setSettings((current) => ({ ...current, direction: event.target.value }))}><option value="">Automatic</option><option value="ltr">LTR</option><option value="rtl">RTL</option></select></label>
-        <label>Currency<input maxLength="3" value={settings.currency} onChange={(event) => setSettings((current) => ({ ...current, currency: event.target.value.toUpperCase() }))} /></label>
-        <div className="form-actions full-field">
-          <button className="admin-primary-button" type="submit">Save Company Settings</button>
-        </div>
-      </form>
-    </section>
-  );
-}
-
 function InventoryPage({ inventoryRows, movements, onAdjust, onOpenModal, products }) {
   return (
     <>
@@ -2202,7 +2152,6 @@ function AdminDashboardPage({
   onSaveProduct,
   onSaveBrand,
   onSaveCategory,
-  onSaveCompanySettings,
   onSaveWebsiteMedia,
   onDeleteWebsiteMedia,
   onModerateReview,
@@ -2496,8 +2445,6 @@ function AdminDashboardPage({
         return <><InventoryPage inventoryRows={inventoryRows} movements={movements} onAdjust={adjustStock} onOpenModal={() => setStockModalOpen(true)} products={products} />{stockModalOpen && <StockUpdateModal inventoryRows={inventoryRows} onApply={applyStockUpdates} onClose={() => setStockModalOpen(false)} products={products} />}</>;
       case "admin-customers":
         return renderCustomers();
-      case "admin-settings":
-        return canManageSensitive ? <SettingsPage company={company} onSave={onSaveCompanySettings} /> : <EmptyState title="Settings are restricted" description="Only admins can manage configuration." />;
       case "admin":
       default:
         return <DashboardHome

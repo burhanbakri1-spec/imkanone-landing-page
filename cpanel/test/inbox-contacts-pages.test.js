@@ -124,7 +124,7 @@ test("unsupported contact tabs use distinct honest layouts", () => {
 test("Pipelines and Booking actions retain existing centralized destinations", () => {
   const page = source("pages/AdminContactDetailPage.jsx");
   assert.match(page, /onNavigate\?\.\("admin-pipelines"\)/);
-  assert.match(page, /onNavigate\?\.\("admin-tenant-placeholder-booking-calendar"\)/);
+  assert.match(page, /onNavigate\?\.\("admin-bookings-calendar"\)/);
 });
 
 test("contact detail preserves customers permission and scoped invoice/order data", () => {

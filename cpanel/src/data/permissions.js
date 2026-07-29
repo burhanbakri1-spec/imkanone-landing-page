@@ -32,6 +32,7 @@ export const permissionGroups = [
     titleKey: "admin.employeesManagement",
     permissions: [
       { key: "customers.view", labelKey: "permissions.customersView" },
+      { key: "customers.manage", labelKey: "Customers and bookings: manage" },
       { key: "employees.view", labelKey: "permissions.employeesView" },
     ],
   },

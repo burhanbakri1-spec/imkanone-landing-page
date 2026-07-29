@@ -13,6 +13,26 @@ import {
   canonicalAnalyticsPageKey,
   resolveAnalyticsPage,
 } from "./analytics.js";
+import {
+  bookingRoutes,
+  canonicalBookingPageKey,
+  resolveBookingPage,
+} from "./bookings.js";
+import {
+  canonicalTenantManagementPageKey,
+  resolveTenantManagementPage,
+  tenantManagementRoutes,
+} from "./tenantManagement.js";
+import {
+  canonicalWebsiteContentPageKey,
+  resolveWebsiteContentPage,
+  websiteContentRoutes,
+} from "./websiteContent.js";
+import {
+  canonicalDeveloperToolsPageKey,
+  developerToolsRoutes,
+  resolveDeveloperToolsPage,
+} from "./developerTools.js";
 
 export function isValidCpanelUser(user) {
   if (!user) return false;
@@ -112,7 +132,13 @@ function canOpenCustomerLeadPage(user, page, navigationModules) {
 }
 
 export function canonicalAdminPageKey(page) {
-  return canonicalAnalyticsPageKey(legacyCustomerLeadPageKeys[page] || page);
+  return canonicalDeveloperToolsPageKey(
+    canonicalWebsiteContentPageKey(
+      canonicalTenantManagementPageKey(
+        canonicalBookingPageKey(canonicalAnalyticsPageKey(legacyCustomerLeadPageKeys[page] || page)),
+      ),
+    ),
+  );
 }
 
 export function resolvePage(pathname, user, navigationModules) {
@@ -138,6 +164,30 @@ export function resolvePage(pathname, user, navigationModules) {
   if (analyticsPage) {
     return canOpenCustomerLeadPage(user, analyticsPage, navigationModules)
       ? analyticsPage
+      : unauthorizedPage(user);
+  }
+  const bookingPage = resolveBookingPage(normalizedPath);
+  if (bookingPage) {
+    return canOpenCustomerLeadPage(user, bookingPage, navigationModules)
+      ? bookingPage
+      : unauthorizedPage(user);
+  }
+  const managementPage = resolveTenantManagementPage(normalizedPath);
+  if (managementPage) {
+    return canOpenCustomerLeadPage(user, managementPage, navigationModules)
+      ? managementPage
+      : unauthorizedPage(user);
+  }
+  const websiteContentPage = resolveWebsiteContentPage(normalizedPath);
+  if (websiteContentPage) {
+    return canOpenCustomerLeadPage(user, websiteContentPage, navigationModules)
+      ? websiteContentPage
+      : unauthorizedPage(user);
+  }
+  const developerToolsPage = resolveDeveloperToolsPage(normalizedPath);
+  if (developerToolsPage) {
+    return canOpenCustomerLeadPage(user, developerToolsPage, navigationModules)
+      ? developerToolsPage
       : unauthorizedPage(user);
   }
   const resolved = resolveAdminPage(normalizedPath, user, pagePaths);
@@ -178,10 +228,13 @@ const pagePaths = {
   "admin-community": "/admin/community",
   "admin-loyalty": "/admin/loyalty",
   ...analyticsRoutes,
+  ...bookingRoutes,
+  ...tenantManagementRoutes,
+  ...websiteContentRoutes,
+  ...developerToolsRoutes,
   "admin-staff": "/admin/staff",
   "admin-staff-new": "/admin/staff/new",
   "admin-employees": "/admin/staff",
-  "admin-settings": "/admin/settings",
   "admin-product-settings": "/admin/product-settings",
   "admin-invoices": "/admin/invoices",
   "admin-delivery": "/admin/delivery",
