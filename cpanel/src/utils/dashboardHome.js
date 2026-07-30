@@ -9,7 +9,7 @@ const destinations = Object.freeze({
   categories: "admin-categories",
   connectDomain: "admin-platform-domains",
   customers: "admin-customers",
-  editSite: "admin-tenant-placeholder-edit-site",
+  editSite: "admin-site-editor",
   employees: "admin-staff",
   orders: "admin-orders",
   products: "admin-products",

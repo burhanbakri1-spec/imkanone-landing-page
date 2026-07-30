@@ -40,6 +40,9 @@ export const permissionGroups = [
     titleKey: "admin.storefront",
     permissions: [
       { key: "website_media.manage", labelKey: "permissions.websiteMediaManage" },
+      { key: "site_editor.access", labelKey: "Website editor: access" },
+      { key: "site_editor.edit", labelKey: "Website editor: edit drafts" },
+      { key: "site_editor.save", labelKey: "Website editor: save drafts" },
     ],
   },
   {

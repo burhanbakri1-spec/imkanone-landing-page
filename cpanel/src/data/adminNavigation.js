@@ -175,7 +175,10 @@ export const tenantNavigation = Object.freeze([
     existing("admin-developer-secrets-manager", "Secrets Manager", "مدير الأسرار", "blocks", { requiresModule: true }),
     existing("admin-developer-triggered-emails", "Triggered Emails", "رسائل البريد المشغلة", "inbox", { requiresModule: true }),
   ]),
-  placeholder("tenant", "edit-site", "Edit Site", "تحرير الموقع", "paintbrush"),
+  existing("admin-site-editor", "Edit Site", "تحرير الموقع", "pencil", {
+    newTab: true,
+    path: "/admin/site-editor",
+  }),
 ]);
 
 export const utilityNavigation = Object.freeze([

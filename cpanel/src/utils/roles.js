@@ -48,6 +48,7 @@ const PAGE_PERMISSIONS = {
   "admin-website-texts": null,
   "admin-website-content-cms": null,
   "admin-website-content-multilingual": null,
+  "admin-site-editor": ["site_editor.access"],
   "admin-orders": ["orders.view"],
   "admin-reviews": null,
   "admin-inventory": null,
@@ -131,6 +132,13 @@ function permissionsFromUser(user) {
 
 function userHasPagePermission(user, page) {
   const role = roleFromUser(user);
+  if (page === "admin-site-editor") {
+    if (role === "super_admin") {
+      return user?.isCompanyScope === true && Boolean(user?.activeCompany);
+    }
+    if (isCompanyAdmin(role)) return true;
+    return isStaffRole(role) && permissionsFromUser(user).includes("site_editor.access");
+  }
   if (isTenantOperator(role)) return true;
   if (!isStaffRole(role)) return false;
   const required = PAGE_PERMISSIONS[page];

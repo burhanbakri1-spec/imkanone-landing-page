@@ -33,6 +33,7 @@ import dropshippingRoutes from "./routes/dropshipping.js";
 import adminDropshippingRoutes from "./routes/adminDropshipping.js";
 import reportsRoutes from "./routes/reports.js";
 import websiteMediaRoutes from "./routes/websiteMedia.js";
+import siteEditorRoutes from "./routes/siteEditor.js";
 import {
   adminWebsiteTextsRouter,
   publicWebsiteTextsRouter,
@@ -178,6 +179,7 @@ app.use("/api/employee", employeeRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/work-sessions", workSessionRoutes);
 app.use("/api/website-media", websiteMediaRoutes);
+app.use("/api/site-editor", siteEditorRoutes);
 app.use("/api/website-texts", publicWebsiteTextsRouter);
 app.use("/api/admin/website-texts", adminWebsiteTextsRouter);
 

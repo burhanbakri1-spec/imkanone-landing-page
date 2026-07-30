@@ -10,6 +10,7 @@ import crypto from "node:crypto";
 import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
 
 let pool;
+let siteEditorPool;
 const tableColumnCache = new Map();
 let companyPersistenceDependenciesForTest = null;
 
@@ -45,6 +46,30 @@ async function query(sql, params = []) {
 
 export function isSupabaseConfigured() {
   return Boolean(databaseUrl());
+}
+
+function siteEditorDatabaseUrl() {
+  return process.env.SITE_EDITOR_DATABASE_URL || databaseUrl();
+}
+
+function getSiteEditorPool() {
+  if (!siteEditorPool) {
+    const url = siteEditorDatabaseUrl();
+    if (!url) {
+      throw new Error("Site editor PostgreSQL database URL is not configured.");
+    }
+    siteEditorPool = new Pool({
+      connectionString: url,
+      ssl: process.env.POSTGRES_SSL === "true"
+        ? { rejectUnauthorized: false }
+        : undefined,
+    });
+  }
+  return siteEditorPool;
+}
+
+async function siteEditorQuery(sql, params = []) {
+  return getSiteEditorPool().query(sql, params);
 }
 
 export function isSupabaseStorageConfigured() {
@@ -2118,6 +2143,105 @@ async function insertTenantRowWithClient(client, table, row, { upsert = false } 
      values (${placeholders.join(", ")}) ${conflict}`,
     values,
   );
+}
+
+function siteEditorDraftRecord(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    companyId: row.company_id,
+    siteId: row.site_id,
+    pageId: row.page_id,
+    locale: row.locale,
+    status: row.status,
+    revision: Number(row.revision || 0),
+    document: row.document,
+    audit: {
+      createdAt: row.created_at,
+      createdBy: row.created_by || "",
+      updatedAt: row.updated_at,
+      updatedBy: row.updated_by || "",
+      updatedByEmail: row.updated_by_email || "",
+    },
+  };
+}
+
+export async function getSiteEditorDraftFromSupabase(companyId, pageId, locale = "en") {
+  const result = await siteEditorQuery(
+    `select * from public.company_site_editor_drafts
+     where company_id = $1 and page_id = $2 and locale = $3
+     limit 1`,
+    [normalizeCompanyId(companyId), pageId, locale],
+  );
+  return siteEditorDraftRecord(result.rows[0]);
+}
+
+export async function saveSiteEditorDraftToSupabase({
+  id,
+  companyId,
+  siteId,
+  pageId,
+  locale = "en",
+  expectedRevision,
+  document,
+  actor,
+}) {
+  const normalizedCompanyId = normalizeCompanyId(companyId);
+  const revision = Number(expectedRevision);
+  const values = [
+    id,
+    normalizedCompanyId,
+    siteId,
+    pageId,
+    locale,
+    JSON.stringify(document),
+    actor?.id || null,
+    actor?.email || null,
+  ];
+  let result;
+
+  if (revision === 0) {
+    result = await siteEditorQuery(
+      `insert into public.company_site_editor_drafts
+        (id, company_id, site_id, page_id, locale, document, status, revision,
+         created_by, updated_by, updated_by_email)
+       values ($1, $2, $3, $4, $5, $6::jsonb, 'draft', 1, $7, $7, $8)
+       on conflict (company_id, page_id, locale) do nothing
+       returning *`,
+      values,
+    );
+  } else {
+    const updateValues = [
+      normalizedCompanyId,
+      pageId,
+      locale,
+      JSON.stringify(document),
+      actor?.id || null,
+      actor?.email || null,
+      revision,
+    ];
+    result = await siteEditorQuery(
+      `update public.company_site_editor_drafts
+       set document = $4::jsonb,
+           revision = revision + 1,
+           updated_at = now(),
+           updated_by = $5,
+           updated_by_email = $6
+       where company_id = $1 and page_id = $2 and locale = $3
+         and status = 'draft' and revision = $7
+       returning *`,
+      updateValues,
+    );
+  }
+
+  if (result.rows[0]) return siteEditorDraftRecord(result.rows[0]);
+
+  const current = await getSiteEditorDraftFromSupabase(normalizedCompanyId, pageId, locale);
+  const error = new Error("The draft changed in another session. Reload before saving again.");
+  error.statusCode = 409;
+  error.code = "REVISION_CONFLICT";
+  error.currentRevision = current?.revision || 0;
+  throw error;
 }
 
 export async function reconcileProductVariantsWithClient(client, companyId, product, { isCreate = false, trustedNewIds = false } = {}) {

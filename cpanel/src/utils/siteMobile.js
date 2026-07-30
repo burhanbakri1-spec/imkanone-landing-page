@@ -17,7 +17,7 @@ export const siteMobilePageKeys = Object.freeze([
 ]);
 
 const destinationPages = Object.freeze({
-  editSite: "admin-tenant-placeholder-edit-site",
+  editSite: "admin-site-editor",
   linkBio: "admin-tenant-placeholder-site-link-in-bio",
   logoBrand: "admin-tenant-placeholder-site-logo-brand",
   mobileApp: "admin-tenant-placeholder-site-mobile-app",

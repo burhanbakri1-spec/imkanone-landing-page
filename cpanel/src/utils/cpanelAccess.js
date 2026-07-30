@@ -143,6 +143,11 @@ export function canonicalAdminPageKey(page) {
 
 export function resolvePage(pathname, user, navigationModules) {
   const normalizedPath = normalizedPathname(pathname);
+  if (normalizedPath === "/admin/site-editor") {
+    return canAccessAdminPage(user, "admin-site-editor")
+      ? "admin-site-editor"
+      : unauthorizedPage(user);
+  }
   if (/^\/admin\/products\/[^/]+\/edit$/.test(normalizedPath)) {
     return canAccessAdminPage(user, "admin-products-edit")
       ? "admin-products-edit"
@@ -217,6 +222,7 @@ const pagePaths = {
   "admin-store-locator-new": "/admin/store-locator/new",
   "admin-website-media": "/admin/website-media",
   "admin-website-texts": "/admin/website-texts",
+  "admin-site-editor": "/admin/site-editor",
   "admin-orders": "/admin/orders",
   "admin-reviews": "/admin/reviews",
   "admin-inventory": "/admin/inventory",

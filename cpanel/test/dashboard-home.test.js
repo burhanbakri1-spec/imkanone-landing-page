@@ -42,7 +42,7 @@ test("tenant dashboard actions resolve only to existing route keys", () => {
   assert.equal(resolveDashboardDestination("employees"), "admin-staff");
   assert.equal(resolveDashboardDestination("settings"), "admin-settings");
   assert.equal(resolveDashboardDestination("analytics"), "admin-analytics-highlights");
-  assert.equal(resolveDashboardDestination("editSite"), "admin-tenant-placeholder-edit-site");
+  assert.equal(resolveDashboardDestination("editSite"), "admin-site-editor");
   assert.equal(resolveDashboardDestination("unknown"), null);
 });
 

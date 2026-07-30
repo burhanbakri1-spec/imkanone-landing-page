@@ -1,4 +1,5 @@
 import React from "react";
+import AdminLayout from "./components/AdminLayout.jsx";
 import AdminCompaniesPage from "./pages/AdminCompaniesPage.jsx";
 import AdminDomainsPage from "./pages/AdminDomainsPage.jsx";
 import AdminPlatformOverview from "./pages/AdminPlatformOverview.jsx";
@@ -36,6 +37,7 @@ import AdminAdvancedLogToolsPage from "./pages/AdminAdvancedLogToolsPage.jsx";
 import AdminMonitoringPage from "./pages/AdminMonitoringPage.jsx";
 import AdminSecretsManagerPage from "./pages/AdminSecretsManagerPage.jsx";
 import AdminTriggeredEmailsPage from "./pages/AdminTriggeredEmailsPage.jsx";
+import SiteEditorPage from "./pages/SiteEditorPage.jsx";
 import {
   isNavigationPlaceholderPage,
   placeholderPageKeys,
@@ -150,6 +152,7 @@ const pagePaths = {
   "admin-store-locator-new": "/admin/store-locator/new",
   "admin-website-media": "/admin/website-media",
   "admin-website-texts": "/admin/website-texts",
+  "admin-site-editor": "/admin/site-editor",
   "admin-orders": "/admin/orders",
   "admin-reviews": "/admin/reviews",
   "admin-inventory": "/admin/inventory",
@@ -203,6 +206,7 @@ function CPanelApp() {
     resolvePage(window.location.pathname, storedUser),
   );
   const [currentUser, setUser] = React.useState(storedUser);
+  const [isAuthResolving, setIsAuthResolving] = React.useState(true);
   const modules = company?.modules || [];
   const [products, setProducts] = React.useState([]);
   const [categories, setCategories] = React.useState([]);
@@ -248,6 +252,7 @@ function CPanelApp() {
       requestedPage === "admin-platform-companies" ||
       requestedPage === "admin-platform-domains" ||
       requestedPage === "admin-login" ||
+      requestedPage === "admin-site-editor" ||
       isNavigationPlaceholderPage(requestedPage) ||
       moduleAllowsPage(navigationModules, requestedPage);
     const safePage =
@@ -362,8 +367,16 @@ function CPanelApp() {
         persistCurrentUser(null);
         setUser(null);
         setCompany(null);
-      });
+      })
+      .finally(() => setIsAuthResolving(false));
   }, []);
+
+  React.useEffect(() => {
+    if (isAuthResolving || activePage !== "admin-site-editor") return;
+    if (!company || !canAccessAdminPage(currentUser, "admin-site-editor")) {
+      navigate("admin-no-access", { replace: true });
+    }
+  }, [activePage, company, currentUser, isAuthResolving]);
 
   React.useEffect(() => {
     if (currentUser && !isValidCpanelUser(currentUser)) {
@@ -960,6 +973,10 @@ function CPanelApp() {
     onSwitchCompany: handleSwitchCompany,
     onToggleDarkMode: () => setIsDarkMode((value) => !value),
   };
+
+  if (activePage === "admin-site-editor") {
+    return <SiteEditorPage company={company} currentUser={currentUser} isContextResolving={isAuthResolving} language={language} />;
+  }
 
   return (
     <div className={activePage === "admin-login" ? "app-shell admin-login-shell" : "app-shell"}>

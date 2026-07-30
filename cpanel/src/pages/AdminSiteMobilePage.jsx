@@ -422,7 +422,10 @@ export default function AdminSiteMobilePage({
   const unsupported = () => setShowUnsupported(true);
   const go = (action, fallback = unsupported) => {
     const page = resolveSiteMobileDestination(action, { currentUser, modules });
-    if (page) onNavigate(page);
+    if (page === "admin-site-editor") {
+      const editorWindow = window.open("/admin/site-editor", "_blank", "noopener,noreferrer");
+      if (editorWindow) editorWindow.opener = null;
+    } else if (page) onNavigate(page);
     else fallback();
   };
 

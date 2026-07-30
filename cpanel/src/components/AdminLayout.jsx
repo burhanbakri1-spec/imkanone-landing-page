@@ -26,6 +26,7 @@ import {
   Moon,
   Newspaper,
   Package,
+  Pencil,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -83,6 +84,7 @@ const iconMap = {
   megaphone: Sparkles,
   monitorSmartphone: Globe2,
   package: Package,
+  pencil: Pencil,
   panelsTopLeft: LayoutDashboard,
   settings: Settings,
   settings2: Settings,
@@ -304,6 +306,7 @@ function AdminLayout({
     const Icon = iconFor(item.icon);
     const active = item.pageKey === activeKey;
     const branchActive = navigationContainsPage(item, activeKey);
+    if (!item.children && item.newTab) return <a className={`admin-nav-button ${active ? "active" : ""}`} href={item.path} key={item.id} rel="noopener noreferrer" target="_blank" title={sidebarCollapsed ? localized(item.label, language) : undefined} style={{ "--nav-depth": level }}><Icon size={16} /><span>{localized(item.label, language)}</span></a>;
     if (!item.children) return <button className={`admin-nav-button ${active ? "active" : ""}`} key={item.id} onClick={() => go(item.pageKey)} type="button" title={sidebarCollapsed ? localized(item.label, language) : undefined} style={{ "--nav-depth": level }}><Icon size={16} /><span>{localized(item.label, language)}</span>{item.placeholder && <small>{ar ? "قريباً" : "Soon"}</small>}</button>;
     const open = level === 0 ? openMain === item.id : Boolean(openNested[item.id] || branchActive);
     return <div className={`admin-nav-group admin-nav-depth-${level}`} key={item.id}>
@@ -315,6 +318,9 @@ function AdminLayout({
       {open && <div className="admin-nav-items">{item.children.map((child) => renderNode(child, level + 1))}</div>}
     </div>;
   };
+
+  const editSiteItem = isTenant ? sections.find((item) => item.pageKey === "admin-site-editor") : null;
+  const primarySections = editSiteItem ? sections.filter((item) => item !== editSiteItem) : sections;
 
   return <section className={`admin-layout admin-studio-shell ${isDarkMode ? "admin-dark" : ""} ${isTenant ? "admin-tenant" : "admin-platform"} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} dir={ar ? "rtl" : "ltr"}>
     <header className="admin-topnav">
@@ -357,8 +363,9 @@ function AdminLayout({
           <button className="admin-sidebar-collapse" type="button" aria-label={sidebarCollapsed ? labels.expand : labels.collapse} onClick={() => setSidebarCollapsed((value) => !value)}>{sidebarCollapsed ? (ar ? <ChevronLeft size={16} /> : <ChevronRight size={16} />) : <PanelLeftClose size={16} />}</button>
         </div>
         {isTenant && <button className={`admin-sidebar-quick-actions ${activePopover === "quickActions" ? "active" : ""}`} data-admin-popover-root type="button" onClick={() => activatePopover("quickActions")} aria-expanded={activePopover === "quickActions"}><span><Plus size={18} /></span><b>{labels.quickActions}</b><ChevronRight className="admin-sidebar-quick-chevron" size={15} /></button>}
-        <nav className="admin-nav" aria-label={ar ? "تنقل لوحة الإدارة" : "Admin navigation"}>{sections.map((item) => renderNode(item))}</nav>
+        <nav className="admin-nav" aria-label={ar ? "تنقل لوحة الإدارة" : "Admin navigation"}>{primarySections.map((item) => renderNode(item))}</nav>
         {isTenant && <div className="admin-sidebar-footer">
+          {editSiteItem && renderNode(editSiteItem)}
           {company?.storefrontUrl && <a className="admin-sidebar-storefront-link" href={company.storefrontUrl} rel="noreferrer" target="_blank"><ExternalLink size={15} /><span>{labels.storefront}</span></a>}
           {isSuperAdmin && onReturnToPlatform && <button className="admin-sidebar-platform-link" onClick={onReturnToPlatform} type="button"><Building2 size={15} /><span>{labels.backToPlatform}</span></button>}
         </div>}

@@ -954,7 +954,13 @@ function DashboardHome({
 
   function go(action) {
     const destination = resolveDashboardDestination(action);
-    if (destination && authorized(action)) onNavigate(destination);
+    if (!destination || !authorized(action)) return;
+    if (destination === "admin-site-editor") {
+      const editorWindow = window.open("/admin/site-editor", "_blank", "noopener,noreferrer");
+      if (editorWindow) editorWindow.opener = null;
+      return;
+    }
+    onNavigate(destination);
   }
 
   function toggleChecklist(id) {

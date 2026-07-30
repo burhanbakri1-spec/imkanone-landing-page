@@ -44,7 +44,7 @@ test("the hub resolves its child pages and existing Edit Site route", () => {
   assert.equal(resolveSiteMobileDestination("mobileApp", context), "admin-tenant-placeholder-site-mobile-app");
   assert.equal(resolveSiteMobileDestination("logoBrand", context), "admin-tenant-placeholder-site-logo-brand");
   assert.equal(resolveSiteMobileDestination("linkBio", context), "admin-tenant-placeholder-site-link-in-bio");
-  assert.equal(resolveSiteMobileDestination("editSite", context), "admin-tenant-placeholder-edit-site");
+  assert.equal(resolveSiteMobileDestination("editSite", context), "admin-site-editor");
 });
 
 test("website actions reuse authorized settings and website-content destinations", () => {
