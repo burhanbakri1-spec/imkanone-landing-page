@@ -1728,6 +1728,45 @@ export const companyRepository = {
     }
     return this.updateCompanyDraft(current.id, { status: "inactive" });
   },
+
+  getWebsiteConnection(id) {
+    const current = companyByIdInternal(id);
+    if (!current) return null;
+    const connection = current.settings?.websiteConnection;
+    return connection && typeof connection === "object" && !Array.isArray(connection)
+      ? JSON.parse(JSON.stringify(connection))
+      : null;
+  },
+
+  async updateWebsiteConnection(id, connectionPatch) {
+    const current = companyByIdInternal(id);
+    if (!current) throw companyRepositoryError("Company not found.", 404);
+    const previous = current.settings?.websiteConnection || {};
+    const merged = { ...previous, ...connectionPatch };
+    const updated = await this.updateCompanyBrandingAndSettings(id, {
+      settingsPatch: { websiteConnection: merged },
+    });
+    return updated.settings.websiteConnection || merged;
+  },
+
+  async recordWebsiteManifestSync(id, { manifest, syncedAt, siteManifestUrl = "", connectionError = "" } = {}) {
+    const current = companyByIdInternal(id);
+    if (!current) throw companyRepositoryError("Company not found.", 404);
+    const previous = current.settings?.websiteConnection || {};
+    const merged = {
+      ...previous,
+      ...(siteManifestUrl ? { siteManifestUrl } : {}),
+      connectionStatus: connectionError ? "error" : "connected",
+      connectionError,
+      lastManifestSyncAt: syncedAt || new Date().toISOString(),
+      manifestSchemaVersion: manifest?.schemaVersion || previous.manifestSchemaVersion || "1.0",
+      ...(manifest ? { lastManifest: manifest } : {}),
+    };
+    const updated = await this.updateCompanyBrandingAndSettings(id, {
+      settingsPatch: { websiteConnection: merged },
+    });
+    return updated.settings.websiteConnection || merged;
+  },
 };
 
 const allowedMembershipRoles = new Set([

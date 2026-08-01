@@ -6,8 +6,6 @@ import {
 } from "../data/postgresStore.js";
 import { getLocalSiteEditorDraft, saveLocalSiteEditorDraft } from "./draftStore.js";
 
-export const ICARE_SITE_ID = "icare-storefront";
-
 function localStorageAllowed() {
   return process.env.NODE_ENV !== "production";
 }
@@ -22,10 +20,10 @@ function requireRepository() {
   throw error;
 }
 
-export async function getSiteEditorDraft(companyId, pageId, locale = "en") {
+export async function getSiteEditorDraft(companyId, pageId, locale = "en", siteId = "") {
   return requireRepository() === "postgres"
-    ? getSiteEditorDraftFromSupabase(companyId, pageId, locale)
-    : getLocalSiteEditorDraft(companyId, pageId, locale);
+    ? getSiteEditorDraftFromSupabase(companyId, pageId, locale, siteId)
+    : getLocalSiteEditorDraft(companyId, siteId, pageId, locale);
 }
 
 export async function saveSiteEditorDraft(input) {
@@ -34,7 +32,7 @@ export async function saveSiteEditorDraft(input) {
     return saveSiteEditorDraftToSupabase({
       ...input,
       id: crypto.randomUUID(),
-      siteId: ICARE_SITE_ID,
+      siteId: input.siteId || input.document?.siteId || `${input.companyId}-storefront`,
       document: { ...input.document, revision: nextRevision, status: "draft" },
     });
   }

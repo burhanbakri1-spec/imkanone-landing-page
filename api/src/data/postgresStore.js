@@ -2166,12 +2166,12 @@ function siteEditorDraftRecord(row) {
   };
 }
 
-export async function getSiteEditorDraftFromSupabase(companyId, pageId, locale = "en") {
+export async function getSiteEditorDraftFromSupabase(companyId, pageId, locale = "en", siteId = "") {
   const result = await siteEditorQuery(
     `select * from public.company_site_editor_drafts
-     where company_id = $1 and page_id = $2 and locale = $3
+     where company_id = $1 and site_id = $2 and page_id = $3 and locale = $4
      limit 1`,
-    [normalizeCompanyId(companyId), pageId, locale],
+    [normalizeCompanyId(companyId), String(siteId || "").trim(), pageId, locale],
   );
   return siteEditorDraftRecord(result.rows[0]);
 }
@@ -2187,11 +2187,12 @@ export async function saveSiteEditorDraftToSupabase({
   actor,
 }) {
   const normalizedCompanyId = normalizeCompanyId(companyId);
+  const normalizedSiteId = String(siteId || "").trim();
   const revision = Number(expectedRevision);
   const values = [
     id,
     normalizedCompanyId,
-    siteId,
+    normalizedSiteId,
     pageId,
     locale,
     JSON.stringify(document),
@@ -2206,13 +2207,14 @@ export async function saveSiteEditorDraftToSupabase({
         (id, company_id, site_id, page_id, locale, document, status, revision,
          created_by, updated_by, updated_by_email)
        values ($1, $2, $3, $4, $5, $6::jsonb, 'draft', 1, $7, $7, $8)
-       on conflict (company_id, page_id, locale) do nothing
+       on conflict (company_id, site_id, page_id, locale) do nothing
        returning *`,
       values,
     );
   } else {
     const updateValues = [
       normalizedCompanyId,
+      normalizedSiteId,
       pageId,
       locale,
       JSON.stringify(document),
@@ -2222,13 +2224,13 @@ export async function saveSiteEditorDraftToSupabase({
     ];
     result = await siteEditorQuery(
       `update public.company_site_editor_drafts
-       set document = $4::jsonb,
+       set document = $5::jsonb,
            revision = revision + 1,
            updated_at = now(),
-           updated_by = $5,
-           updated_by_email = $6
-       where company_id = $1 and page_id = $2 and locale = $3
-         and status = 'draft' and revision = $7
+           updated_by = $6,
+           updated_by_email = $7
+       where company_id = $1 and site_id = $2 and page_id = $3 and locale = $4
+         and status = 'draft' and revision = $8
        returning *`,
       updateValues,
     );
@@ -2236,7 +2238,7 @@ export async function saveSiteEditorDraftToSupabase({
 
   if (result.rows[0]) return siteEditorDraftRecord(result.rows[0]);
 
-  const current = await getSiteEditorDraftFromSupabase(normalizedCompanyId, pageId, locale);
+  const current = await getSiteEditorDraftFromSupabase(normalizedCompanyId, pageId, locale, normalizedSiteId);
   const error = new Error("The draft changed in another session. Reload before saving again.");
   error.statusCode = 409;
   error.code = "REVISION_CONFLICT";

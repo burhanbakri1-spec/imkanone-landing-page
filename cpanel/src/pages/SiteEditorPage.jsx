@@ -5,7 +5,8 @@ import SiteEditorRail from "../components/site-editor/SiteEditorRail.jsx";
 import SiteEditorToolbar from "../components/site-editor/SiteEditorToolbar.jsx";
 import SiteEditorTopBar from "../components/site-editor/SiteEditorTopBar.jsx";
 import StyleInspector from "../components/site-editor/StyleInspector.jsx";
-import { fetchSiteEditorDocument, fetchSiteEditorPages, saveSiteEditorDraft } from "../utils/siteEditorApi.js";
+import WebsiteConnectionScreen from "../components/site-editor/WebsiteConnectionScreen.jsx";
+import { fetchSiteEditorConnection, fetchSiteEditorDocument, fetchSiteEditorPages, saveSiteEditorDraft } from "../utils/siteEditorApi.js";
 import {
   currentSiteEditorDocument, createSiteEditorState, normalizeSiteEditorPage, siteEditorCapabilities,
   siteEditorDirection, siteEditorReducer, siteEditorText, trustedPagePreview, trustedSiteLabel,
@@ -26,7 +27,7 @@ function EditorAccessState({ language, missingCompany = false }) {
   const ar = language === "ar";
   return <section className="site-editor-access-state" role="alert">
     <strong>{missingCompany ? (ar ? "يلزم تحديد شركة موثوقة" : "Trusted company scope required") : (ar ? "ليس لديك صلاحية الوصول إلى المحرر" : "Site editor access required")}</strong>
-    <p>{missingCompany ? (ar ? "ارجع إلى المنصة واختر iCare من خلال تبديل الشركة الآمن." : "Return to the platform and enter iCare through the secure company switcher.") : (ar ? "اطلب صلاحية محرر الموقع من مسؤول الشركة." : "Ask a company administrator for site editor access.")}</p>
+    <p>{missingCompany ? (ar ? "ارجع إلى المنصة وادخل من خلال تبديل الشركة الآمن." : "Return to the platform and enter through the secure company switcher.") : (ar ? "اطلب صلاحية محرر الموقع من مسؤول الشركة." : "Ask a company administrator for site editor access.")}</p>
     <a href="/admin/dashboard">{ar ? "العودة إلى لوحة التحكم" : "Back to CPanel"}</a>
   </section>;
 }
@@ -36,6 +37,9 @@ export default function SiteEditorPage({ company, currentUser, isContextResolvin
   const [minimumElapsed, setMinimumElapsed] = React.useState(false);
   const [mediaNodeId, setMediaNodeId] = React.useState(null);
   const [notice, setNotice] = React.useState("");
+  const [connection, setConnection] = React.useState(null);
+  const [connectionStatus, setConnectionStatus] = React.useState("idle");
+  const [connectionReload, setConnectionReload] = React.useState(0);
   const capabilities = siteEditorCapabilities(currentUser, company);
   const activeLanguage = state.activeLocale;
   const direction = siteEditorDirection(activeLanguage);
@@ -64,18 +68,37 @@ export default function SiteEditorPage({ company, currentUser, isContextResolvin
   React.useEffect(() => {
     if (isContextResolving || !company || !capabilities.canAccess) return undefined;
     let cancelled = false;
+    setConnectionStatus("loading");
+    fetchSiteEditorConnection().then((result) => {
+      if (cancelled) return;
+      setConnection(result);
+      setConnectionStatus("ready");
+    }).catch((error) => {
+      if (cancelled) return;
+      setConnection(null);
+      setConnectionStatus("error");
+      setNotice(error.message || (activeLanguage === "ar" ? "تعذر تحميل اتصال الموقع." : "The website connection could not be loaded."));
+    });
+    return () => { cancelled = true; };
+  }, [capabilities.canAccess, company, connectionReload, isContextResolving, activeLanguage]);
+
+  const connected = connection?.hasManifest === true;
+
+  React.useEffect(() => {
+    if (isContextResolving || !company || !capabilities.canAccess || connectionStatus !== "ready" || !connected) return undefined;
+    let cancelled = false;
     dispatch({ type: "pages-loading" });
     fetchSiteEditorPages(language).then(async (items) => {
       if (cancelled) return;
       const pages = items.map((page) => normalizeSiteEditorPage(page, company.id)).filter(Boolean);
-      if (!pages.length) throw new Error("No trusted iCare Home page was returned by the local editor API.");
+      if (!pages.length) throw new Error("No trusted editable pages were returned by the local editor API.");
       dispatch({ type: "pages-success", pages, currentPageId: pages[0].id });
       await loadDocument(pages[0].id, language);
     }).catch((error) => {
       if (!cancelled) dispatch({ type: "pages-failure", error: error.message });
     });
     return () => { cancelled = true; };
-  }, [capabilities.canAccess, company, isContextResolving, language, loadDocument]);
+  }, [capabilities.canAccess, company, connectionStatus, connected, isContextResolving, language, loadDocument]);
 
   React.useEffect(() => {
     const beforeUnload = (event) => {
@@ -159,6 +182,20 @@ export default function SiteEditorPage({ company, currentUser, isContextResolvin
   if (!isContextResolving && minimumElapsed && company && !capabilities.canAccess) return <EditorAccessState language={language} />;
 
   const booting = isContextResolving || !minimumElapsed || state.pagesStatus === "idle" || state.pagesStatus === "loading" || state.documentStatus === "loading" || state.pagesStatus === "ready" && state.currentPageId && state.documentStatus === "idle";
+  if (booting && connectionStatus !== "ready") return <EditorLoading language={language} />;
+
+  if (connectionStatus === "ready" && !connected) return (
+    <WebsiteConnectionScreen
+      canEdit={capabilities.canEdit}
+      canSave={capabilities.canSave}
+      company={company}
+      connection={connection || undefined}
+      language={activeLanguage}
+      onBack={handleBack}
+      onConnected={() => { setConnectionReload((reload) => reload + 1); }}
+    />
+  );
+
   if (booting) return <EditorLoading language={language} />;
 
   return <div className="site-editor-root site-editor-enter" data-editor-direction={direction} dir={direction}>

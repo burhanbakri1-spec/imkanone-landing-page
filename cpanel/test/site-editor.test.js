@@ -8,7 +8,7 @@ import { resolvePage } from "../src/utils/cpanelAccess.js";
 import { canAccessAdminPage } from "../src/utils/roles.js";
 import {
   createSiteEditorState, currentSiteEditorDocument, normalizeSiteEditorPage,
-  siteEditorCapabilities, siteEditorDirection, siteEditorReducer, siteEditorTools,
+  siteEditorCapabilities, siteEditorDirection, siteEditorReducer, siteEditorText, siteEditorTools,
   trustedPagePreview, trustedSitePreview,
 } from "../src/utils/siteEditor.js";
 import {
@@ -167,7 +167,7 @@ test("30 cross-tenant pages and platform context are rejected", () => {
 test("31 arbitrary company and domain inputs are not API inputs", () => {
   assert.doesNotMatch(apiSource, /companyId|company_id|X-Company-Id/);
   assert.equal(trustedSitePreview({ ...company, storefrontUrl: "javascript:alert(1)" }), null);
-  assert.equal(trustedPagePreview(company, { ...page, tenantId: "eb-chemical" }), trustedSitePreview(company));
+  assert.equal(trustedPagePreview(company, { ...page, tenantId: "eb-chemical" }), null);
 });
 test("32 existing protected routing and localization remain intact", () => {
   assert.equal(getNavigationItem("admin-site-editor")?.path, "/admin/site-editor");
@@ -185,4 +185,82 @@ test("safe image settings and button links update only content", () => {
   assert.equal(findEditorNode(image, "image").node.content.alt, "Updated alt");
   const button = updateEditorLink(document, "button", "/icare/shop");
   assert.equal(findEditorNode(button, "button").node.content.link, "/icare/shop");
+});
+
+test("33 any connected tenant can edit without iCare hardcoding", () => {
+  const brandCompany = { id: "another-brand", slug: "another-brand", name: "Another Brand", storefrontUrl: "https://another-brand.example" };
+  const brandPage = { id: "catalog", tenantId: "another-brand", title: "Catalog", pageType: "standard", previewPath: "/catalog", routePattern: "/catalog", status: "source", isEditable: true };
+  assert.equal(normalizeSiteEditorPage(brandPage, "another-brand")?.id, "catalog");
+  assert.equal(normalizeSiteEditorPage({ ...brandPage, tenantId: "icare" }, "another-brand"), null);
+  const brandAdmin = { role: "company_admin", permissions: [] };
+  assert.deepEqual(siteEditorCapabilities(brandAdmin, brandCompany), { canAccess: true, canEdit: true, canSave: true });
+  assert.equal(trustedSitePreview(brandCompany), "https://another-brand.example/");
+  assert.equal(trustedPagePreview(brandCompany, brandPage), "https://another-brand.example/");
+  assert.equal(trustedSitePreview({ ...brandCompany, id: "icare" }), "https://another-brand.example/");
+});
+
+test("34 editor copy no longer names a specific tenant", () => {
+  assert.equal(siteEditorText("pages.description", "en"), "Choose a page to edit in the canvas.");
+  assert.doesNotMatch(pageSource, /iCare|icare/);
+  assert.doesNotMatch(pagesSource, /iCare|icare/);
+});
+
+const connectionSource = read("../src/components/site-editor/WebsiteConnectionScreen.jsx");
+
+test("35 connection screen appears when the company has no connected website", () => {
+  assert.match(pageSource, /fetchSiteEditorConnection/);
+  assert.match(pageSource, /connectionStatus !== "ready"/);
+  assert.match(pageSource, /connectionStatus === "ready" && !connected[\s\S]*?WebsiteConnectionScreen/);
+  assert.match(pageSource, /connection\?\.hasManifest === true/);
+});
+
+test("36 connection screen uses only the generic connection endpoints", () => {
+  assert.match(apiSource, /"\/site-editor\/connection", { cache: "no-store" }/);
+  assert.match(apiSource, /"\/site-editor\/connection", \{\s*method: "PUT"/);
+  assert.match(apiSource, /"\/site-editor\/connection\/validate", \{\s*method: "POST"/);
+  assert.match(apiSource, /"\/site-editor\/manifest\/sync", \{\s*method: "POST"/);
+  assert.doesNotMatch(apiSource, /companyId|company_id|X-Company-Id/);
+  assert.doesNotMatch(connectionSource, /companyId|company_id/);
+});
+
+test("37 connection form exposes the generic website fields", () => {
+  for (const marker of ["storefrontBaseUrl", "siteManifestUrl", "siteId", "defaultLocale", "supportedLocales"]) {
+    assert.match(connectionSource, new RegExp(marker));
+  }
+  assert.match(connectionSource, /\/api\/site-manifest/);
+  assert.match(connectionSource, /validateSiteEditorConnection\(url\)/);
+  assert.match(connectionSource, /syncSiteEditorManifest\(url\)/);
+  assert.match(connectionSource, /updateSiteEditorConnection\(/);
+});
+
+test("38 connection actions are the generic validate, connect, and resync flow", () => {
+  for (const marker of ["connection.validate", "connection.connectSync", "connection.resync"]) {
+    assert.match(connectionSource, new RegExp(marker));
+  }
+  assert.match(connectionSource, /type="submit"/);
+  assert.match(connectionSource, /busy === "validate"/);
+  assert.match(connectionSource, /busy === "connect"/);
+  assert.match(connectionSource, /busy === "resync"/);
+});
+
+test("39 connection screen shows status, last sync, and validation outcome", () => {
+  for (const marker of ["connection.lastSync", "connection.pending", "site-editor-connection-status", "site-editor-connection-notice"]) {
+    assert.match(connectionSource, new RegExp(marker));
+  }
+  assert.match(connectionSource, /lastManifestSyncAt/);
+  assert.match(connectionSource, /connectionError/);
+});
+
+test("40 connection CSS is scoped and responsive", () => {
+  assert.match(cssSource, /\.site-editor-connection /);
+  assert.match(cssSource, /site-editor-connection-card/);
+  assert.match(cssSource, /@media \(max-width: 820px\)/);
+});
+
+test("41 connection copy is localized for English and Arabic", () => {
+  assert.equal(siteEditorText("connection.title", "en"), "Connect your website");
+  assert.equal(siteEditorText("connection.title", "ar"), "اربط موقعك");
+  assert.equal(siteEditorText("connection.connectSync", "en"), "Connect and Sync");
+  assert.equal(siteEditorText("connection.resync", "ar"), "أعد مزامنة البيان");
+  assert.equal(siteEditorText("connection.siteManifestUrlHint", "en"), "Defaults to {url}");
 });

@@ -1,6 +1,9 @@
 const PAGE_TYPES = new Set(["standard", "dynamic", "system"]);
-const SECTION_TYPES = new Set(["section", "hero", "content"]);
-const ELEMENT_TYPES = new Set(["heading", "text", "image", "button", "container"]);
+export const GENERIC_ELEMENT_TYPES = new Set([
+  "heading", "text", "richText", "image", "button", "link",
+  "container", "section", "list", "productCollection", "categoryCollection", "spacer",
+]);
+const SECTION_TYPE_PATTERN = /^[a-z0-9][a-z0-9:_-]{0,79}$/i;
 const STYLE_KEYS = new Set([
   "alignment", "backgroundColor", "borderRadius", "color", "contentAlignment",
   "fontSize", "fontWeight", "heightMode", "lineHeight", "objectFit", "padding",
@@ -95,17 +98,35 @@ function normalizeSettings(value = {}) {
     if (!ID_PATTERN.test(key)) continue;
     if (["string", "number", "boolean"].includes(typeof entry)) {
       normalized[key] = typeof entry === "string" ? plainText(entry, `setting ${key}`, 500) : entry;
+    } else if (key === "sourceBinding" && entry && typeof entry === "object" && !Array.isArray(entry)) {
+      const source = {};
+      for (const [sourceKey, sourceValue] of Object.entries(entry).slice(0, 20)) {
+        if (!ID_PATTERN.test(sourceKey)) continue;
+        source[sourceKey] = plainText(sourceValue, `setting ${key}.${sourceKey}`, 500);
+      }
+      if (Object.keys(source).length) normalized[key] = source;
+    } else if (key === "editableProperties" && Array.isArray(entry)) {
+      const allowed = entry.map((item) => plainText(item, "setting editableProperties", 100))
+        .filter((item) => GENERIC_ELEMENT_TYPES.has(item) || ["content", "styles", "responsive", "source"].includes(item));
+      if (allowed.length) normalized[key] = allowed.slice(0, 20);
     }
   }
   return normalized;
 }
 
+function sanitizeRichText(value) {
+  const result = String(value ?? "").replace(/\u0000/g, "").slice(0, 20000);
+  assert(!UNSAFE_MARKUP.test(result), "richText contains unsafe markup.");
+  return result;
+}
+
 function normalizeContent(type, value = {}) {
   const content = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   if (type === "heading" || type === "text") return { text: plainText(content.text, `${type} text`) };
-  if (type === "button") {
-    assert(isSafeEditorUrl(content.link || ""), "Button link is unsafe.");
-    return { label: plainText(content.label, "button label", 300), link: String(content.link || "").trim() };
+  if (type === "richText") return { text: sanitizeRichText(content.text) };
+  if (type === "button" || type === "link") {
+    assert(isSafeEditorUrl(content.link || ""), `${type} link is unsafe.`);
+    return { label: plainText(content.label, `${type} label`, 300), link: String(content.link || "").trim() };
   }
   if (type === "image") {
     assert(isSafeEditorUrl(content.src || "", { allowEmpty: false }), "Image URL is unsafe.");
@@ -124,7 +145,7 @@ function normalizeElement(element, depth = 0) {
   assert(depth <= 5, "Element nesting is too deep.");
   assert(element && typeof element === "object" && !Array.isArray(element), "Element is invalid.");
   const type = String(element.type || "");
-  assert(ELEMENT_TYPES.has(type), `Unsupported element type: ${type || "unknown"}.`);
+  assert(GENERIC_ELEMENT_TYPES.has(type), `Unsupported element type: ${type || "unknown"}.`);
   const children = Array.isArray(element.children) ? element.children : [];
   assert(children.length <= 80, "An element has too many children.");
   return {
@@ -143,7 +164,7 @@ function normalizeElement(element, depth = 0) {
 function normalizeSection(section, index) {
   assert(section && typeof section === "object" && !Array.isArray(section), "Section is invalid.");
   const type = String(section.type || "");
-  assert(SECTION_TYPES.has(type), `Unsupported section type: ${type || "unknown"}.`);
+  assert(SECTION_TYPE_PATTERN.test(type), `Unsupported section type: ${type || "unknown"}.`);
   const elements = Array.isArray(section.elements) ? section.elements : [];
   assert(elements.length <= 100, "A section has too many elements.");
   return {
@@ -165,7 +186,7 @@ export function validatePageDocument(input, { companyId, pageId, previewPath = "
   const normalizedPageId = safeId(pageId || input.pageId, "page id");
   assert(String(input.pageId || normalizedPageId) === normalizedPageId, "Page identity does not match the requested page.");
   assert(PAGE_TYPES.has(input.pageType || "standard"), "Page type is invalid.");
-  assert(input.previewPath === previewPath && input.routePattern === routePattern, "Page route does not match the trusted page registry.");
+  assert(input.previewPath === previewPath && input.routePattern === routePattern, "Page route does not match the trusted site manifest.");
   const revision = Number(input.revision || 0);
   assert(Number.isInteger(revision) && revision >= 0, "Document revision is invalid.");
 

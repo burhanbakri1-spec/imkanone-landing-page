@@ -24,8 +24,9 @@ function readDrafts() {
 
 const drafts = readDrafts();
 
-function draftKey(companyId, pageId, locale) {
-  return `${companyId}:${locale}:${pageId}`;
+function draftKey(companyId, siteId, pageId, locale) {
+  const site = String(siteId || "").trim();
+  return site ? `${companyId}:${site}:${locale}:${pageId}` : `${companyId}:${locale}:${pageId}`;
 }
 
 function persistLocalDrafts() {
@@ -41,13 +42,13 @@ function persistLocalDrafts() {
   fs.renameSync(temporary, draftFile);
 }
 
-export function getLocalSiteEditorDraft(companyId, pageId, locale = "en") {
-  const record = drafts[draftKey(companyId, pageId, locale)];
+export function getLocalSiteEditorDraft(companyId, siteId = "", pageId, locale = "en") {
+  const record = drafts[draftKey(companyId, siteId, pageId, locale)];
   return record ? clone(record) : null;
 }
 
-export function saveLocalSiteEditorDraft({ companyId, pageId, locale = "en", expectedRevision, document, actor }) {
-  const key = draftKey(companyId, pageId, locale);
+export function saveLocalSiteEditorDraft({ companyId, siteId = "", pageId, locale = "en", expectedRevision, document, actor }) {
+  const key = draftKey(companyId, siteId, pageId, locale);
   const current = drafts[key] || null;
   const currentRevision = Number(current?.document?.revision || 0);
   if (Number(expectedRevision) !== currentRevision) {

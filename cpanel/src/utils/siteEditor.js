@@ -15,7 +15,7 @@ const copy = Object.freeze({
   "tool.ai-tools": { en: "AI Tools", ar: "أدوات الذكاء الاصطناعي" },
   "tool.layers": { en: "Layers", ar: "الطبقات" },
   "pages.title": { en: "Pages & Menu", ar: "الصفحات والقائمة" },
-  "pages.description": { en: "Choose the iCare page to edit in the canvas.", ar: "اختر صفحة iCare لتحريرها في اللوحة." },
+  "pages.description": { en: "Choose a page to edit in the canvas.", ar: "اختر صفحة لتحريرها في اللوحة." },
   "pages.sitePages": { en: "Site pages", ar: "صفحات الموقع" },
   "pages.search": { en: "Search pages", ar: "البحث في الصفحات" },
   "pages.empty": { en: "No editable pages are available for this tenant.", ar: "لا توجد صفحات قابلة للتحرير لهذا المستأجر." },
@@ -26,6 +26,28 @@ const copy = Object.freeze({
   "pages.current": { en: "Current page", ar: "الصفحة الحالية" },
   "pages.draft": { en: "Draft", ar: "مسودة" },
   "pages.publishedSource": { en: "Published source", ar: "المصدر المنشور" },
+  "connection.title": { en: "Connect your website", ar: "اربط موقعك" },
+  "connection.description": { en: "Connect a storefront to start editing its pages. The editor reads pages and sections directly from the site manifest, so anything the storefront publishes appears here automatically.", ar: "اربط متجرًا لبدء تحرير صفحاته. يقرأ المحرر الصفحات والأقسام مباشرة من بيان الموقع، لذا يظهر كل ما ينشره المتجر هنا تلقائيًا." },
+  "connection.storefrontBaseUrl": { en: "Storefront URL", ar: "رابط المتجر" },
+  "connection.storefrontBaseUrlHint": { en: "The public HTTPS origin of the storefront.", ar: "الأصل العام الآمن HTTPS للمتجر." },
+  "connection.siteManifestUrl": { en: "Site manifest URL (optional)", ar: "رابط بيان الموقع (اختياري)" },
+  "connection.siteManifestUrlHint": { en: "Defaults to {url}", ar: "الافتراضي هو {url}" },
+  "connection.siteId": { en: "Site ID", ar: "معرّف الموقع" },
+  "connection.defaultLocale": { en: "Default locale", ar: "اللغة الافتراضية" },
+  "connection.supportedLocales": { en: "Supported locales", ar: "اللغات المدعومة" },
+  "connection.status": { en: "Connection status", ar: "حالة الاتصال" },
+  "connection.lastSync": { en: "Last sync", ar: "آخر مزامنة" },
+  "connection.never": { en: "Never", ar: "أبدًا" },
+  "connection.connected": { en: "Connected", ar: "متصل" },
+  "connection.notConnected": { en: "Not connected", ar: "غير متصل" },
+  "connection.error": { en: "Connection error", ar: "خطأ في الاتصال" },
+  "connection.validate": { en: "Validate Connection", ar: "تحقق من الاتصال" },
+  "connection.connectSync": { en: "Connect and Sync", ar: "اتصل وامسح ضوئيًا" },
+  "connection.resync": { en: "Resync Manifest", ar: "أعد مزامنة البيان" },
+  "connection.valid": { en: "Connection is valid", ar: "الاتصال سليم" },
+  "connection.invalid": { en: "Connection is invalid", ar: "الاتصال غير سليم" },
+  "connection.pageCount": { en: "{count} pages", ar: "{count} صفحة" },
+  "connection.pending": { en: "Working…", ar: "جارٍ المعالجة…" },
   "editor.loading": { en: "Loading site editor…", ar: "جارٍ تحميل محرر الموقع…" },
   "editor.loadingDetail": { en: "Loading pages and the editable Home document…", ar: "جارٍ تحميل الصفحات ومستند الصفحة الرئيسية…" },
   "editor.unsaved": { en: "Unsaved changes", ar: "تغييرات غير محفوظة" },
@@ -57,8 +79,7 @@ export const siteEditorTools = Object.freeze([
 ]);
 
 export function normalizeSiteEditorPage(page, companyId) {
-  if (!page || page.tenantId !== companyId || page.id !== `${companyId}:home`) return null;
-  if (page.previewPath !== "/icare" || page.routePattern !== "/icare") return null;
+  if (!page || page.tenantId !== companyId) return null;
   return { ...page, tenantId: companyId, isEditable: page.isEditable === true };
 }
 
@@ -160,14 +181,14 @@ export function siteEditorReducer(state, action) {
 }
 
 export function siteEditorCapabilities(user, company) {
-  const trustedTenant = company?.id === "icare" && (!company?.slug || company.slug === "icare");
+  if (!user || !company) return { canAccess: false, canEdit: false, canSave: false };
   const role = user?.role;
-  const admin = ["admin", "company_admin"].includes(role) || role === "super_admin" && trustedTenant;
+  const admin = ["admin", "company_admin"].includes(role) || role === "super_admin";
   const permissions = new Set(user?.permissions || []);
   return {
-    canAccess: trustedTenant && (admin || permissions.has("site_editor.access")),
-    canEdit: trustedTenant && (admin || permissions.has("site_editor.edit")),
-    canSave: trustedTenant && (admin || permissions.has("site_editor.save")),
+    canAccess: admin || permissions.has("site_editor.access"),
+    canEdit: admin || permissions.has("site_editor.edit"),
+    canSave: admin || permissions.has("site_editor.save"),
   };
 }
 
@@ -175,12 +196,12 @@ export function siteEditorDirection(locale) { return locale === "ar" ? "rtl" : "
 export function siteEditorZoomScale(zoom) { return zoom === "50" ? 0.5 : zoom === "75" ? 0.75 : zoom === "100" ? 1 : 0.82; }
 
 export function trustedSitePreview(company) {
-  if (!company || typeof company !== "object" || company.id !== "icare" || company.slug !== "icare") return null;
+  if (!company || typeof company !== "object") return null;
   const configured = company.storefrontUrl || company.settings?.storefrontUrl;
   if (!configured || typeof configured !== "string") return null;
   try {
     const url = new URL(configured.trim());
-    if (!["http:", "https:"].includes(url.protocol) || url.pathname.replace(/\/$/, "") !== "/icare") return null;
+    if (!["http:", "https:"].includes(url.protocol)) return null;
     return url.toString();
   } catch { return null; }
 }
@@ -194,6 +215,6 @@ export function trustedSiteLabel(company) {
 
 export function trustedPagePreview(company, page) {
   const storefront = trustedSitePreview(company);
-  if (!storefront || page?.tenantId !== company.id || page?.previewPath !== "/icare") return storefront;
+  if (!storefront || page?.tenantId !== company.id) return null;
   return storefront;
 }

@@ -1,9 +1,25 @@
 import { Router } from "express";
 import { companyRepository, websiteMediaRepository } from "../data/store.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
-import { createIcareHomeDocument, HOME_PAGE_ID, listEditableIcarePages } from "../siteEditor/icareHomeAdapter.js";
+import {
+  assertManifestMatchesCompany,
+  connectionSummary,
+  normalizeWebsiteConnectionPatch,
+  validateConnectionUrl,
+} from "../siteEditor/websiteConnection.js";
+import {
+  manifestForCompany,
+  manifestRoute,
+  requireManifestForCompany,
+  syncManifestForCompany,
+  validateManifestForCompany,
+} from "../siteEditor/connector.js";
 import { getSiteEditorDraft, saveSiteEditorDraft, siteEditorDraftStorageKind } from "../siteEditor/draftRepository.js";
 import { assertDraftPayloadSize, SiteEditorValidationError, validatePageDocument } from "../siteEditor/schema.js";
+import {
+  buildEditorPageDescriptor,
+  manifestPageToDocument,
+} from "../siteEditor/siteManifest.js";
 
 const router = Router();
 
@@ -20,16 +36,6 @@ function activeLocale(value) {
 function requireTrustedEditorTenant(req, res, next) {
   if (!req.companyId || !req.company || (!req.membership && !req.tenantScope)) {
     return res.status(403).json({ message: "A trusted company scope is required.", code: "TENANT_SCOPE_REQUIRED" });
-  }
-  if (req.companyId !== "icare" || req.company.slug !== "icare") {
-    return res.status(404).json({ message: "No editable site is registered for this tenant.", code: "EDITOR_SITE_NOT_FOUND" });
-  }
-  return next();
-}
-
-function requireKnownPage(req, res, next) {
-  if (req.params.pageId !== HOME_PAGE_ID) {
-    return res.status(404).json({ message: "Editable page not found.", code: "EDITOR_PAGE_NOT_FOUND" });
   }
   return next();
 }
@@ -68,31 +74,43 @@ function validateTenantMedia(document, currentDocument, companyId) {
   }
 }
 
-async function currentDocument(companyId, pageId, locale) {
-  return (await getSiteEditorDraft(companyId, pageId, locale))?.document
-    || createIcareHomeDocument(companyId, locale);
+async function currentDocument(companyId, page, manifest, locale) {
+  return (await getSiteEditorDraft(companyId, page.id, locale, manifest.siteId))?.document
+    || manifestPageToDocument(page, manifest, { companyId, locale });
+}
+
+function manifestPage(req) {
+  const resolved = requireManifestForCompany(req.company);
+  const page = manifestRoute(resolved.manifest, req.params.pageId);
+  return { resolved, page };
 }
 
 router.get("/pages", requirePermission("site_editor.access"), async (req, res) => {
   try {
     const locale = activeLocale(req.query.locale);
-    const pages = await Promise.all(listEditableIcarePages(req.companyId, locale).map(async (page) => ({
-      ...page,
-      draftStatus: await getSiteEditorDraft(req.companyId, page.id, locale) ? "draft" : "published-source",
+    const { manifest } = requireManifestForCompany(req.company);
+    const pages = await Promise.all(manifest.pages.map(async (page) => ({
+      ...buildEditorPageDescriptor(page, manifest, {
+        companyId: req.companyId,
+        locale,
+        draftStatus: await getSiteEditorDraft(req.companyId, page.id, locale, manifest.siteId) ? "draft" : "published-source",
+      }),
     })));
-    return res.json({ items: pages, source: "tenant-page-adapter", locale });
+    return res.json({ items: pages, source: "site-manifest", siteId: manifest.siteId, locale });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ message: error.message || "Unable to load editor pages.", code: error.code || "EDITOR_PAGES_LOAD_FAILED" });
   }
 });
 
-router.get("/pages/:pageId", requirePermission("site_editor.access"), requireKnownPage, async (req, res) => {
+router.get("/pages/:pageId", requirePermission("site_editor.access"), async (req, res) => {
   try {
     const locale = activeLocale(req.query.locale);
-    const draft = await getSiteEditorDraft(req.companyId, req.params.pageId, locale);
-    const document = draft?.document || createIcareHomeDocument(req.companyId, locale);
-    if (!document) return res.status(404).json({ message: "Editable page document not found." });
-    return res.json({ document, source: draft ? `${siteEditorDraftStorageKind()}-draft` : "icare-home-adapter" });
+    const { manifest } = requireManifestForCompany(req.company);
+    const page = manifestRoute(manifest, req.params.pageId);
+    if (!page) return res.status(404).json({ message: "Editable page not found.", code: "EDITOR_PAGE_NOT_FOUND" });
+    const draft = await getSiteEditorDraft(req.companyId, page.id, locale, manifest.siteId);
+    const document = draft?.document || manifestPageToDocument(page, manifest, { companyId: req.companyId, locale });
+    return res.json({ document, source: draft ? `${siteEditorDraftStorageKind()}-draft` : "site-manifest" });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ message: error.message || "Unable to load the editor document.", code: error.code || "EDITOR_DOCUMENT_LOAD_FAILED" });
   }
@@ -103,23 +121,28 @@ router.put(
   requirePermission("site_editor.access"),
   requirePermission("site_editor.edit"),
   requirePermission("site_editor.save"),
-  requireKnownPage,
   async (req, res) => {
     try {
+      const { manifest } = requireManifestForCompany(req.company);
+      const page = manifestRoute(manifest, req.params.pageId);
+      if (!page) return res.status(404).json({ message: "Editable page not found.", code: "EDITOR_PAGE_NOT_FOUND" });
       const locale = activeLocale(req.body?.document?.locale);
       const expectedRevision = Number(req.body?.revision);
       if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
         throw new SiteEditorValidationError("Expected revision is required.");
       }
       assertDraftPayloadSize(req.body?.document);
-      const before = await currentDocument(req.companyId, req.params.pageId, locale);
+      const before = await currentDocument(req.companyId, page, manifest, locale);
       const document = validatePageDocument(req.body?.document, {
         companyId: req.companyId,
         pageId: req.params.pageId,
+        previewPath: page.previewPath,
+        routePattern: page.routePattern,
       });
       validateTenantMedia(document, before, req.companyId);
       const saved = await saveSiteEditorDraft({
         companyId: req.companyId,
+        siteId: manifest.siteId,
         pageId: req.params.pageId,
         locale,
         expectedRevision,
@@ -138,8 +161,90 @@ router.put(
 );
 
 router.get("/context", requirePermission("site_editor.access"), (req, res) => {
+  try {
+    const resolved = requireManifestForCompany(req.company);
+    const manifest = resolved.manifest;
+    const company = companyRepository.getCompanyById(req.companyId);
+    return res.json({
+      company: company ? { id: company.id, slug: company.slug, name: company.name } : null,
+      site: {
+        id: manifest.siteId,
+        name: manifest.siteName,
+        baseUrl: manifest.baseUrl,
+        routePrefix: manifest.routePrefix,
+        defaultLocale: manifest.defaultLocale,
+        supportedLocales: manifest.supportedLocales,
+      },
+      connection: connectionSummary(req.company),
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ message: error.message || "Unable to load the editor context.", code: error.code || "EDITOR_CONTEXT_LOAD_FAILED" });
+  }
+});
+
+router.get("/connection", requirePermission("site_editor.access"), (req, res) => {
   const company = companyRepository.getCompanyById(req.companyId);
-  return res.json({ company: company ? { id: company.id, slug: company.slug, name: company.name } : null });
+  if (!company) return res.status(404).json({ message: "Company not found." });
+  return res.json({
+    companyId: company.id,
+    ...connectionSummary(company),
+    resolvedSource: manifestForCompany(company)?.source || null,
+  });
+});
+
+router.post("/connection/validate", requirePermission("site_editor.access"), requirePermission("site_editor.edit"), async (req, res) => {
+  try {
+    const report = await validateManifestForCompany(req.company, { url: req.body?.siteManifestUrl });
+    return res.json(report);
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ message: error.message || "Unable to validate the website connection.", code: error.code || "CONNECTION_VALIDATION_FAILED" });
+  }
+});
+
+router.post("/manifest/sync", requirePermission("site_editor.access"), requirePermission("site_editor.save"), async (req, res) => {
+  try {
+    const result = await syncManifestForCompany(req.company, { url: req.body?.siteManifestUrl });
+    assertManifestMatchesCompany(result.manifest, req.company);
+    await companyRepository.recordWebsiteManifestSync(req.companyId, {
+      manifest: result.manifest,
+      syncedAt: result.syncedAt,
+      siteManifestUrl: result.siteManifestUrl,
+    });
+    const company = companyRepository.getCompanyById(req.companyId);
+    return res.json({
+      synced: true,
+      source: result.source,
+      siteManifestUrl: result.siteManifestUrl,
+      schemaVersion: result.manifest.schemaVersion,
+      companyId: result.manifest.companyId,
+      siteId: result.manifest.siteId,
+      siteName: result.manifest.siteName,
+      pageCount: result.manifest.pages.length,
+      syncedAt: result.syncedAt,
+      connection: connectionSummary(company),
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ message: error.message || "Unable to synchronize the site manifest.", code: error.code || "MANIFEST_SYNC_FAILED" });
+  }
+});
+
+router.put("/connection", requirePermission("site_editor.access"), requirePermission("site_editor.edit"), async (req, res) => {
+  try {
+    const patch = normalizeWebsiteConnectionPatch(req.body);
+    for (const key of ["siteManifestUrl", "storefrontBaseUrl"]) {
+      if (patch[key] !== undefined && patch[key]) {
+        patch[key] = validateConnectionUrl(patch[key], key);
+      }
+    }
+    const updated = await companyRepository.updateWebsiteConnection(req.companyId, {
+      ...patch,
+      connectionStatus: "not-configured",
+      connectionError: "",
+    });
+    return res.json(updated);
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ message: error.message || "Unable to update the website connection.", code: error.code || "CONNECTION_UPDATE_FAILED" });
+  }
 });
 
 export default router;
