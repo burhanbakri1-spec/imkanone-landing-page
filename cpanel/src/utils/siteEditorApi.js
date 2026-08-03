@@ -45,3 +45,9 @@ export async function saveSiteEditorDraft(pageId, document, revision) {
     body: JSON.stringify({ document, revision }),
   });
 }
+
+export async function fetchSiteEditorSectionLibrary() {
+  const payload = await apiRequest("/site-editor/section-library", { cache: "no-store" });
+  if (!payload || typeof payload !== "object") throw new TypeError("Site editor section library is invalid.");
+  return payload;
+}

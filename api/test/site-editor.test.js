@@ -88,6 +88,38 @@ const brandManifest = {
       ],
     },
   ],
+  sectionLibrary: {
+    version: "1",
+    blankSection: { enabled: true, sectionType: "content" },
+    categories: [
+      { id: "welcome", title: { en: "Welcome", ar: "ترحيب" }, order: 0 },
+      { id: "store", title: { en: "Store", ar: "المتجر" }, order: 1 },
+    ],
+    templates: [
+      {
+        templateId: "brand-hero-overlay",
+        categoryId: "welcome",
+        sectionType: "hero",
+        layoutVariant: "overlay",
+        title: { en: "Brand Hero", ar: "ترحيب العلامة" },
+        description: { en: "Brand only hero template", ar: "قالب ترحيب خاص بالعلامة" },
+        thumbnail: "https://another-brand.example/media/brand-hero-overlay.jpg",
+        pageTypes: ["standard"],
+        capabilities: { requiresMedia: true },
+        defaultSectionDocument: {
+          id: "brand-hero-overlay-section",
+          sectionType: "hero",
+          order: 0,
+          editable: true,
+          layout: { sourceComponent: "app/brand/components/Banner.tsx", contentAlignment: "center" },
+          responsive: {},
+          elements: [
+            { id: "brand-hero-overlay-heading", elementType: "heading", order: 0, editable: true, content: { en: { text: "Brand only heading" }, ar: { text: "عنوان العلامة" } }, source: null, styles: { alignment: "center" }, responsive: {}, validation: {}, editableProperties: ["content"], children: [] },
+          ],
+        },
+      },
+    ],
+  },
 };
 
 const companies = [
@@ -256,6 +288,26 @@ test("site editor API is authenticated, permissioned, tenant-scoped, validated, 
     assert.equal(legacyConnection.body.resolvedSource, "legacy");
   });
 
+  await t.test("section library is served from the connected tenant's own manifest only", async () => {
+    const brand = await request("/site-editor/section-library", { token: brandToken });
+    assert.equal(brand.status, 200);
+    assert.equal(brand.body.siteId, "another-brand-storefront");
+    assert.equal(brand.body.source, "remote");
+    assert.equal(brand.body.sectionLibrary.version, "1");
+    assert.deepEqual(brand.body.sectionLibrary.templates.map((template) => template.templateId), ["brand-hero-overlay"]);
+    assert.equal(JSON.stringify(brand.body.sectionLibrary).includes("Skincare made clear"), false);
+  });
+
+  await t.test("a tenant without a section library receives null, never another tenant's templates", async () => {
+    const icare = await request("/site-editor/section-library", { token: icareToken });
+    assert.equal(icare.status, 200);
+    assert.equal(icare.body.sectionLibrary, null);
+    assert.equal(JSON.stringify(icare.body).includes("brand-hero-overlay"), false);
+    const eb = await request("/site-editor/section-library", { token: ebToken });
+    assert.equal(eb.status, 409);
+    assert.equal(eb.body.code, "SITE_NOT_CONNECTED");
+  });
+
   await t.test("manifest sync for the legacy tenant returns the legacy provider source", async () => {
     const result = await request("/site-editor/manifest/sync", { token: icareToken, method: "POST", body: {} });
     assert.equal(result.status, 200);
@@ -316,11 +368,28 @@ test("site editor API is authenticated, permissioned, tenant-scoped, validated, 
     assert.equal(result.body.code, "TENANT_MEDIA_REQUIRED");
   });
 
+  await t.test("a new section background must reference active tenant media", async () => {
+    const rogueBackground = structuredClone(changed);
+    rogueBackground.sections[0].settings.backgroundImage = "/uploads/rogue-bg.jpg";
+    const result = await request("/site-editor/pages/home/draft", { token: icareToken, method: "PUT", body: { revision: 1, document: rogueBackground } });
+    assert.equal(result.status, 400);
+    assert.equal(result.body.code, "TENANT_MEDIA_REQUIRED");
+  });
+
   await t.test("active iCare media replacement succeeds at the current revision", async () => {
     const replacement = structuredClone(changed);
     replacement.sections[0].elements.find((element) => element.type === "image").content = { src: "/uploads/icare-alt.jpg", alt: "alternate", link: "", assetId: "icare-alt" };
     const result = await request("/site-editor/pages/home/draft", { token: icareToken, method: "PUT", body: { revision: 1, document: replacement } });
     assert.equal(result.status, 200);
     assert.equal(result.body.revision, 2);
+  });
+
+  await t.test("an active tenant media section background saves successfully", async () => {
+    const background = structuredClone(changed);
+    background.sections[0].settings.backgroundImage = "/uploads/icare-hero.jpg";
+    const result = await request("/site-editor/pages/home/draft", { token: icareToken, method: "PUT", body: { revision: 2, document: background } });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.revision, 3);
+    assert.equal(result.body.document.sections[0].settings.backgroundImage, "/uploads/icare-hero.jpg");
   });
 });

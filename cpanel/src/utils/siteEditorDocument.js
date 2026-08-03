@@ -121,6 +121,16 @@ export function updateEditorImageSettings(document, nodeId, changes) {
   } : node);
 }
 
+export function updateEditorContentList(document, nodeId, items) {
+  const safeItems = Array.isArray(items)
+    ? items.map((item) => plainEditorText(item)).filter((item) => String(item).trim() !== "")
+    : [];
+  return updateEditorNode(document, nodeId, (node) => node.type === "list" ? {
+    ...node,
+    content: { ...node.content, items: safeItems },
+  } : node);
+}
+
 export function moveEditorSection(document, sectionId, direction) {
   const sections = [...(document.sections || [])];
   const index = sections.findIndex((section) => section.id === sectionId);

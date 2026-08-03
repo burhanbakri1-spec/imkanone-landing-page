@@ -104,7 +104,7 @@ export default function WebsiteConnectionScreen({ company, connection, language,
   const connected = summary.connectionStatus === "connected" || summary.hasManifest === true;
   const canAct = canEdit && canSave;
 
-  return <section className="site-editor-root site-editor-enter" dir={ar ? "rtl" : "ltr"}>
+  return <section className="site-editor-root site-editor-connection-root site-editor-enter" dir={ar ? "rtl" : "ltr"}>
     <header className="site-editor-topbar">
       <div className="site-editor-topbar-start">
         <span className="site-editor-product-mark" aria-label="iGroup">iG</span>

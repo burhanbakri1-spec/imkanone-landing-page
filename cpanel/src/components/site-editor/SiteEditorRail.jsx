@@ -37,9 +37,11 @@ function utilityPlaceholder(panel, ar) {
 export default function SiteEditorRail({ company, dispatch, language, onSelectPage, pages, state }) {
   const ar = language === "ar";
   const activeTool = siteEditorTools.find((item) => item.id === state.activePanel);
-  const placeholder = activeTool && activeTool.id !== "pages-menu"
-    ? placeholderCopy(activeTool, ar)
-    : utilityPlaceholder(state.activePanel, ar);
+  const placeholder = state.activePanel === "add-section"
+    ? null
+    : activeTool && activeTool.id !== "pages-menu"
+      ? placeholderCopy(activeTool, ar)
+      : utilityPlaceholder(state.activePanel, ar);
   const PlaceholderIcon = placeholder?.icon;
   const primaryTools = siteEditorTools.slice(0, 9);
   const footerTools = siteEditorTools.slice(9);

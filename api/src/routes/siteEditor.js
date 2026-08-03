@@ -6,9 +6,10 @@ import {
   connectionSummary,
   normalizeWebsiteConnectionPatch,
   validateConnectionUrl,
+  websiteConnectionSettings,
 } from "../siteEditor/websiteConnection.js";
 import {
-  manifestForCompany,
+  connectionResolution,
   manifestRoute,
   requireManifestForCompany,
   syncManifestForCompany,
@@ -59,9 +60,16 @@ function imageNodes(document) {
   return images;
 }
 
+function backgroundImages(document) {
+  return (document.sections || []).map((section) => String(section.settings?.backgroundImage || "")).filter(Boolean);
+}
+
 function validateTenantMedia(document, currentDocument, companyId) {
   const mediaByUrl = activeMediaUrls(companyId);
-  const currentUrls = new Set(imageNodes(currentDocument).map((node) => node.content.src));
+  const currentUrls = new Set([
+    ...imageNodes(currentDocument).map((node) => node.content.src),
+    ...backgroundImages(currentDocument),
+  ]);
   for (const image of imageNodes(document)) {
     const source = image.content.src;
     if (currentUrls.has(source)) continue;
@@ -71,6 +79,12 @@ function validateTenantMedia(document, currentDocument, companyId) {
       throw new SiteEditorValidationError("Image asset identity does not match the current tenant media record.", 400, "TENANT_MEDIA_REQUIRED");
     }
     image.content.assetId = media.id;
+  }
+  for (const url of backgroundImages(document)) {
+    if (currentUrls.has(url)) continue;
+    if (!mediaByUrl.get(url)) {
+      throw new SiteEditorValidationError("Section background must reference active media from the current tenant.", 400, "TENANT_MEDIA_REQUIRED");
+    }
   }
 }
 
@@ -160,6 +174,23 @@ router.put(
   },
 );
 
+router.get("/section-library", requirePermission("site_editor.access"), (req, res) => {
+  try {
+    const resolved = requireManifestForCompany(req.company);
+    return res.json({
+      sectionLibrary: resolved.manifest.sectionLibrary || null,
+      source: resolved.source,
+      siteId: resolved.manifest.siteId,
+      ...(resolved.source === "legacy" ? { requiresConnection: true } : {}),
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      message: error.message || "Unable to load the section library.",
+      code: error.code || "SECTION_LIBRARY_LOAD_FAILED",
+    });
+  }
+});
+
 router.get("/context", requirePermission("site_editor.access"), (req, res) => {
   try {
     const resolved = requireManifestForCompany(req.company);
@@ -185,10 +216,12 @@ router.get("/context", requirePermission("site_editor.access"), (req, res) => {
 router.get("/connection", requirePermission("site_editor.access"), (req, res) => {
   const company = companyRepository.getCompanyById(req.companyId);
   if (!company) return res.status(404).json({ message: "Company not found." });
+  const resolution = connectionResolution(company);
   return res.json({
     companyId: company.id,
     ...connectionSummary(company),
-    resolvedSource: manifestForCompany(company)?.source || null,
+    resolvedSource: resolution.source,
+    resolution: resolution.resolution,
   });
 });
 
@@ -205,12 +238,17 @@ router.post("/manifest/sync", requirePermission("site_editor.access"), requirePe
   try {
     const result = await syncManifestForCompany(req.company, { url: req.body?.siteManifestUrl });
     assertManifestMatchesCompany(result.manifest, req.company);
-    await companyRepository.recordWebsiteManifestSync(req.companyId, {
-      manifest: result.manifest,
-      syncedAt: result.syncedAt,
-      siteManifestUrl: result.siteManifestUrl,
-    });
-    const company = companyRepository.getCompanyById(req.companyId);
+    let connection;
+    if (result.source === "remote") {
+      await companyRepository.recordWebsiteManifestSync(req.companyId, {
+        manifest: result.manifest,
+        syncedAt: result.syncedAt,
+        siteManifestUrl: result.siteManifestUrl,
+      });
+      connection = connectionSummary(companyRepository.getCompanyById(req.companyId));
+    } else {
+      connection = connectionSummary(req.company);
+    }
     return res.json({
       synced: true,
       source: result.source,
@@ -221,9 +259,16 @@ router.post("/manifest/sync", requirePermission("site_editor.access"), requirePe
       siteName: result.manifest.siteName,
       pageCount: result.manifest.pages.length,
       syncedAt: result.syncedAt,
-      connection: connectionSummary(company),
+      connection,
     });
   } catch (error) {
+    const connection = websiteConnectionSettings(req.company);
+    if (connection?.siteManifestUrl) {
+      await companyRepository.recordWebsiteManifestSync(req.companyId, {
+        siteManifestUrl: connection.siteManifestUrl,
+        connectionError: error.message || "Unable to synchronize the site manifest.",
+      }).catch(() => {});
+    }
     return res.status(error.statusCode || 500).json({ message: error.message || "Unable to synchronize the site manifest.", code: error.code || "MANIFEST_SYNC_FAILED" });
   }
 });
@@ -236,10 +281,25 @@ router.put("/connection", requirePermission("site_editor.access"), requirePermis
         patch[key] = validateConnectionUrl(patch[key], key);
       }
     }
+    const hasManifestUrlPatch = Object.prototype.hasOwnProperty.call(patch, "siteManifestUrl");
+    const disconnected = hasManifestUrlPatch && !patch.siteManifestUrl;
+    const reconfiguring = hasManifestUrlPatch && !disconnected;
     const updated = await companyRepository.updateWebsiteConnection(req.companyId, {
       ...patch,
-      connectionStatus: "not-configured",
-      connectionError: "",
+      ...(disconnected
+        ? {
+            connectionStatus: "not-configured",
+            connectionError: "",
+            lastManifest: null,
+            lastManifestSyncAt: null,
+            manifestSchemaVersion: null,
+          }
+        : reconfiguring
+          ? {
+              connectionStatus: "not-configured",
+              connectionError: "",
+            }
+          : {}),
     });
     return res.json(updated);
   } catch (error) {

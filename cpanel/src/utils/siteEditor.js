@@ -1,4 +1,10 @@
 import { documentFingerprint } from "./siteEditorDocument.js";
+import {
+  blankSectionTemplate,
+  insertSectionAtTarget,
+  sectionLibraryCategories,
+  validSectionInsertPosition,
+} from "./siteEditorSectionLibrary.js";
 
 export const siteEditorPath = "/admin/site-editor";
 
@@ -56,6 +62,67 @@ const copy = Object.freeze({
   "editor.loaded": { en: "Draft loaded", ar: "تم تحميل المسودة" },
   "editor.saveFailed": { en: "Save failed", ar: "فشل الحفظ" },
   "editor.conflict": { en: "Conflict detected", ar: "تم اكتشاف تعارض" },
+  "quickEdit.panelTitle": { en: "Quick Edit", ar: "تعديل سريع" },
+  "quickEdit.change": { en: "Change", ar: "تغيير" },
+  "quickEdit.sectionBackground": { en: "Section background", ar: "خلفية القسم" },
+  "quickEdit.backgroundImage": { en: "Background image", ar: "صورة الخلفية" },
+  "quickEdit.spacingVertical": { en: "Vertical spacing", ar: "المسافة الرأسية" },
+  "quickEdit.spacingHorizontal": { en: "Horizontal spacing", ar: "المسافة الأفقية" },
+  "quickEdit.contentAlignment": { en: "Content alignment", ar: "محاذاة المحتوى" },
+  "quickEdit.title": { en: "Title", ar: "العنوان" },
+  "quickEdit.text": { en: "Text", ar: "النص" },
+  "quickEdit.alignment": { en: "Alignment", ar: "المحاذاة" },
+  "quickEdit.button": { en: "Button", ar: "الزر" },
+  "quickEdit.linkLabel": { en: "Link label", ar: "نص الرابط" },
+  "quickEdit.link": { en: "Link", ar: "الرابط" },
+  "quickEdit.image": { en: "Image", ar: "الصورة" },
+  "quickEdit.alt": { en: "Alt text", ar: "النص البديل" },
+  "quickEdit.background": { en: "Background", ar: "الخلفية" },
+  "quickEdit.width": { en: "Width", ar: "العرض" },
+  "quickEdit.products": { en: "Products", ar: "المنتجات" },
+  "quickEdit.categories": { en: "Categories", ar: "الفئات" },
+  "quickEdit.list": { en: "List", ar: "القائمة" },
+  "quickEdit.element": { en: "Element", ar: "العنصر" },
+  "quickEdit.limit": { en: "Limit", ar: "الحد" },
+  "quickEdit.order": { en: "Order", ar: "الترتيب" },
+  "quickEdit.readOnly": { en: "Read only", ar: "للعرض فقط" },
+  "addSection.panelTitle": { en: "Add Section", ar: "إضافة قسم" },
+  "addSection.templatesTab": { en: "Templates", ar: "التنسيقات" },
+  "addSection.savedSections": { en: "Saved Sections", ar: "الأقسام المحفوظة" },
+  "addSection.savedSectionsComingSoon": { en: "Saved sections are coming soon.", ar: "الأقسام المحفوظة ستتوفر قريبًا." },
+  "addSection.blankSection": { en: "Blank Section", ar: "قسم فارغ" },
+  "addSection.blankSectionHint": { en: "Add an empty editable section.", ar: "أضف قسمًا فارغًا قابلاً للتحرير." },
+  "addSection.blankSectionUnavailable": { en: "This website does not provide a blank section layout.", ar: "لا يوفر هذا الموقع تنسيق قسم فارغ." },
+  "addSection.noTemplates": { en: "This website does not provide reusable section layouts yet.", ar: "لا يوفر هذا الموقع تنسيقات أقسام قابلة لإعادة الاستخدام بعد." },
+  "addSection.requiresConnection": { en: "Reusable section layouts require connecting this storefront's site manifest.", ar: "تتطلب تنسيقات الأقسام القابلة لإعادة الاستخدام ربط بيان موقع هذا المتجر." },
+  "addSection.connectWebsite": { en: "Open website connection", ar: "فتح إعداد اتصال الموقع" },
+  "addSection.noTemplatesForPage": { en: "No templates are available for this page type.", ar: "لا توجد تنسيقات متاحة لنوع الصفحة هذا." },
+  "addSection.loading": { en: "Loading section library…", ar: "جارٍ تحميل مكتبة الأقسام…" },
+  "addSection.loadError": { en: "The section library could not be loaded.", ar: "تعذر تحميل مكتبة الأقسام." },
+  "addSection.retry": { en: "Retry", ar: "إعادة المحاولة" },
+  "addSection.selectTemplate": { en: "Select a template to add it to the page.", ar: "اختر تنسيقًا لإضافته إلى الصفحة." },
+  "addSection.insertPosition": { en: "Insert position", ar: "موضع الإدراج" },
+  "addSection.insertAfter": { en: "Add after selected section", ar: "إضافة بعد القسم المحدد" },
+  "addSection.insertBefore": { en: "Add before selected section", ar: "إضافة قبل القسم المحدد" },
+  "addSection.insertEnd": { en: "Add to end of page", ar: "إضافة إلى نهاية الصفحة" },
+  "addSection.insert": { en: "Add to page", ar: "إضافة إلى الصفحة" },
+  "addSection.insertReadOnly": { en: "You have read-only editor access.", ar: "لديك صلاحية عرض فقط." },
+  "addSection.requiresProducts": { en: "Uses products", ar: "يستخدم المنتجات" },
+  "addSection.requiresMedia": { en: "Uses media", ar: "يستخدم الوسائط" },
+  "addSection.category.welcome": { en: "Welcome", ar: "ترحيب" },
+  "addSection.category.about": { en: "About", ar: "من نحن" },
+  "addSection.category.team": { en: "Team", ar: "الفريق" },
+  "addSection.category.contact": { en: "Contact", ar: "تواصل" },
+  "addSection.category.promotion": { en: "Promotion", ar: "عروض" },
+  "addSection.category.services": { en: "Services", ar: "الخدمات" },
+  "addSection.category.subscribe": { en: "Subscribe", ar: "اشتراك" },
+  "addSection.category.testimonials": { en: "Testimonials", ar: "آراء العملاء" },
+  "addSection.category.clients": { en: "Clients", ar: "العملاء" },
+  "addSection.category.store": { en: "Store", ar: "المتجر" },
+  "addSection.category.basic": { en: "Basic", ar: "أساسي" },
+  "addSection.category.text": { en: "Text", ar: "نص" },
+  "addSection.category.list": { en: "List", ar: "قائمة" },
+  "addSection.category.form": { en: "Form", ar: "نموذج" },
 });
 
 export function siteEditorText(key, language = "en") {
@@ -92,6 +159,11 @@ export function createSiteEditorState(language = "en") {
     isDirty: false, saveStatus: "idle", saveError: "", currentRevision: 0,
     history: { past: [], future: [] }, savedFingerprints: {},
     activePanel: null, activeInspector: null,
+    quickEdit: null,
+    sectionLibrary: null, sectionLibraryStatus: "idle", sectionLibraryError: "",
+    sectionLibraryRequiresConnection: false,
+    activeSectionCategory: null, selectedSectionTemplate: null,
+    sectionInsertPosition: "after", sectionBusy: false,
   };
 }
 
@@ -106,7 +178,17 @@ function dirtyFor(state, document) {
 
 export function siteEditorReducer(state, action) {
   switch (action.type) {
-    case "toggle-panel": return { ...state, activePanel: state.activePanel === action.panel ? null : action.panel };
+    case "toggle-panel": {
+      if (state.activePanel === action.panel) {
+        return { ...state, activePanel: null };
+      }
+      if (action.panel === "add-section") {
+        return {
+          ...state, activePanel: action.panel, activeInspector: null, quickEdit: null,
+        };
+      }
+      return { ...state, activePanel: action.panel };
+    }
     case "close-panel": return { ...state, activePanel: null };
     case "pages-loading": return { ...state, pagesStatus: "loading", pagesError: "" };
     case "pages-success": return { ...state, pages: action.pages, pagesStatus: "ready", pagesError: "", currentPageId: action.currentPageId || action.pages[0]?.id || null };
@@ -128,10 +210,19 @@ export function siteEditorReducer(state, action) {
       };
     }
     case "document-failure": return { ...state, documentStatus: "error", documentError: action.error || "Unable to load page document." };
-    case "select-node": return { ...state, selectedNodeId: action.nodeId || null, selectedSectionId: action.sectionId || null, editingNodeId: null, activeInspector: action.inspector || null };
-    case "clear-selection": return { ...state, selectedNodeId: null, selectedSectionId: null, editingNodeId: null, activeInspector: null };
+    case "select-node": {
+      const sectionId = action.sectionId || state.selectedSectionId || state.quickEdit;
+      return {
+        ...state, selectedNodeId: action.nodeId || null, selectedSectionId: sectionId,
+        editingNodeId: null, activeInspector: action.inspector || null,
+        quickEdit: action.inspector ? null : (state.quickEdit ? sectionId : state.quickEdit),
+      };
+    }
+    case "clear-selection": return { ...state, selectedNodeId: null, selectedSectionId: null, editingNodeId: null, activeInspector: null, quickEdit: null };
     case "set-editing-node": return { ...state, editingNodeId: action.nodeId || null };
-    case "set-inspector": return { ...state, activeInspector: action.inspector || null };
+    case "open-quick-edit": return { ...state, selectedNodeId: action.sectionId || null, selectedSectionId: action.sectionId || null, editingNodeId: null, activeInspector: null, quickEdit: action.sectionId || null };
+    case "close-quick-edit": return { ...state, quickEdit: null };
+    case "set-inspector": return action.inspector ? { ...state, activeInspector: action.inspector, quickEdit: null } : { ...state, activeInspector: null };
     case "mutate-document": {
       const current = currentSiteEditorDocument(state);
       if (!current || !action.document || documentFingerprint(current) === documentFingerprint(action.document)) return state;
@@ -176,6 +267,52 @@ export function siteEditorReducer(state, action) {
     case "set-locale": return { ...state, activeLocale: action.locale === "ar" ? "ar" : "en" };
     case "set-viewport": return { ...state, viewportMode: action.viewport === "mobile" ? "mobile" : "desktop" };
     case "set-zoom": return { ...state, zoom: ["50", "75", "100", "fit"].includes(action.zoom) ? action.zoom : state.zoom };
+    case "open-section-library": return { ...state, activePanel: "add-section", activeInspector: null, quickEdit: null };
+    case "close-section-library": return { ...state, activePanel: null };
+    case "section-library-loading": return { ...state, sectionLibraryStatus: "loading", sectionLibraryError: "" };
+    case "section-library-success": {
+      const categories = sectionLibraryCategories(action.sectionLibrary);
+      return {
+        ...state,
+        sectionLibrary: action.sectionLibrary,
+        sectionLibraryStatus: "ready",
+        sectionLibraryError: "",
+        sectionLibraryRequiresConnection: action.requiresConnection === true,
+        activeSectionCategory: state.activeSectionCategory || categories[0]?.id || null,
+        selectedSectionTemplate: null,
+      };
+    }
+    case "section-library-failure": return { ...state, sectionLibraryStatus: "error", sectionLibraryError: action.error || "Unable to load the section library." };
+    case "section-library-retry": return { ...state, sectionLibraryStatus: "idle", sectionLibraryError: "" };
+    case "section-library-reset": return { ...state, sectionLibrary: null, sectionLibraryStatus: "idle", sectionLibraryError: "", sectionLibraryRequiresConnection: false, activeSectionCategory: null, selectedSectionTemplate: null };
+    case "select-section-category": return { ...state, activeSectionCategory: action.categoryId || null, selectedSectionTemplate: null };
+    case "select-section-template": return { ...state, selectedSectionTemplate: action.templateId || null };
+    case "set-section-insert-position": return { ...state, sectionInsertPosition: validSectionInsertPosition(action.position) };
+    case "insert-section-template": {
+      const current = currentSiteEditorDocument(state);
+      const section = action.section === null ? blankSectionTemplate(state.sectionLibrary) : action.section;
+      if (!current || !section) return state;
+      const position = validSectionInsertPosition(state.sectionInsertPosition);
+      const targetId = state.selectedSectionId || state.selectedNodeId || null;
+      const result = insertSectionAtTarget(current, section, { position, targetSectionId: targetId, locale: state.activeLocale });
+      if (!result?.document || !result.sectionId) return state;
+      const next = result.document;
+      const sectionId = result.sectionId;
+      const past = [...state.history.past, current].slice(-50);
+      return {
+        ...state,
+        pageDocuments: { ...state.pageDocuments, [state.currentPageId]: next },
+        history: { past, future: [] },
+        isDirty: dirtyFor(state, next),
+        saveStatus: "idle", saveError: "",
+        activePanel: null, activeInspector: null,
+        selectedNodeId: sectionId, selectedSectionId: sectionId,
+        editingNodeId: null, quickEdit: sectionId,
+        selectedSectionTemplate: null,
+      };
+    }
+    case "section-template-success": return { ...state, sectionBusy: false };
+    case "section-template-failure": return { ...state, sectionBusy: false, sectionLibraryError: action.error || "Unable to add the section." };
     default: return state;
   }
 }

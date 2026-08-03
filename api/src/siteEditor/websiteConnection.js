@@ -1,5 +1,6 @@
 import { SiteEditorValidationError } from "./schema.js";
 import { MANIFEST_SCHEMA_VERSION, MANIFEST_CONTENT_TYPE, validateSiteManifest } from "./siteManifest.js";
+import { parseSafeConnectionUrl } from "./urlPolicy.js";
 
 export const CONNECTION_STATUSES = Object.freeze([
   "not-configured",
@@ -94,15 +95,10 @@ export function validateConnectionUrl(value, field, { allowEmpty = true } = {}) 
   const candidate = String(value ?? "").trim();
   if (!candidate) return allowEmpty ? "" : (() => { throw connectionError(`${field} is required.`); })();
   if (candidate.length > 2048) throw connectionError(`${field} is too long.`);
-  try {
-    const url = new URL(candidate);
-    if (url.protocol !== "https:" || url.username || url.password || !url.hostname) {
-      throw new Error("unsafe");
-    }
-    return url.toString();
-  } catch {
-    throw connectionError(`${field} must be a valid HTTPS URL.`);
-  }
+  const url = parseSafeConnectionUrl(candidate);
+  if (!url) throw connectionError(`${field} must be a valid HTTPS URL.`);
+  const normalized = url.toString();
+  return normalized.endsWith("/") && url.pathname === "/" ? normalized.slice(0, -1) : normalized;
 }
 
 export async function fetchSiteManifest(url, { timeoutMs = 8000, headers = {} } = {}) {

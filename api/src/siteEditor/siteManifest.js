@@ -1,4 +1,5 @@
 import { SiteEditorValidationError, GENERIC_ELEMENT_TYPES } from "./schema.js";
+import { parseSafeConnectionUrl } from "./urlPolicy.js";
 
 export const MANIFEST_SCHEMA_VERSION = "1.0";
 export const MANIFEST_CONTENT_TYPE = "application/vnd.igroup.site-manifest+json";
@@ -43,15 +44,9 @@ function safeRoute(value, field = "route") {
 function safeUrl(value, field) {
   const result = String(value ?? "").trim();
   if (result.length > 2048) throw manifestError(`${field} is invalid.`);
-  try {
-    const url = new URL(result);
-    if (url.protocol !== "https:" || url.username || url.password || !url.hostname) {
-      throw new Error("unsafe");
-    }
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    throw manifestError(`${field} must be a valid HTTPS URL.`);
-  }
+  const url = parseSafeConnectionUrl(result);
+  if (!url) throw manifestError(`${field} must be a valid HTTPS URL.`);
+  return url.toString().replace(/\/+$/, "");
 }
 
 function localizedTitle(value, field = "title") {
@@ -148,6 +143,90 @@ function normalizeManifestPage(page, index) {
   return normalized;
 }
 
+function normalizeSectionLibrary(input) {
+  if (input == null) return null;
+  if (!isRecord(input)) throw manifestError("sectionLibrary must be a JSON object.");
+  const version = String(input.version ?? "").trim();
+  if (!version) throw manifestError("sectionLibrary.version is required.");
+  if (version.length > 40) throw manifestError("sectionLibrary.version is invalid.");
+  const categories = Array.isArray(input.categories) ? input.categories : [];
+  const templates = Array.isArray(input.templates) ? input.templates : [];
+  if (categories.length > 100) throw manifestError("sectionLibrary declares too many categories.");
+  if (templates.length > 300) throw manifestError("sectionLibrary declares too many templates.");
+
+  let blankSection = { enabled: false };
+  if (input.blankSection != null) {
+    if (!isRecord(input.blankSection)) throw manifestError("sectionLibrary.blankSection must be an object.");
+    blankSection = {
+      enabled: input.blankSection.enabled === true,
+      ...(input.blankSection.sectionType
+        ? { sectionType: safeToken(input.blankSection.sectionType, "blankSection sectionType") }
+        : {}),
+    };
+  }
+
+  const normalizedCategories = categories.map((category, index) => {
+    if (!isRecord(category)) throw manifestError("sectionLibrary category is invalid.");
+    return {
+      id: safeToken(category.id, "category id"),
+      title: localizedTitle(category.title, "category title"),
+      icon: category.icon ? String(category.icon).trim().slice(0, 40) : "",
+      order: category.order == null ? index : nonNegativeInteger(category.order, "category order"),
+    };
+  });
+  const categoryIds = new Set(normalizedCategories.map((category) => category.id));
+
+  const normalizedTemplates = templates.map((template) => {
+    if (!isRecord(template)) throw manifestError("sectionLibrary template is invalid.");
+    const templateId = safeToken(template.templateId, "templateId");
+    const categoryId = safeToken(template.categoryId, "template categoryId");
+    if (!categoryIds.has(categoryId)) throw manifestError(`Template references an unknown category: ${categoryId}.`);
+    const sectionType = String(template.sectionType ?? "");
+    if (!SECTION_TYPE_PATTERN.test(sectionType)) {
+      throw manifestError(`Unsupported template section type: ${sectionType || "unknown"}.`);
+    }
+    const layoutVariant = template.layoutVariant ? safeToken(template.layoutVariant, "template layoutVariant") : "";
+    const pageTypes = Array.isArray(template.pageTypes) && template.pageTypes.length
+      ? [...new Set(template.pageTypes.map((pageType) => String(pageType)))].filter((pageType) => GENERIC_PAGE_TYPES.has(pageType)).slice(0, 10)
+      : [...GENERIC_PAGE_TYPES];
+    if (!pageTypes.length) throw manifestError(`Template ${templateId} declares no supported page types.`);
+    const capabilities = isRecord(template.capabilities)
+      ? {
+        requiresProducts: template.capabilities.requiresProducts === true,
+        requiresMedia: template.capabilities.requiresMedia === true,
+      }
+      : { requiresProducts: false, requiresMedia: false };
+    if (!isRecord(template.defaultSectionDocument)) {
+      throw manifestError(`Template ${templateId} must declare a defaultSectionDocument.`);
+    }
+    const defaultSectionDocument = normalizeManifestSection(template.defaultSectionDocument, 0);
+    if (defaultSectionDocument.sectionType !== sectionType) {
+      throw manifestError(`Template ${templateId} section type must match its defaultSectionDocument.`);
+    }
+    return {
+      templateId,
+      categoryId,
+      sectionType,
+      layoutVariant,
+      title: localizedTitle(template.title, "template title"),
+      description: template.description != null ? localizedTitle(template.description, "template description") : null,
+      thumbnail: template.thumbnail != null && String(template.thumbnail).trim()
+        ? safeUrl(template.thumbnail, "template thumbnail")
+        : "",
+      pageTypes,
+      capabilities,
+      defaultSectionDocument,
+    };
+  });
+
+  return {
+    version,
+    blankSection,
+    categories: normalizedCategories,
+    templates: normalizedTemplates,
+  };
+}
+
 export function validateSiteManifest(input) {
   if (!isRecord(input)) throw manifestError("Site manifest must be a JSON object.");
   const schemaVersion = String(input.schemaVersion ?? "");
@@ -173,6 +252,7 @@ export function validateSiteManifest(input) {
       : ["en"],
     generatedAt: input.generatedAt ? String(input.generatedAt).slice(0, 64) : new Date().toISOString(),
     pages: pages.map(normalizeManifestPage),
+    sectionLibrary: normalizeSectionLibrary(input.sectionLibrary),
   };
 
   const seenPageIds = new Set();
@@ -207,18 +287,20 @@ function localizedContent(element, locale) {
   return content;
 }
 
-export function manifestElementToEditorElement(element, locale, depth = 0) {
+export function manifestElementToEditorElement(element, locale, depth = 0, parentEditable = true) {
   if (depth > 5) throw manifestError("Element nesting is too deep.");
+  const editable = parentEditable && element.editable !== false;
   const children = Array.isArray(element.children)
-    ? element.children.map((child) => manifestElementToEditorElement(child, locale, depth + 1))
+    ? element.children.map((child) => manifestElementToEditorElement(child, locale, depth + 1, editable))
     : [];
   return {
     id: element.id,
     type: element.elementType,
     content: localizedContent(element, locale),
+    editable,
     settings: {
       ...(isRecord(element.source) ? { sourceBinding: clone(element.source) } : {}),
-      ...(element.editableProperties?.length ? { editableProperties: [...element.editableProperties] } : {}),
+      ...(Array.isArray(element.editableProperties) ? { editableProperties: [...element.editableProperties] } : {}),
     },
     styles: isRecord(element.styles) ? clone(element.styles) : {},
     responsive: isRecord(element.responsive) ? clone(element.responsive) : {},
@@ -227,14 +309,16 @@ export function manifestElementToEditorElement(element, locale, depth = 0) {
 }
 
 export function manifestSectionToEditorSection(section, locale, order) {
+  const editable = section.editable !== false;
   return {
     id: section.id,
     type: section.sectionType,
     order,
+    editable,
     settings: isRecord(section.layout) ? clone(section.layout) : {},
     styles: {},
     responsive: isRecord(section.responsive) ? clone(section.responsive) : {},
-    elements: section.elements.map((element) => manifestElementToEditorElement(element, locale, 0)),
+    elements: section.elements.map((element) => manifestElementToEditorElement(element, locale, 0, editable)),
   };
 }
 

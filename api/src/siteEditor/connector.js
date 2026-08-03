@@ -28,6 +28,8 @@ export function manifestForCompany(company) {
   if (!company) return null;
   const connected = connectedManifest(company);
   if (connected) return connected;
+  const connection = websiteConnectionSettings(company);
+  if (connection?.siteManifestUrl) return null;
   if (supportsLegacyIcare(company)) {
     const manifest = buildLegacyIcareManifest(company);
     if (manifest) return { manifest, source: "legacy" };
@@ -37,14 +39,41 @@ export function manifestForCompany(company) {
 
 export function requireManifestForCompany(company) {
   const resolved = manifestForCompany(company);
-  if (!resolved) {
+  if (resolved) return resolved;
+  const connection = websiteConnectionSettings(company);
+  if (connection?.siteManifestUrl) {
+    if (connection.connectionStatus === "error") {
+      throw siteConnectionError(
+        connection.connectionError || "The configured storefront manifest could not be synchronized.",
+        "CONNECTION_SYNC_FAILED",
+        409,
+      );
+    }
     throw siteConnectionError(
-      "This company does not have a connected website. Configure a site manifest before editing.",
-      "SITE_NOT_CONNECTED",
+      "This website connection is configured but has not been synchronized yet. Connect and sync the storefront manifest before editing.",
+      "CONNECTION_REQUIRED",
       409,
     );
   }
-  return resolved;
+  throw siteConnectionError(
+    "This company does not have a connected website. Configure a site manifest before editing.",
+    "SITE_NOT_CONNECTED",
+    409,
+  );
+}
+
+export function connectionResolution(company) {
+  if (!company) return { resolution: "none", source: null };
+  const connected = connectedManifest(company);
+  if (connected) return { resolution: "remote", source: "remote" };
+  const connection = websiteConnectionSettings(company);
+  if (connection?.siteManifestUrl) {
+    return { resolution: connection.connectionStatus === "error" ? "error" : "configured", source: null };
+  }
+  if (supportsLegacyIcare(company) && buildLegacyIcareManifest(company)) {
+    return { resolution: "legacy", source: "legacy" };
+  }
+  return { resolution: "none", source: null };
 }
 
 export async function syncManifestForCompany(company, options = {}) {
@@ -63,7 +92,7 @@ export async function syncManifestForCompany(company, options = {}) {
     };
   }
 
-  if (supportsLegacyIcare(company)) {
+  if (!websiteConnectionSettings(company) && supportsLegacyIcare(company)) {
     const manifest = buildLegacyIcareManifest(company);
     if (manifest) {
       return {
@@ -76,8 +105,10 @@ export async function syncManifestForCompany(company, options = {}) {
   }
 
   throw siteConnectionError(
-    "No site manifest URL is configured and no legacy manifest provider is available for this company.",
-    "SITE_NOT_CONNECTED",
+    websiteConnectionSettings(company)
+      ? "A storefront manifest URL is configured but is required to be present and reachable before synchronizing."
+      : "No site manifest URL is configured and no legacy manifest provider is available for this company.",
+    websiteConnectionSettings(company) ? "MANIFEST_URL_REQUIRED" : "SITE_NOT_CONNECTED",
     409,
   );
 }

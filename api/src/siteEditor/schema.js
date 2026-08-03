@@ -108,7 +108,7 @@ function normalizeSettings(value = {}) {
     } else if (key === "editableProperties" && Array.isArray(entry)) {
       const allowed = entry.map((item) => plainText(item, "setting editableProperties", 100))
         .filter((item) => GENERIC_ELEMENT_TYPES.has(item) || ["content", "styles", "responsive", "source"].includes(item));
-      if (allowed.length) normalized[key] = allowed.slice(0, 20);
+      normalized[key] = allowed.slice(0, 20);
     }
   }
   return normalized;
@@ -138,6 +138,27 @@ function normalizeContent(type, value = {}) {
       assetId: content.assetId ? safeId(content.assetId, "image assetId") : "",
     };
   }
+  if (type === "productCollection" || type === "categoryCollection") {
+    const normalized = {};
+    const source = plainText(content.source, `${type} source`, 100);
+    if (source) normalized.source = source;
+    const categoryId = plainText(content.categoryId, `${type} categoryId`, 200);
+    if (categoryId) normalized.categoryId = categoryId;
+    const collectionId = plainText(content.collectionId, `${type} collectionId`, 200);
+    if (collectionId) normalized.collectionId = collectionId;
+    const limit = Number(content.limit);
+    if (Number.isInteger(limit) && limit >= 0) normalized.limit = Math.min(limit, 200);
+    const sort = plainText(content.sort, `${type} sort`, 100);
+    if (sort) normalized.sort = sort;
+    if (content.order === "asc" || content.order === "desc") normalized.order = content.order;
+    const layoutVariant = plainText(content.layoutVariant, `${type} layoutVariant`, 100);
+    if (layoutVariant) normalized.layoutVariant = layoutVariant;
+    if (typeof content.showPrice === "boolean") normalized.showPrice = content.showPrice;
+    if (typeof content.showBadge === "boolean") normalized.showBadge = content.showBadge;
+    const columns = Number(content.columns);
+    if (Number.isInteger(columns) && columns > 0) normalized.columns = Math.min(columns, 12);
+    return normalized;
+  }
   return {};
 }
 
@@ -151,6 +172,7 @@ function normalizeElement(element, depth = 0) {
   return {
     id: safeId(element.id, "element id"),
     type,
+    editable: element.editable !== false,
     content: normalizeContent(type, element.content),
     settings: normalizeSettings(element.settings),
     styles: normalizeStyles(element.styles),
@@ -171,6 +193,7 @@ function normalizeSection(section, index) {
     id: safeId(section.id, "section id"),
     type,
     order: index,
+    editable: section.editable !== false,
     settings: normalizeSettings(section.settings),
     styles: normalizeStyles(section.styles),
     responsive: { mobile: normalizeStyles(section.responsive?.mobile) },
@@ -205,6 +228,15 @@ export function validatePageDocument(input, { companyId, pageId, previewPath = "
     revision,
     sections: sections.map(normalizeSection),
   };
+
+  normalized.sections.forEach((section) => {
+    const sectionEditable = section.editable !== false;
+    const gate = (node) => {
+      node.editable = sectionEditable && node.editable !== false;
+      node.children.forEach(gate);
+    };
+    section.elements.forEach(gate);
+  });
 
   const seen = new Set();
   const register = (id) => {

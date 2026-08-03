@@ -1,19 +1,22 @@
 import React from "react";
 import MediaPickerDialog from "../components/site-editor/MediaPickerDialog.jsx";
+import SectionLibraryPanel from "../components/site-editor/SectionLibraryPanel.jsx";
 import SiteEditorCanvas from "../components/site-editor/SiteEditorCanvas.jsx";
 import SiteEditorRail from "../components/site-editor/SiteEditorRail.jsx";
 import SiteEditorToolbar from "../components/site-editor/SiteEditorToolbar.jsx";
 import SiteEditorTopBar from "../components/site-editor/SiteEditorTopBar.jsx";
 import StyleInspector from "../components/site-editor/StyleInspector.jsx";
+import QuickEditPanel from "../components/site-editor/QuickEditPanel.jsx";
 import WebsiteConnectionScreen from "../components/site-editor/WebsiteConnectionScreen.jsx";
-import { fetchSiteEditorConnection, fetchSiteEditorDocument, fetchSiteEditorPages, saveSiteEditorDraft } from "../utils/siteEditorApi.js";
+import { fetchSiteEditorConnection, fetchSiteEditorDocument, fetchSiteEditorPages, fetchSiteEditorSectionLibrary, saveSiteEditorDraft } from "../utils/siteEditorApi.js";
+import { sectionTemplatesForCategory } from "../utils/siteEditorSectionLibrary.js";
 import {
   currentSiteEditorDocument, createSiteEditorState, normalizeSiteEditorPage, siteEditorCapabilities,
   siteEditorDirection, siteEditorReducer, siteEditorText, trustedPagePreview, trustedSiteLabel,
 } from "../utils/siteEditor.js";
 import {
-  findEditorNode, moveEditorSection, replaceEditorImage, updateEditorImageSettings,
-  updateEditorLink, updateEditorStyle, updateEditorText,
+  findEditorNode, moveEditorSection, replaceEditorImage, updateEditorContentList,
+  updateEditorImageSettings, updateEditorLink, updateEditorStyle, updateEditorText,
 } from "../utils/siteEditorDocument.js";
 import "../styles/site-editor.css";
 
@@ -40,12 +43,19 @@ export default function SiteEditorPage({ company, currentUser, isContextResolvin
   const [connection, setConnection] = React.useState(null);
   const [connectionStatus, setConnectionStatus] = React.useState("idle");
   const [connectionReload, setConnectionReload] = React.useState(0);
+  const [sectionLibraryRetry, setSectionLibraryRetry] = React.useState(0);
+  const sectionLibraryRequestRef = React.useRef(null);
+  const sectionLibraryKeyRef = React.useRef(null);
   const capabilities = siteEditorCapabilities(currentUser, company);
   const activeLanguage = state.activeLocale;
   const direction = siteEditorDirection(activeLanguage);
   const currentPage = state.pages.find((page) => page.id === state.currentPageId) || null;
   const currentDocument = currentSiteEditorDocument(state);
   const selectedRecord = findEditorNode(currentDocument, state.selectedNodeId);
+  const quickEditSection = state.quickEdit ? findEditorNode(currentDocument, state.quickEdit) : null;
+  const sectionLibraryOpen = state.activePanel === "add-section";
+  const sectionTemplates = sectionTemplatesForCategory(state.sectionLibrary, currentPage, state.activeSectionCategory);
+  const siteKey = `${company?.id || "none"}:${connection?.siteId || ""}`;
   const previewUrl = trustedPagePreview(company, currentPage);
   const previewLabel = trustedSiteLabel(company);
 
@@ -101,6 +111,37 @@ export default function SiteEditorPage({ company, currentUser, isContextResolvin
   }, [capabilities.canAccess, company, connectionStatus, connected, isContextResolving, language, loadDocument]);
 
   React.useEffect(() => {
+    dispatch({ type: "section-library-reset" });
+  }, [siteKey]);
+
+  React.useEffect(() => {
+    if (isContextResolving || !company || !capabilities.canAccess || connectionStatus !== "ready" || !connected || !sectionLibraryOpen) {
+      sectionLibraryRequestRef.current = null;
+      return undefined;
+    }
+    if (sectionLibraryRequestRef.current) return undefined;
+    if (sectionLibraryKeyRef.current === siteKey && (state.sectionLibraryStatus === "ready" || state.sectionLibraryStatus === "error")) return undefined;
+    if (sectionLibraryKeyRef.current !== siteKey) dispatch({ type: "section-library-reset" });
+    let active = true;
+    dispatch({ type: "section-library-loading" });
+    const request = fetchSiteEditorSectionLibrary().then((result) => {
+      if (!active || sectionLibraryRequestRef.current !== request) return;
+      sectionLibraryRequestRef.current = null;
+      sectionLibraryKeyRef.current = siteKey;
+      dispatch({ type: "section-library-success", sectionLibrary: result.sectionLibrary || null, requiresConnection: result.requiresConnection === true });
+    }).catch((error) => {
+      if (!active || sectionLibraryRequestRef.current !== request) return;
+      sectionLibraryRequestRef.current = null;
+      dispatch({ type: "section-library-failure", error: error.message });
+    });
+    sectionLibraryRequestRef.current = request;
+    return () => {
+      active = false;
+      if (sectionLibraryRequestRef.current === request) sectionLibraryRequestRef.current = null;
+    };
+  }, [capabilities.canAccess, company, connected, connectionStatus, isContextResolving, sectionLibraryOpen, sectionLibraryRetry, siteKey]);
+
+  React.useEffect(() => {
     const beforeUnload = (event) => {
       if (!state.isDirty) return;
       event.preventDefault();
@@ -114,7 +155,9 @@ export default function SiteEditorPage({ company, currentUser, isContextResolvin
     const onKeyDown = (event) => {
       const editingInput = event.target instanceof HTMLElement && (event.target.matches("input, textarea, select") || event.target.isContentEditable);
       if (event.key === "Escape") {
-        dispatch({ type: state.editingNodeId ? "set-editing-node" : "clear-selection", nodeId: null });
+        if (state.editingNodeId) dispatch({ type: "set-editing-node", nodeId: null });
+        else if (state.quickEdit) dispatch({ type: "close-quick-edit" });
+        else dispatch({ type: "clear-selection" });
         return;
       }
       if (editingInput || !(event.ctrlKey || event.metaKey)) return;
@@ -124,7 +167,7 @@ export default function SiteEditorPage({ company, currentUser, isContextResolvin
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [state.editingNodeId]);
+  }, [state.editingNodeId, state.quickEdit]);
 
   function commit(document) { if (capabilities.canEdit) dispatch({ type: "mutate-document", document }); }
   function showError(error) { setNotice(error.message || String(error)); }
@@ -135,6 +178,7 @@ export default function SiteEditorPage({ company, currentUser, isContextResolvin
   }
 
   function handleAction(action, node) {
+    if (action === "quick-edit") return dispatch({ type: "open-quick-edit", sectionId: node.id });
     if (action === "cancel-edit") return dispatch({ type: "set-editing-node", nodeId: null });
     if (!capabilities.canEdit) return setNotice(activeLanguage === "ar" ? "لديك صلاحية عرض فقط." : "You have read-only editor access.");
     if (action === "edit-text") return dispatch({ type: "set-editing-node", nodeId: node.id });
@@ -178,6 +222,11 @@ export default function SiteEditorPage({ company, currentUser, isContextResolvin
     if (state.isDirty && !window.confirm(activeLanguage === "ar" ? "توجد تغييرات غير محفوظة. هل تريد المغادرة؟" : "You have unsaved changes. Leave the editor?")) event.preventDefault();
   }
 
+  function handleSectionLibraryRetry() {
+    dispatch({ type: "section-library-retry" });
+    setSectionLibraryRetry((retry) => retry + 1);
+  }
+
   if (!isContextResolving && minimumElapsed && !company) return <EditorAccessState language={language} missingCompany />;
   if (!isContextResolving && minimumElapsed && company && !capabilities.canAccess) return <EditorAccessState language={language} />;
 
@@ -201,9 +250,11 @@ export default function SiteEditorPage({ company, currentUser, isContextResolvin
   return <div className="site-editor-root site-editor-enter" data-editor-direction={direction} dir={direction}>
     <SiteEditorTopBar canSave={capabilities.canSave && Boolean(currentDocument)} company={company} direction={direction} language={activeLanguage} onBack={handleBack} onSave={handleSave} previewUrl={previewUrl} state={state} />
     <SiteEditorToolbar currentPage={currentPage} dispatch={dispatch} language={activeLanguage} onLocaleChange={handleLocaleChange} previewLabel={previewLabel} state={state} />
-    <div className={`site-editor-workspace ${state.activePanel ? "panel-open" : ""} ${selectedRecord && state.activeInspector ? "inspector-open" : ""}`}>
+    <div className={`site-editor-workspace ${state.activePanel ? "panel-open" : ""} ${quickEditSection ? "quick-edit-open" : ""} ${selectedRecord && state.activeInspector ? "inspector-open" : ""}`}>
       <SiteEditorRail company={company} dispatch={dispatch} language={activeLanguage} onSelectPage={handleSelectPage} pages={state.pages} state={state} />
+      {sectionLibraryOpen && <SectionLibraryPanel dispatch={dispatch} language={activeLanguage} onClose={() => dispatch({ type: "close-section-library" })} onRequireConnection={() => { dispatch({ type: "close-section-library" }); setConnectionReload((reload) => reload + 1); }} onRetry={handleSectionLibraryRetry} readOnly={!capabilities.canEdit} state={state} templates={sectionTemplates} />}
       <SiteEditorCanvas document={currentDocument} language={activeLanguage} onAction={handleAction} onCommitText={handleText} onSelect={selectNode} state={{ ...state, readOnly: !capabilities.canEdit }} />
+      {quickEditSection && quickEditSection.kind === "section" && <QuickEditPanel language={activeLanguage} onClose={() => dispatch({ type: "close-quick-edit" })} onImage={(nodeId) => setMediaNodeId(nodeId)} onImageSettings={(nodeId, changes) => { try { commit(updateEditorImageSettings(currentDocument, nodeId, changes)); } catch (error) { showError(error); } }} onLink={(nodeId, value) => { try { commit(updateEditorLink(currentDocument, nodeId, value)); } catch (error) { showError(error); } }} onList={(nodeId, items) => { try { commit(updateEditorContentList(currentDocument, nodeId, items)); } catch (error) { showError(error); } }} onStyle={(nodeId, key, value) => commit(updateEditorStyle(currentDocument, nodeId, key, value, state.viewportMode))} onText={(nodeId, value) => { try { commit(updateEditorText(currentDocument, nodeId, value)); } catch (error) { showError(error); } }} readOnly={!capabilities.canEdit} section={quickEditSection.node} state={state} viewportMode={state.viewportMode} />}
       {selectedRecord && state.activeInspector && capabilities.canEdit && <StyleInspector isSection={selectedRecord.kind === "section"} language={activeLanguage} node={selectedRecord.node} onClose={() => dispatch({ type: "set-inspector", inspector: null })} onImageSettings={(changes) => { try { commit(updateEditorImageSettings(currentDocument, selectedRecord.node.id, changes)); } catch (error) { showError(error); } }} onLink={(value) => { try { commit(updateEditorLink(currentDocument, selectedRecord.node.id, value)); } catch (error) { showError(error); } }} onStyle={(key, value) => commit(updateEditorStyle(currentDocument, selectedRecord.node.id, key, value, state.viewportMode))} onText={(value) => handleText(selectedRecord.node.id, value)} viewportMode={state.viewportMode} />}
     </div>
     {mediaNodeId && <MediaPickerDialog company={company} language={activeLanguage} onClose={() => setMediaNodeId(null)} onSelect={(asset) => { try { commit(replaceEditorImage(currentDocument, mediaNodeId, asset, company.id)); setMediaNodeId(null); } catch (error) { showError(error); } }} />}

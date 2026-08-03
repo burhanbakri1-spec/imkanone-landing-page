@@ -18,6 +18,7 @@ const {
   manifestPageToDocument,
   validateSiteManifest,
 } = await import("../src/siteEditor/siteManifest.js");
+const { validatePageDocument } = await import("../src/siteEditor/schema.js");
 const { assertManifestMatchesCompany, validateConnectionUrl } = await import("../src/siteEditor/websiteConnection.js");
 
 const now = "2026-07-30T00:00:00.000Z";
@@ -123,6 +124,140 @@ test("manifest URL validation", async () => {
   assert.equal(validateConnectionUrl("", "siteManifestUrl"), "");
 });
 
+test("manifest URL local connection mode", async (t) => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousFlag = process.env.SITE_EDITOR_ALLOW_LOCAL_CONNECTIONS;
+  t.after(() => {
+    process.env.NODE_ENV = previousNodeEnv;
+    if (previousFlag === undefined) delete process.env.SITE_EDITOR_ALLOW_LOCAL_CONNECTIONS;
+    else process.env.SITE_EDITOR_ALLOW_LOCAL_CONNECTIONS = previousFlag;
+  });
+  const setMode = (env, flag) => {
+    process.env.NODE_ENV = env;
+    if (flag === undefined) delete process.env.SITE_EDITOR_ALLOW_LOCAL_CONNECTIONS;
+    else process.env.SITE_EDITOR_ALLOW_LOCAL_CONNECTIONS = flag;
+  };
+
+  await t.test("localhost HTTP is rejected without the flag", () => {
+    setMode("development", undefined);
+    assert.throws(() => validateConnectionUrl("http://localhost:3000/api/site-manifest", "siteManifestUrl"), /https/i);
+  });
+
+  await t.test("localhost HTTP is rejected when the flag is not exactly true", () => {
+    setMode("development", "1");
+    assert.throws(() => validateConnectionUrl("http://127.0.0.1:3000/api/site-manifest", "siteManifestUrl"), /https/i);
+  });
+
+  await t.test("localhost HTTP is accepted in development with the flag", () => {
+    setMode("development", "true");
+    assert.equal(validateConnectionUrl("http://localhost:3000/api/site-manifest", "siteManifestUrl"), "http://localhost:3000/api/site-manifest");
+    assert.equal(validateConnectionUrl("http://127.0.0.1:3000/api/site-manifest", "siteManifestUrl"), "http://127.0.0.1:3000/api/site-manifest");
+    assert.equal(validateConnectionUrl("http://[::1]:3000/api/site-manifest", "siteManifestUrl"), "http://[::1]:3000/api/site-manifest");
+    assert.equal(validateConnectionUrl("http://localhost:3000/", "siteManifestUrl"), "http://localhost:3000");
+    assert.equal(validateConnectionUrl("http://localhost:3000", "storefrontBaseUrl"), "http://localhost:3000");
+  });
+
+  await t.test("local HTTP with credentials is rejected even with the flag", () => {
+    setMode("development", "true");
+    assert.throws(() => validateConnectionUrl("http://user:pass@localhost:3000/api/site-manifest", "siteManifestUrl"), /https/i);
+    assert.throws(() => validateConnectionUrl("https://user:pass@localhost:3000/api/site-manifest", "siteManifestUrl"), /https/i);
+  });
+
+  await t.test("non-local HTTP remains rejected even with the flag", () => {
+    setMode("development", "true");
+    assert.throws(() => validateConnectionUrl("http://brand.example/site-manifest.json", "siteManifestUrl"), /https/i);
+    assert.throws(() => validateConnectionUrl("http://127.0.0.1.evil.example/site-manifest.json", "siteManifestUrl"), /https/i);
+  });
+
+  await t.test("HTTPS remains accepted everywhere", () => {
+    setMode("production", "true");
+    assert.equal(validateConnectionUrl("https://brand.example/site-manifest.json", "siteManifestUrl"), "https://brand.example/site-manifest.json");
+    assert.equal(validateConnectionUrl("https://localhost/site-manifest.json", "siteManifestUrl"), "https://localhost/site-manifest.json");
+    setMode("development", "true");
+    assert.equal(validateConnectionUrl("https://127.0.0.1/site-manifest.json", "siteManifestUrl"), "https://127.0.0.1/site-manifest.json");
+  });
+
+  await t.test("production rejects localhost even when the flag is present", () => {
+    setMode("production", "true");
+    assert.throws(() => validateConnectionUrl("http://localhost:3000/api/site-manifest", "siteManifestUrl"), /https/i);
+    assert.throws(() => validateConnectionUrl("http://127.0.0.1:3000/api/site-manifest", "siteManifestUrl"), /https/i);
+    assert.throws(() => validateConnectionUrl("http://[::1]:3000/api/site-manifest", "siteManifestUrl"), /https/i);
+  });
+
+  await t.test("test environment rejects localhost even when the flag is present", () => {
+    setMode("test", "true");
+    assert.throws(() => validateConnectionUrl("http://localhost:3000/api/site-manifest", "siteManifestUrl"), /https/i);
+  });
+});
+
+test("manifest baseUrl local connection mode", async (t) => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousFlag = process.env.SITE_EDITOR_ALLOW_LOCAL_CONNECTIONS;
+  t.after(() => {
+    process.env.NODE_ENV = previousNodeEnv;
+    if (previousFlag === undefined) delete process.env.SITE_EDITOR_ALLOW_LOCAL_CONNECTIONS;
+    else process.env.SITE_EDITOR_ALLOW_LOCAL_CONNECTIONS = previousFlag;
+  });
+  const setMode = (env, flag) => {
+    process.env.NODE_ENV = env;
+    if (flag === undefined) delete process.env.SITE_EDITOR_ALLOW_LOCAL_CONNECTIONS;
+    else process.env.SITE_EDITOR_ALLOW_LOCAL_CONNECTIONS = flag;
+  };
+  const manifestWithBaseUrl = (baseUrl) => validManifest({ baseUrl });
+
+  await t.test("localhost HTTP baseUrl is rejected without the flag", () => {
+    setMode("development", undefined);
+    assert.throws(() => validateSiteManifest(manifestWithBaseUrl("http://localhost:3000")), /https/i);
+  });
+
+  await t.test("localhost HTTP baseUrl is accepted in development with the flag", () => {
+    setMode("development", "true");
+    const normalized = validateSiteManifest(manifestWithBaseUrl("http://localhost:3000"));
+    assert.equal(normalized.baseUrl, "http://localhost:3000");
+    const ipv4 = validateSiteManifest(manifestWithBaseUrl("http://127.0.0.1:3000"));
+    assert.equal(ipv4.baseUrl, "http://127.0.0.1:3000");
+    const ipv6 = validateSiteManifest(manifestWithBaseUrl("http://[::1]:3000"));
+    assert.equal(ipv6.baseUrl, "http://[::1]:3000");
+  });
+
+  await t.test("production rejects localhost HTTP baseUrl even with the flag", () => {
+    setMode("production", "true");
+    assert.throws(() => validateSiteManifest(manifestWithBaseUrl("http://localhost:3000")), /https/i);
+  });
+
+  await t.test("test environment rejects localhost HTTP baseUrl even with the flag", () => {
+    setMode("test", "true");
+    assert.throws(() => validateSiteManifest(manifestWithBaseUrl("http://127.0.0.1:3000")), /https/i);
+  });
+
+  await t.test("non-local HTTP baseUrl is rejected even with the flag", () => {
+    setMode("development", "true");
+    assert.throws(() => validateSiteManifest(manifestWithBaseUrl("http://brand.example")), /https/i);
+  });
+
+  await t.test("HTTPS baseUrl remains accepted everywhere", () => {
+    setMode("production", "true");
+    assert.equal(validateSiteManifest(manifestWithBaseUrl("https://brand.example/")).baseUrl, "https://brand.example");
+    setMode("development", "true");
+    assert.equal(validateSiteManifest(manifestWithBaseUrl("https://localhost/")).baseUrl, "https://localhost");
+  });
+
+  await t.test("credentials are rejected in baseUrl even with the flag", () => {
+    setMode("development", "true");
+    assert.throws(() => validateSiteManifest(manifestWithBaseUrl("http://user:pass@localhost:3000")), /https/i);
+    assert.throws(() => validateSiteManifest(manifestWithBaseUrl("https://user:pass@brand.example")), /https/i);
+  });
+
+  await t.test("companyId and siteId validation is unchanged", () => {
+    setMode("development", "true");
+    assert.throws(() => validateSiteManifest(validManifest({ baseUrl: "http://localhost:3000", companyId: "" })), /companyId/i);
+    assert.throws(() => validateSiteManifest(validManifest({ baseUrl: "http://localhost:3000", siteId: "" })), /siteId/i);
+    const normalized = validateSiteManifest(validManifest({ baseUrl: "http://localhost:3000" }));
+    assert.equal(normalized.companyId, "mock-brand");
+    assert.equal(normalized.siteId, "mock-brand-storefront");
+  });
+});
+
 test("adding a page or section to a manifest is reflected without registry changes", async (t) => {
   await t.test("a newly added manifest page appears in the editor page list", () => {
     const manifest = validManifest();
@@ -214,6 +349,63 @@ test("legacy iCare provider only serves the legacy tenant", async (t) => {
   });
 });
 
+test("manifest editability survives into the editor document", async (t) => {
+  const manifest = validManifest();
+  manifest.pages[0].sections[0].elements.push({
+    id: "nested-card",
+    elementType: "container",
+    order: 1,
+    editable: true,
+    content: { en: {}, ar: {} },
+    source: null,
+    styles: {},
+    responsive: {},
+    validation: {},
+    editableProperties: [],
+    children: [
+      { id: "nested-text", elementType: "text", order: 0, editable: false, content: { en: { text: "Locked" }, ar: { text: "مقفل" } }, source: null, styles: {}, responsive: {}, validation: {}, editableProperties: ["content"], children: [] },
+    ],
+  });
+  const normalized = validateSiteManifest(manifest);
+  const document = manifestPageToDocument(normalized.pages[0], normalized, { companyId: "mock-brand", locale: "en" });
+
+  await t.test("section and element editability flags are preserved", () => {
+    assert.equal(document.sections[0].editable, true);
+    assert.equal(document.sections[0].elements[0].editable, true);
+    assert.equal(document.sections[0].elements[0].settings.editableProperties[0], "content");
+  });
+
+  await t.test("empty editableProperties survive as an explicit array", () => {
+    assert.deepEqual(document.sections[0].elements[1].settings.editableProperties, []);
+  });
+
+  await t.test("a non-editable section disables every descendant", () => {
+    const locked = validManifest();
+    locked.pages[0].sections[0].editable = false;
+    locked.pages[0].sections[0].elements[0].editable = true;
+    const normalizedLocked = validateSiteManifest(locked);
+    const lockedDocument = manifestPageToDocument(normalizedLocked.pages[0], normalizedLocked, { companyId: "mock-brand", locale: "en" });
+    assert.equal(lockedDocument.sections[0].editable, false);
+    assert.equal(lockedDocument.sections[0].elements[0].editable, false);
+  });
+
+  await t.test("an element editable: false stays locked even in an editable section", () => {
+    assert.equal(document.sections[0].elements[1].editable, true);
+    assert.equal(document.sections[0].elements[1].children[0].editable, false);
+  });
+
+  await t.test("validatePageDocument round-trips the editable flags", () => {
+    const roundTripped = validatePageDocument(document, {
+      companyId: "mock-brand",
+      pageId: document.pageId,
+      previewPath: document.previewPath,
+      routePattern: document.routePattern,
+    });
+    assert.equal(roundTripped.sections[0].editable, true);
+    assert.equal(roundTripped.sections[0].elements[1].children[0].editable, false);
+  });
+});
+
 test("migration 017 additively scopes editor drafts by site", () => {
   const base = path.resolve(import.meta.dirname, "../supabase/migrations");
   const migration016 = fs.readFileSync(path.join(base, "016_company_site_editor_drafts.sql"), "utf8");
@@ -223,4 +415,131 @@ test("migration 017 additively scopes editor drafts by site", () => {
   assert.match(migration017, /drop constraint if exists company_site_editor_drafts_company_id_page_id_locale_key/);
   assert.match(migration017, /create index if not exists idx_company_site_editor_drafts_site_lookup/);
   assert.doesNotMatch(migration017, /drop table|truncate|delete from|create table/i);
+});
+
+function validSectionLibrary() {
+  return {
+    version: "1",
+    blankSection: { enabled: true, sectionType: "content" },
+    categories: [
+      { id: "welcome", title: { en: "Welcome", ar: "ترحيب" }, icon: "home", order: 0 },
+      { id: "store", title: { en: "Store", ar: "المتجر" }, order: 1 },
+    ],
+    templates: [
+      {
+        templateId: "hero-overlay",
+        categoryId: "welcome",
+        sectionType: "hero",
+        layoutVariant: "overlay",
+        title: { en: "Hero with Image Overlay", ar: "ترحيب بصورة خلفية" },
+        description: { en: "Full-bleed image with centered copy", ar: "صورة بعرض كامل" },
+        thumbnail: "https://mock-brand.example/media/hero-overlay.jpg",
+        pageTypes: ["standard"],
+        capabilities: { requiresMedia: true },
+        defaultSectionDocument: {
+          id: "hero-overlay-section",
+          sectionType: "hero",
+          order: 0,
+          editable: true,
+          layout: { sourceComponent: "app/mock/components/Hero.tsx", contentAlignment: "center" },
+          responsive: {},
+          elements: [
+            { id: "hero-overlay-heading", elementType: "heading", order: 0, editable: true, content: { en: { text: "Hello" }, ar: { text: "مرحبا" } }, source: null, styles: { alignment: "center" }, responsive: {}, validation: {}, editableProperties: ["content"], children: [] },
+          ],
+        },
+      },
+      {
+        templateId: "store-grid",
+        categoryId: "store",
+        sectionType: "productCollection",
+        layoutVariant: "grid",
+        title: { en: "Product Grid", ar: "شبكة المنتجات" },
+        thumbnail: "https://mock-brand.example/media/store-grid.jpg",
+        pageTypes: ["standard", "dynamic"],
+        capabilities: { requiresProducts: true },
+        defaultSectionDocument: {
+          id: "store-grid-section",
+          sectionType: "productCollection",
+          order: 0,
+          editable: true,
+          layout: { sourceComponent: "app/mock/components/Grid.tsx" },
+          responsive: {},
+          elements: [
+            { id: "store-grid-collection", elementType: "productCollection", order: 0, editable: false, content: { source: "featured", limit: 8, columns: 4 }, source: { type: "collection", key: "featured" }, styles: {}, responsive: {}, validation: {}, editableProperties: [], children: [] },
+          ],
+        },
+      },
+    ],
+  };
+}
+
+test("site manifest section library", async (t) => {
+  await t.test("accepts a well-formed sectionLibrary and normalizes it", () => {
+    const result = validateSiteManifest(validManifest({ sectionLibrary: validSectionLibrary() }));
+    assert.equal(result.sectionLibrary.version, "1");
+    assert.deepEqual(result.sectionLibrary.categories.map((category) => category.id), ["welcome", "store"]);
+    assert.equal(result.sectionLibrary.blankSection.enabled, true);
+    assert.equal(result.sectionLibrary.blankSection.sectionType, "content");
+    assert.equal(result.sectionLibrary.templates[0].sectionType, "hero");
+    assert.equal(result.sectionLibrary.templates[0].defaultSectionDocument.elements[0].content.en.text, "Hello");
+  });
+
+  await t.test("remains backward compatible when sectionLibrary is absent", () => {
+    const result = validateSiteManifest(validManifest());
+    assert.equal(result.sectionLibrary, null);
+  });
+
+  await t.test("rejects a template that references an unknown category", () => {
+    const library = validSectionLibrary();
+    library.templates[0].categoryId = "missing";
+    assert.throws(() => validateSiteManifest(validManifest({ sectionLibrary: library })), /category/i);
+  });
+
+  await t.test("rejects a template whose section type differs from its defaultSectionDocument", () => {
+    const library = validSectionLibrary();
+    library.templates[0].sectionType = "promo";
+    assert.throws(() => validateSiteManifest(validManifest({ sectionLibrary: library })), /match/i);
+  });
+
+  await t.test("rejects a thumbnail that is not a safe HTTPS URL", () => {
+    const library = validSectionLibrary();
+    library.templates[0].thumbnail = "http://mock-brand.example/media/hero-overlay.jpg";
+    assert.throws(() => validateSiteManifest(validManifest({ sectionLibrary: library })), /https/i);
+  });
+
+  await t.test("filters template pageTypes to supported editable page types", () => {
+    const library = validSectionLibrary();
+    library.templates[0].pageTypes = ["standard", "system", "bogus"];
+    const result = validateSiteManifest(validManifest({ sectionLibrary: library }));
+    assert.deepEqual(result.sectionLibrary.templates[0].pageTypes, ["standard", "system"]);
+  });
+
+  await t.test("defaults blankSection to disabled when omitted", () => {
+    const library = validSectionLibrary();
+    delete library.blankSection;
+    const result = validateSiteManifest(validManifest({ sectionLibrary: library }));
+    assert.deepEqual(result.sectionLibrary.blankSection, { enabled: false });
+  });
+
+  await t.test("keeps product template content as configuration only", () => {
+    const result = validateSiteManifest(validManifest({ sectionLibrary: validSectionLibrary() }));
+    const collection = result.sectionLibrary.templates[1].defaultSectionDocument.elements[0];
+    assert.equal(collection.elementType, "productCollection");
+    assert.deepEqual(collection.content, { source: "featured", limit: 8, columns: 4 });
+  });
+
+  await t.test("product template configuration survives a draft round-trip", () => {
+    const document = {
+      id: "home:draft", companyId: "mock-brand", siteId: "mock-brand-storefront", pageId: "home",
+      pageType: "standard", title: "Home", slug: "home", routePattern: "/", previewPath: "/",
+      locale: "en", status: "draft", revision: 0,
+      sections: [
+        { id: "store-grid-section", type: "productCollection", order: 0, editable: true, settings: {}, styles: {}, responsive: {}, elements: [
+          { id: "collection", type: "productCollection", content: { source: "featured", limit: 8, columns: 4, showPrice: true }, settings: {}, styles: {}, responsive: {}, children: [] },
+        ] },
+      ],
+    };
+    const roundTripped = validatePageDocument(document, { companyId: "mock-brand", pageId: "home", previewPath: "/", routePattern: "/" });
+    assert.deepEqual(roundTripped.sections[0].elements[0].content, { source: "featured", limit: 8, columns: 4, showPrice: true });
+  });
 });
