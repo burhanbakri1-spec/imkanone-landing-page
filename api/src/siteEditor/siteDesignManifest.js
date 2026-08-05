@@ -1,21 +1,67 @@
 import { SiteEditorValidationError } from "./schema.js";
 
 /**
- * siteDesignManifest.js — Phase 1 manifest validation for the generic
- * multi-tenant Site Design feature.
+ * siteDesignManifest.js — manifest validation for the generic multi-tenant
+ * Site Design feature.
  *
- * This module is intentionally limited to themes and colors. Typography,
- * page backgrounds, page transitions, font upload, and arbitrary CSS remain
- * unsupported. The schema mirrors the CPanel's allowlist of design color
- * tokens so the validated payload maps 1:1 to the editor preview variables.
+ * Phase 1 covers themes and colors. Phase 2A adds safe text theme presets:
+ * each preset carries exactly seven style tokens (display, heading1, heading2,
+ * heading3, body, small, button), each token is limited to fontFamily,
+ * fontSizePx, fontWeight, lineHeight, and letterSpacingEm, and font families
+ * are restricted to a fixed allowlist of well-known system fonts. Typography
+ * never accepts raw CSS font strings, font uploads, or external font URLs.
+ * Page backgrounds, page transitions, font upload, and arbitrary CSS remain
+ * unsupported.
+ *
+ * The schema mirrors the CPanel's allowlist of design tokens so the validated
+ * payload maps 1:1 to the editor preview variables.
  *
  * The function is fully backward compatible: when `siteDesign` is absent from
- * the storefront manifest, `normalizeSiteDesign` returns null.
+ * the storefront manifest, `normalizeSiteDesign` returns null, and when the
+ * typography section is absent, `defaultTextThemeId` normalizes to "" with an
+ * empty `textThemePresets` array.
  */
 
 export const SITE_DESIGN_VERSION = "1";
 export const MAX_THEMES = 20;
 export const MAX_PREVIEW_SWATCHES = 8;
+export const MAX_TEXT_THEMES = 12;
+export const SITE_DESIGN_FONT_FAMILY_ALLOWLIST = Object.freeze([
+  "system-sans",
+  "arial",
+  "georgia",
+  "times-new-roman",
+  "verdana",
+  "tahoma",
+  "trebuchet-ms",
+  "courier-new",
+]);
+export const SITE_DESIGN_TEXT_STYLE_TOKENS = Object.freeze([
+  "display",
+  "heading1",
+  "heading2",
+  "heading3",
+  "body",
+  "small",
+  "button",
+]);
+export const SITE_DESIGN_TEXT_STYLE_KEYS = Object.freeze([
+  "fontFamily",
+  "fontSizePx",
+  "fontWeight",
+  "lineHeight",
+  "letterSpacingEm",
+]);
+export const SITE_DESIGN_TEXT_THEME_PRESET_KEYS = Object.freeze([
+  "textThemeId",
+  "name",
+  "description",
+  "styles",
+]);
+export const SITE_DESIGN_FONT_WEIGHTS = Object.freeze([300, 400, 500, 600, 700, 800]);
+export const SITE_DESIGN_FONT_SIZE_PX_RANGE = Object.freeze({ min: 10, max: 96 });
+export const SITE_DESIGN_LINE_HEIGHT_RANGE = Object.freeze({ min: 1, max: 2 });
+export const SITE_DESIGN_LETTER_SPACING_EM_RANGE = Object.freeze({ min: -0.1, max: 0.3 });
 export const SITE_DESIGN_COLOR_GROUPS = Object.freeze({
   base: Object.freeze(["primaryBackground", "secondaryBackground"]),
   general: Object.freeze(["linesAndDividers"]),
@@ -35,6 +81,8 @@ export const SITE_DESIGN_TOP_LEVEL_KEYS = Object.freeze([
   "capabilities",
   "defaultThemeId",
   "themePresets",
+  "defaultTextThemeId",
+  "textThemePresets",
 ]);
 export const SITE_DESIGN_PRESET_KEYS = Object.freeze([
   "themeId",
@@ -164,10 +212,85 @@ function normalizeThemePreset(preset, index) {
   return { themeId, name, description, previewSwatches, colorTheme };
 }
 
+function safeNumberInRange(value, field, range) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw designError(`${field} must be a number.`);
+  }
+  if (value < range.min || value > range.max) {
+    throw designError(`${field} is out of the allowed range (${range.min} to ${range.max}).`);
+  }
+  return value;
+}
+
+function normalizeFontFamilyIdentifier(value, field) {
+  if (typeof value !== "string") throw designError(`${field} must be a supported font family identifier.`);
+  const candidate = value.trim().toLowerCase();
+  if (!SITE_DESIGN_FONT_FAMILY_ALLOWLIST.includes(candidate)) {
+    throw designError(`${field} must reference a supported system font family.`);
+  }
+  return candidate;
+}
+
+function normalizeFontSizePx(value, field) {
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw designError(`${field} must be an integer pixel size.`);
+  }
+  if (value < SITE_DESIGN_FONT_SIZE_PX_RANGE.min || value > SITE_DESIGN_FONT_SIZE_PX_RANGE.max) {
+    throw designError(`${field} is out of the allowed range (10 to 96).`);
+  }
+  return value;
+}
+
+function normalizeFontWeight(value, field) {
+  if (!SITE_DESIGN_FONT_WEIGHTS.includes(value)) {
+    throw designError(`${field} must be one of ${SITE_DESIGN_FONT_WEIGHTS.join(", ")}.`);
+  }
+  return value;
+}
+
+function normalizeTypographyStyle(style, field) {
+  if (!isRecord(style)) throw designError(`${field} must be a style object.`);
+  rejectUnknownKeys(style, SITE_DESIGN_TEXT_STYLE_KEYS, field);
+  const normalized = {};
+  for (const key of SITE_DESIGN_TEXT_STYLE_KEYS) {
+    if (!Object.hasOwn(style, key)) throw designError(`${field}.${key} is required.`);
+  }
+  normalized.fontFamily = normalizeFontFamilyIdentifier(style.fontFamily, `${field}.fontFamily`);
+  normalized.fontSizePx = normalizeFontSizePx(style.fontSizePx, `${field}.fontSizePx`);
+  normalized.fontWeight = normalizeFontWeight(style.fontWeight, `${field}.fontWeight`);
+  normalized.lineHeight = safeNumberInRange(style.lineHeight, `${field}.lineHeight`, SITE_DESIGN_LINE_HEIGHT_RANGE);
+  normalized.letterSpacingEm = safeNumberInRange(
+    style.letterSpacingEm,
+    `${field}.letterSpacingEm`,
+    SITE_DESIGN_LETTER_SPACING_EM_RANGE,
+  );
+  return normalized;
+}
+
+function normalizeTextThemePreset(preset, index) {
+  if (!isRecord(preset)) throw designError(`textThemePresets[${index}] must be an object.`);
+  rejectUnknownKeys(preset, SITE_DESIGN_TEXT_THEME_PRESET_KEYS, `textThemePresets[${index}]`);
+  const textThemeId = safeThemeId(preset.textThemeId, `textThemePresets[${index}].textThemeId`);
+  const name = localizedDesignText(preset.name, `textThemePresets[${index}].name`);
+  const description = preset.description != null
+    ? localizedDesignText(preset.description, `textThemePresets[${index}].description`)
+    : { en: "", ar: "" };
+  if (!isRecord(preset.styles)) throw designError(`textThemePresets[${index}].styles must be an object.`);
+  rejectUnknownKeys(preset.styles, SITE_DESIGN_TEXT_STYLE_TOKENS, `textThemePresets[${index}].styles`);
+  const styles = {};
+  for (const token of SITE_DESIGN_TEXT_STYLE_TOKENS) {
+    if (!Object.hasOwn(preset.styles, token)) {
+      throw designError(`textThemePresets[${index}].styles.${token} is required.`);
+    }
+    styles[token] = normalizeTypographyStyle(preset.styles[token], `textThemePresets[${index}].styles.${token}`);
+  }
+  return { textThemeId, name, description, styles };
+}
+
 /**
- * Normalize and validate the Phase 1 `siteDesign` manifest section.
- * Returns null when the section is absent. Throws SiteEditorValidationError
- * on any unknown, unsafe, or malformed value.
+ * Normalize and validate the `siteDesign` manifest section (themes, colors,
+ * and safe text theme presets). Returns null when the section is absent.
+ * Throws SiteEditorValidationError on any unknown, unsafe, or malformed value.
  */
 export function normalizeSiteDesign(input) {
   if (input == null) return null;
@@ -198,5 +321,30 @@ export function normalizeSiteDesign(input) {
     throw designError("defaultThemeId is required when theme presets are declared.");
   }
 
-  return { version, capabilities, defaultThemeId, themePresets };
+  if (input.textThemePresets != null && !Array.isArray(input.textThemePresets)) {
+    throw designError("siteDesign.textThemePresets must be an array.");
+  }
+  const rawTextPresets = Array.isArray(input.textThemePresets) ? input.textThemePresets : [];
+  if (rawTextPresets.length > MAX_TEXT_THEMES) {
+    throw designError("siteDesign declares too many text theme presets.");
+  }
+  const textThemePresets = rawTextPresets.map((preset, index) => normalizeTextThemePreset(preset, index));
+
+  const seenTextIds = new Set();
+  for (const preset of textThemePresets) {
+    if (seenTextIds.has(preset.textThemeId)) throw designError(`Duplicate text theme id: ${preset.textThemeId}.`);
+    seenTextIds.add(preset.textThemeId);
+  }
+
+  let defaultTextThemeId = "";
+  if (input.defaultTextThemeId != null) {
+    defaultTextThemeId = safeThemeId(input.defaultTextThemeId, "defaultTextThemeId");
+    if (!seenTextIds.has(defaultTextThemeId)) {
+      throw designError(`defaultTextThemeId references an unknown text theme: ${defaultTextThemeId}.`);
+    }
+  } else if (textThemePresets.length > 0) {
+    throw designError("defaultTextThemeId is required when text theme presets are declared.");
+  }
+
+  return { version, capabilities, defaultThemeId, themePresets, defaultTextThemeId, textThemePresets };
 }

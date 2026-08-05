@@ -581,6 +581,33 @@ function manifestWithSiteDesign(siteDesign) {
   return validManifest({ siteDesign });
 }
 
+function validTextThemePreset(overrides = {}) {
+  return {
+    textThemeId: "mock-text-default",
+    name: { en: "Mock Text Default", ar: "نص افتراضي تجريبي" },
+    description: { en: "A mock default text theme", ar: "نص افتراضي تجريبي" },
+    styles: {
+      display: { fontFamily: "system-sans", fontSizePx: 64, fontWeight: 500, lineHeight: 1.05, letterSpacingEm: -0.01 },
+      heading1: { fontFamily: "system-sans", fontSizePx: 44, fontWeight: 500, lineHeight: 1.1, letterSpacingEm: -0.01 },
+      heading2: { fontFamily: "system-sans", fontSizePx: 34, fontWeight: 500, lineHeight: 1.15, letterSpacingEm: 0 },
+      heading3: { fontFamily: "system-sans", fontSizePx: 24, fontWeight: 600, lineHeight: 1.2, letterSpacingEm: 0 },
+      body: { fontFamily: "system-sans", fontSizePx: 16, fontWeight: 400, lineHeight: 1.5, letterSpacingEm: 0 },
+      small: { fontFamily: "system-sans", fontSizePx: 14, fontWeight: 400, lineHeight: 1.4, letterSpacingEm: 0.01 },
+      button: { fontFamily: "system-sans", fontSizePx: 14, fontWeight: 600, lineHeight: 1, letterSpacingEm: 0.06 },
+    },
+    ...overrides,
+  };
+}
+
+function validTextSiteDesign(overrides = {}) {
+  return validSiteDesign({
+    capabilities: { ...validSiteDesign().capabilities, typography: true },
+    defaultTextThemeId: "mock-text-default",
+    textThemePresets: [validTextThemePreset()],
+    ...overrides,
+  });
+}
+
 test("site manifest siteDesign section", async (t) => {
   await t.test("remains backward compatible when siteDesign is absent", () => {
     const result = validateSiteManifest(validManifest());
@@ -716,5 +743,172 @@ test("site manifest siteDesign section", async (t) => {
     const missingButtonKey = validSiteDesign();
     delete missingButtonKey.themePresets[0].colorTheme.buttons.primary.border;
     assert.throws(() => validateSiteManifest(manifestWithSiteDesign(missingButtonKey)), /buttons\.primary\.border is required/i);
+  });
+
+  await t.test("keeps an existing siteDesign without typography valid and normalizes empty typography", () => {
+    const result = validateSiteManifest(manifestWithSiteDesign(validSiteDesign()));
+    assert.equal(result.siteDesign.defaultTextThemeId, "");
+    assert.deepEqual(result.siteDesign.textThemePresets, []);
+  });
+
+  await t.test("accepts valid typography and normalizes text theme presets", () => {
+    const result = validateSiteManifest(manifestWithSiteDesign(validTextSiteDesign()));
+    assert.equal(result.siteDesign.capabilities.typography, true);
+    assert.equal(result.siteDesign.defaultTextThemeId, "mock-text-default");
+    assert.equal(result.siteDesign.textThemePresets.length, 1);
+    const preset = result.siteDesign.textThemePresets[0];
+    assert.equal(preset.textThemeId, "mock-text-default");
+    assert.equal(preset.name.en, "Mock Text Default");
+    assert.equal(preset.name.ar, "نص افتراضي تجريبي");
+    assert.deepEqual(preset.styles.body, {
+      fontFamily: "system-sans",
+      fontSizePx: 16,
+      fontWeight: 400,
+      lineHeight: 1.5,
+      letterSpacingEm: 0,
+    });
+    assert.equal(preset.styles.button.fontFamily, "system-sans");
+  });
+
+  await t.test("rejects an unknown text theme property", () => {
+    const extra = validTextSiteDesign();
+    extra.textThemePresets[0].fallbackFamily = "Inter";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(extra)), /unknown textThemePresets\[0\] property/i);
+  });
+
+  await t.test("rejects duplicate textThemeId", () => {
+    const duplicates = validTextSiteDesign();
+    duplicates.textThemePresets.push(duplicates.textThemePresets[0]);
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(duplicates)), /duplicate text theme id/i);
+  });
+
+  await t.test("rejects an unknown defaultTextThemeId", () => {
+    const missing = validTextSiteDesign({ defaultTextThemeId: "does-not-exist" });
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(missing)), /unknown text theme/i);
+  });
+
+  await t.test("rejects an unsupported font family", () => {
+    const unsupported = validTextSiteDesign();
+    unsupported.textThemePresets[0].styles.body.fontFamily = "inter";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(unsupported)), /supported system font family/i);
+  });
+
+  await t.test("rejects a raw CSS font-family value", () => {
+    const rawCss = validTextSiteDesign();
+    rawCss.textThemePresets[0].styles.heading1.fontFamily = "'Helvetica Neue', Arial, sans-serif";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(rawCss)), /supported system font family/i);
+  });
+
+  await t.test("rejects a missing required style token", () => {
+    const missingToken = validTextSiteDesign();
+    delete missingToken.textThemePresets[0].styles.small;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(missingToken)), /styles\.small is required/i);
+  });
+
+  await t.test("rejects a missing required style property", () => {
+    const missingProp = validTextSiteDesign();
+    delete missingProp.textThemePresets[0].styles.body.lineHeight;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(missingProp)), /styles\.body\.lineHeight is required/i);
+  });
+
+  await t.test("rejects an unknown style token", () => {
+    const unknownToken = validTextSiteDesign();
+    unknownToken.textThemePresets[0].styles.caption = {
+      fontFamily: "system-sans",
+      fontSizePx: 12,
+      fontWeight: 400,
+      lineHeight: 1.3,
+      letterSpacingEm: 0,
+    };
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(unknownToken)), /unknown textThemePresets\[0\]\.styles property/i);
+  });
+
+  await t.test("rejects invalid font sizes", () => {
+    const tooSmall = validTextSiteDesign();
+    tooSmall.textThemePresets[0].styles.body.fontSizePx = 9;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(tooSmall)), /allowed range \(10 to 96\)/i);
+    const tooLarge = validTextSiteDesign();
+    tooLarge.textThemePresets[0].styles.body.fontSizePx = 97;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(tooLarge)), /allowed range \(10 to 96\)/i);
+    const nonInteger = validTextSiteDesign();
+    nonInteger.textThemePresets[0].styles.body.fontSizePx = 16.5;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(nonInteger)), /integer pixel size/i);
+    const stringSize = validTextSiteDesign();
+    stringSize.textThemePresets[0].styles.body.fontSizePx = "16";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(stringSize)), /integer pixel size/i);
+  });
+
+  await t.test("rejects invalid font weights", () => {
+    const lowWeight = validTextSiteDesign();
+    lowWeight.textThemePresets[0].styles.body.fontWeight = 200;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(lowWeight)), /fontWeight must be one of 300, 400, 500, 600, 700, 800/i);
+    const highWeight = validTextSiteDesign();
+    highWeight.textThemePresets[0].styles.body.fontWeight = 900;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(highWeight)), /fontWeight must be one of 300, 400, 500, 600, 700, 800/i);
+    const stringWeight = validTextSiteDesign();
+    stringWeight.textThemePresets[0].styles.body.fontWeight = "500";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(stringWeight)), /fontWeight must be one of 300, 400, 500, 600, 700, 800/i);
+  });
+
+  await t.test("rejects invalid line heights", () => {
+    const lowHeight = validTextSiteDesign();
+    lowHeight.textThemePresets[0].styles.body.lineHeight = 0.5;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(lowHeight)), /allowed range \(1 to 2\)/i);
+    const highHeight = validTextSiteDesign();
+    highHeight.textThemePresets[0].styles.body.lineHeight = 2.5;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(highHeight)), /allowed range \(1 to 2\)/i);
+    const stringHeight = validTextSiteDesign();
+    stringHeight.textThemePresets[0].styles.body.lineHeight = "1.5";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(stringHeight)), /must be a number/i);
+  });
+
+  await t.test("rejects invalid letter spacing", () => {
+    const lowSpacing = validTextSiteDesign();
+    lowSpacing.textThemePresets[0].styles.body.letterSpacingEm = -0.2;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(lowSpacing)), /allowed range \(-0\.1 to 0\.3\)/i);
+    const highSpacing = validTextSiteDesign();
+    highSpacing.textThemePresets[0].styles.body.letterSpacingEm = 0.5;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(highSpacing)), /allowed range \(-0\.1 to 0\.3\)/i);
+    const stringSpacing = validTextSiteDesign();
+    stringSpacing.textThemePresets[0].styles.body.letterSpacingEm = "0";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(stringSpacing)), /must be a number/i);
+  });
+
+  await t.test("rejects more than 12 text theme presets", () => {
+    const many = validTextSiteDesign({ textThemePresets: [] });
+    for (let index = 0; index < 13; index += 1) {
+      many.textThemePresets.push(validTextThemePreset({ textThemeId: `text-${index}` }));
+    }
+    many.defaultTextThemeId = "text-0";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(many)), /too many text theme presets/i);
+  });
+
+  await t.test("rejects HTML, URL, script, CSS function, and variable values", () => {
+    const unsafeName = validTextSiteDesign();
+    unsafeName.textThemePresets[0].name.en = "<script>alert(1)</script>";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(unsafeName)), /plain text/i);
+    const urlFont = validTextSiteDesign();
+    urlFont.textThemePresets[0].styles.body.fontFamily = "url(https://evil.example/font.woff2)";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(urlFont)), /supported system font family/i);
+    const cssVar = validTextSiteDesign();
+    cssVar.textThemePresets[0].styles.body.fontFamily = "var(--font-body)";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(cssVar)), /supported system font family/i);
+    const cssFunction = validTextSiteDesign();
+    cssFunction.textThemePresets[0].styles.body.fontFamily = "calc(16px + 2vw)";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(cssFunction)), /supported system font family/i);
+    const unsafeDescription = validTextSiteDesign();
+    unsafeDescription.textThemePresets[0].description.ar = "<img src=x onerror=alert(1)>";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(unsafeDescription)), /plain text/i);
+  });
+
+  await t.test("rejects malformed typography instead of truncating", () => {
+    const nonArray = validTextSiteDesign({ textThemePresets: "not-an-array" });
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(nonArray)), /textThemePresets must be an array/i);
+    const notObject = validTextSiteDesign();
+    notObject.textThemePresets[0] = 42;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(notObject)), /textThemePresets\[0\] must be an object/i);
+    const missingStyles = validTextSiteDesign();
+    delete missingStyles.textThemePresets[0].styles;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(missingStyles)), /styles must be an object/i);
   });
 });
