@@ -1,5 +1,6 @@
 import { SiteEditorValidationError, GENERIC_ELEMENT_TYPES } from "./schema.js";
 import { parseSafeConnectionUrl } from "./urlPolicy.js";
+import { normalizeSiteDesign } from "./siteDesignManifest.js";
 
 export const MANIFEST_SCHEMA_VERSION = "1.0";
 export const MANIFEST_CONTENT_TYPE = "application/vnd.igroup.site-manifest+json";
@@ -253,6 +254,7 @@ export function validateSiteManifest(input) {
     generatedAt: input.generatedAt ? String(input.generatedAt).slice(0, 64) : new Date().toISOString(),
     pages: pages.map(normalizeManifestPage),
     sectionLibrary: normalizeSectionLibrary(input.sectionLibrary),
+    siteDesign: normalizeSiteDesign(input.siteDesign),
   };
 
   const seenPageIds = new Set();

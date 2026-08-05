@@ -217,9 +217,11 @@ router.get("/connection", requirePermission("site_editor.access"), (req, res) =>
   const company = companyRepository.getCompanyById(req.companyId);
   if (!company) return res.status(404).json({ message: "Company not found." });
   const resolution = connectionResolution(company);
+  const connection = websiteConnectionSettings(company);
   return res.json({
     companyId: company.id,
     ...connectionSummary(company),
+    siteDesign: connection?.lastManifest?.siteDesign || null,
     resolvedSource: resolution.source,
     resolution: resolution.resolution,
   });

@@ -192,6 +192,30 @@ const brandManifest = {
   },
 };
 
+const siteDesignPayload = {
+  version: "1",
+  capabilities: { themes: true, colors: true, typography: false, pageBackgrounds: false, pageTransitions: false },
+  defaultThemeId: "icare-default",
+  themePresets: [
+    {
+      themeId: "icare-default",
+      name: { en: "iCare Default", ar: "تصميم آي كير الافتراضي" },
+      description: { en: "Signature iCare", ar: "هوية آي كير" },
+      previewSwatches: ["#ffffff", "#151515", "#c79a6b"],
+      colorTheme: {
+        base: { primaryBackground: "#ffffff", secondaryBackground: "#f5f3ee" },
+        general: { linesAndDividers: "#e6e2d9" },
+        accent: { primary: "#151515", secondary: "#c79a6b", tertiary: "#e8d8c3", quaternary: "#f5f3ee" },
+        text: { titles: "#151515", subtitles: "#6b655c", body: "#2a2118", secondary: "#7d7468", linksAndActions: "#b08048" },
+        buttons: {
+          primary: { background: "#151515", border: "#151515", text: "#ffffff" },
+          secondary: { background: "#ffffff", border: "#151515", text: "#151515" },
+        },
+      },
+    },
+  ],
+};
+
 const companies = [
   { id: "icare", slug: "icare", name: "iCare", status: "active", storefrontUrl: "https://igroup.website/icare", storefrontPath: "/icare" },
   { id: "eb-chemical", slug: "eb-chemical", name: "EB Chemical", status: "active" },
@@ -332,7 +356,7 @@ test("site editor connection resolution prefers remote, never silently falls bac
   });
 
   await t.test("a configured remote connection wins over legacy and Connect + Sync persists it", async () => {
-    manifestResponder = { status: 200, payload: icareRemoteManifest };
+    manifestResponder = { status: 200, payload: { ...icareRemoteManifest, siteDesign: siteDesignPayload } };
 
     const saved = await request("/site-editor/connection", {
       token: icareToken,
@@ -370,6 +394,13 @@ test("site editor connection resolution prefers remote, never silently falls bac
     assert.equal(connection.body.defaultLocale, "en");
     assert.deepEqual(connection.body.supportedLocales, ["en", "ar"]);
     assert.equal(connection.body.manifestSchemaVersion, "1.0");
+    assert.equal(connection.body.siteDesign.defaultThemeId, "icare-default");
+    assert.equal(connection.body.siteDesign.themePresets.length, 1);
+    assert.equal(connection.body.siteDesign.themePresets[0].colorTheme.base.primaryBackground, "#ffffff");
+    assert.equal(connection.body.siteDesign.capabilities.typography, false);
+    assert.equal(connection.body.lastManifest, undefined);
+    assert.equal(connection.body.pages, undefined);
+    assert.equal(connection.body.sectionLibrary, undefined);
 
     const library = await request("/site-editor/section-library", { token: icareToken });
     assert.equal(library.status, 200);
@@ -435,6 +466,19 @@ test("site editor connection resolution prefers remote, never silently falls bac
     assert.equal(Boolean(prefixUpdate.body.lastManifest), true);
     assert.equal(prefixUpdate.body.siteManifestUrl, REMOTE_MANIFEST_URL);
 
+    const browserAttempt = await request("/site-editor/connection", {
+      token: icareToken,
+      method: "PUT",
+      body: { siteManifestUrl: REMOTE_MANIFEST_URL, siteDesign: { attackerControlled: true } },
+    });
+    const verified = await request("/site-editor/connection", { token: icareToken });
+    assert.equal(verified.body.siteDesign.attackerControlled, undefined);
+    assert.equal(verified.body.siteDesign.defaultThemeId, "icare-default");
+    const persistedAfterBrowser = readPersistedConnection();
+    const persistedSiteDesign = persistedAfterBrowser.lastManifest?.siteDesign;
+    assert.equal(persistedSiteDesign && persistedSiteDesign.attackerControlled, undefined);
+    assert.equal(persistedSiteDesign?.defaultThemeId, "icare-default");
+
     const after = await request("/site-editor/connection", { token: icareToken });
     assert.equal(after.body.resolution, "remote");
     assert.equal(after.body.resolvedSource, "remote");
@@ -461,6 +505,10 @@ test("site editor connection resolution prefers remote, never silently falls bac
     const eb = await request("/site-editor/section-library", { token: ebToken });
     assert.equal(eb.status, 409);
     assert.equal(eb.body.code, "SITE_NOT_CONNECTED");
+
+    const brandConnection = await request("/site-editor/connection", { token: brandToken });
+    assert.equal(brandConnection.body.siteDesign, null);
+    assert.equal(JSON.stringify(brandConnection.body).includes("icare-default"), false);
   });
 
   await t.test("a configured remote failure is an explicit error and never falls back to legacy", async () => {
@@ -564,6 +612,7 @@ test("site editor connection resolution prefers remote, never silently falls bac
     const connection = await request("/site-editor/connection", { token: icareToken });
     assert.equal(connection.body.resolution, "legacy");
     assert.equal(connection.body.resolvedSource, "legacy");
+    assert.equal(connection.body.siteDesign, null);
 
     const library = await request("/site-editor/section-library", { token: icareToken });
     assert.equal(library.status, 200);
@@ -594,6 +643,7 @@ test("site editor connection resolution prefers remote, never silently falls bac
     assert.equal(connection.body.resolvedSource, null);
     assert.equal(connection.body.connectionStatus, "not-configured");
     assert.equal(connection.body.hasManifest, false);
+    assert.equal(connection.body.siteDesign, null);
 
     const pages = await request("/site-editor/pages", { token: icareToken });
     assert.equal(pages.status, 409);

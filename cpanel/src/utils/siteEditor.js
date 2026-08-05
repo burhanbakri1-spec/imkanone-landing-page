@@ -1,5 +1,10 @@
 import { documentFingerprint } from "./siteEditorDocument.js";
 import {
+  cloneColorTheme, colorThemesEqual, createInitialDesignState, findColorField, findCurrentThemePreset,
+  findDefaultTheme, getColorThemeValue, getPresetColorValue, MAX_DESIGN_HISTORY, normalizeHexColor,
+  resetColorThemeToPreset, resetColorThemeValue, updateColorThemeValue,
+} from "./siteEditorDesign.js";
+import {
   blankSectionTemplate,
   insertSectionAtTarget,
   sectionLibraryCategories,
@@ -164,6 +169,7 @@ export function createSiteEditorState(language = "en") {
     sectionLibraryRequiresConnection: false,
     activeSectionCategory: null, selectedSectionTemplate: null,
     sectionInsertPosition: "after", sectionBusy: false,
+    design: createInitialDesignState(),
   };
 }
 
@@ -176,6 +182,11 @@ function dirtyFor(state, document) {
   return documentFingerprint(document) !== state.savedFingerprints[state.currentPageId];
 }
 
+function designIsDirty(design, initialThemeId, initialColorTheme) {
+  if (!design.available) return false;
+  return !(design.currentThemeId === initialThemeId && colorThemesEqual(design.colorTheme, initialColorTheme));
+}
+
 export function siteEditorReducer(state, action) {
   switch (action.type) {
     case "toggle-panel": {
@@ -185,11 +196,168 @@ export function siteEditorReducer(state, action) {
       if (action.panel === "add-section") {
         return {
           ...state, activePanel: action.panel, activeInspector: null, quickEdit: null,
+          editingNodeId: null, design: { ...state.design, activeView: "main" },
         };
       }
-      return { ...state, activePanel: action.panel };
+      if (action.panel === "pages-menu") {
+        return { ...state, activePanel: action.panel, design: { ...state.design, activeView: "main" } };
+      }
+      if (action.panel === "site-design") {
+        return { ...state, activePanel: action.panel, activeInspector: null, quickEdit: null, editingNodeId: null, design: { ...state.design, activeView: "main" } };
+      }
+      return { ...state, activePanel: action.panel, design: { ...state.design, activeView: "main" } };
     }
     case "close-panel": return { ...state, activePanel: null };
+    case "open-site-design": return {
+      ...state, activePanel: "site-design", activeInspector: null, quickEdit: null,
+      editingNodeId: null, design: { ...state.design, activeView: "main" },
+    };
+    case "close-site-design": return { ...state, activePanel: state.activePanel === "site-design" ? null : state.activePanel };
+    case "design-open-view": return { ...state, design: { ...state.design, activeView: state.design.available && action.view === "themes" ? "themes" : "main" } };
+    case "design-open-color-theme": {
+      const design = state.design;
+      const supportsColors = !!(design.available && design.definition?.capabilities?.colors === true);
+      if (!supportsColors) return state;
+      return { ...state, design: { ...design, activeView: "colors" } };
+    }
+    case "design-back": return { ...state, design: { ...state.design, activeView: "main" } };
+    case "design-update-color": {
+      const design = state.design;
+      if (!(design.available && design.definition?.capabilities?.colors === true)) return state;
+      const field = findColorField(action.fieldId);
+      if (!field) return state;
+      const value = normalizeHexColor(action.value);
+      if (!value) return state;
+      if (getColorThemeValue(design.colorTheme, field.id) === value) return state;
+      const nextColorTheme = updateColorThemeValue(design.colorTheme, field.id, value);
+      if (!nextColorTheme) return state;
+      const currentEntry = { themeId: design.currentThemeId, colorTheme: design.colorTheme ? cloneColorTheme(design.colorTheme) : null };
+      const changed = {
+        ...design,
+        colorTheme: nextColorTheme,
+        history: { past: [...design.history.past, currentEntry].slice(-MAX_DESIGN_HISTORY), future: [] },
+      };
+      return { ...state, design: { ...changed, isDirty: designIsDirty(changed, design.initialThemeId, design.initialColorTheme) } };
+    }
+    case "design-reset-color": {
+      const design = state.design;
+      if (!(design.available && design.definition)) return state;
+      const field = findColorField(action.fieldId);
+      if (!field) return state;
+      const presetValue = getPresetColorValue(design.definition, design.currentThemeId, field.id);
+      if (presetValue == null) return state;
+      if (getColorThemeValue(design.colorTheme, field.id) === presetValue) return state;
+      const nextColorTheme = resetColorThemeValue(design.colorTheme, design.definition, design.currentThemeId, field.id);
+      if (!nextColorTheme) return state;
+      const currentEntry = { themeId: design.currentThemeId, colorTheme: design.colorTheme ? cloneColorTheme(design.colorTheme) : null };
+      const changed = {
+        ...design,
+        colorTheme: nextColorTheme,
+        history: { past: [...design.history.past, currentEntry].slice(-MAX_DESIGN_HISTORY), future: [] },
+      };
+      return { ...state, design: { ...changed, isDirty: designIsDirty(changed, design.initialThemeId, design.initialColorTheme) } };
+    }
+    case "design-reset-color-theme": {
+      const design = state.design;
+      if (!(design.available && design.definition)) return state;
+      const preset = findCurrentThemePreset(design.definition, design.currentThemeId);
+      const presetColorTheme = preset ? resetColorThemeToPreset(design.definition, design.currentThemeId) : null;
+      if (!presetColorTheme || colorThemesEqual(design.colorTheme, presetColorTheme)) return state;
+      const currentEntry = { themeId: design.currentThemeId, colorTheme: design.colorTheme ? cloneColorTheme(design.colorTheme) : null };
+      const changed = {
+        ...design,
+        colorTheme: presetColorTheme,
+        history: { past: [...design.history.past, currentEntry].slice(-MAX_DESIGN_HISTORY), future: [] },
+      };
+      return { ...state, design: { ...changed, isDirty: designIsDirty(changed, design.initialThemeId, design.initialColorTheme) } };
+    }
+    case "design-apply-theme": {
+      const design = state.design;
+      if (!design.available || !design.definition) return state;
+      const preset = (design.definition.themePresets || []).find((candidate) => candidate?.themeId === action.themeId);
+      if (!preset || preset.themeId === design.currentThemeId) return state;
+      const next = cloneColorTheme(preset.colorTheme);
+      if (!next) return state;
+      const currentEntry = { themeId: design.currentThemeId, colorTheme: design.colorTheme ? cloneColorTheme(design.colorTheme) : null };
+      const changed = {
+        ...design,
+        currentThemeId: preset.themeId,
+        colorTheme: next,
+        history: { past: [...design.history.past, currentEntry].slice(-30), future: [] },
+      };
+      return { ...state, design: { ...changed, isDirty: designIsDirty(changed, design.initialThemeId, design.initialColorTheme) } };
+    }
+    case "design-undo": {
+      const design = state.design;
+      const previous = design.history.past.at(-1);
+      if (!design.available || !previous) return state;
+      const currentEntry = { themeId: design.currentThemeId, colorTheme: design.colorTheme ? cloneColorTheme(design.colorTheme) : null };
+      const changed = {
+        ...design,
+        currentThemeId: previous.themeId,
+        colorTheme: previous.colorTheme ? cloneColorTheme(previous.colorTheme) : null,
+        history: {
+          past: design.history.past.slice(0, -1),
+          future: [currentEntry, ...design.history.future].slice(-30),
+        },
+      };
+      return { ...state, design: { ...changed, isDirty: designIsDirty(changed, design.initialThemeId, design.initialColorTheme) } };
+    }
+    case "design-redo": {
+      const design = state.design;
+      const nextEntry = design.history.future[0];
+      if (!design.available || !nextEntry) return state;
+      const currentEntry = { themeId: design.currentThemeId, colorTheme: design.colorTheme ? cloneColorTheme(design.colorTheme) : null };
+      const changed = {
+        ...design,
+        currentThemeId: nextEntry.themeId,
+        colorTheme: nextEntry.colorTheme ? cloneColorTheme(nextEntry.colorTheme) : null,
+        history: {
+          past: [...design.history.past, currentEntry].slice(-30),
+          future: design.history.future.slice(1),
+        },
+      };
+      return { ...state, design: { ...changed, isDirty: designIsDirty(changed, design.initialThemeId, design.initialColorTheme) } };
+    }
+    case "design-reset-default": {
+      const design = state.design;
+      if (!design.available || (design.currentThemeId === design.initialThemeId && colorThemesEqual(design.colorTheme, design.initialColorTheme))) return state;
+      const currentEntry = { themeId: design.currentThemeId, colorTheme: design.colorTheme ? cloneColorTheme(design.colorTheme) : null };
+      return {
+        ...state,
+        design: {
+          ...design,
+          currentThemeId: design.initialThemeId,
+          colorTheme: design.initialColorTheme ? cloneColorTheme(design.initialColorTheme) : null,
+          history: { past: [...design.history.past, currentEntry].slice(-30), future: [] },
+          isDirty: false,
+        },
+      };
+    }
+    case "design-reset": return { ...state, design: createInitialDesignState() };
+    case "design-initialize": {
+      const siteDesign = action.siteDesign && typeof action.siteDesign === "object" ? action.siteDesign : null;
+      if (!siteDesign || !Array.isArray(siteDesign.themePresets) || siteDesign.themePresets.length === 0) {
+        return { ...state, design: createInitialDesignState() };
+      }
+      const defaultTheme = findDefaultTheme(siteDesign);
+      if (!defaultTheme) return { ...state, design: createInitialDesignState() };
+      const colorTheme = cloneColorTheme(defaultTheme.colorTheme);
+      return {
+        ...state,
+        design: {
+          available: true,
+          definition: siteDesign,
+          currentThemeId: defaultTheme.themeId,
+          colorTheme,
+          initialThemeId: defaultTheme.themeId,
+          initialColorTheme: colorTheme ? cloneColorTheme(colorTheme) : null,
+          history: { past: [], future: [] },
+          isDirty: false,
+          activeView: "main",
+        },
+      };
+    }
     case "pages-loading": return { ...state, pagesStatus: "loading", pagesError: "" };
     case "pages-success": return { ...state, pages: action.pages, pagesStatus: "ready", pagesError: "", currentPageId: action.currentPageId || action.pages[0]?.id || null };
     case "pages-failure": return { ...state, pages: [], pagesStatus: "error", pagesError: action.error || "Unable to load pages." };
@@ -212,17 +380,19 @@ export function siteEditorReducer(state, action) {
     case "document-failure": return { ...state, documentStatus: "error", documentError: action.error || "Unable to load page document." };
     case "select-node": {
       const sectionId = action.sectionId || state.selectedSectionId || state.quickEdit;
-      return {
+      const isInspector = action.inspector ? true : false;
+      const base = {
         ...state, selectedNodeId: action.nodeId || null, selectedSectionId: sectionId,
         editingNodeId: null, activeInspector: action.inspector || null,
         quickEdit: action.inspector ? null : (state.quickEdit ? sectionId : state.quickEdit),
       };
+      return isInspector ? { ...base, activePanel: null, design: { ...state.design, activeView: "main" } } : base;
     }
     case "clear-selection": return { ...state, selectedNodeId: null, selectedSectionId: null, editingNodeId: null, activeInspector: null, quickEdit: null };
-    case "set-editing-node": return { ...state, editingNodeId: action.nodeId || null };
-    case "open-quick-edit": return { ...state, selectedNodeId: action.sectionId || null, selectedSectionId: action.sectionId || null, editingNodeId: null, activeInspector: null, quickEdit: action.sectionId || null };
+    case "set-editing-node": return { ...state, editingNodeId: action.nodeId || null, ...(action.nodeId ? { activePanel: null, design: { ...state.design, activeView: "main" } } : {}) };
+    case "open-quick-edit": return { ...state, selectedNodeId: action.sectionId || null, selectedSectionId: action.sectionId || null, editingNodeId: null, activeInspector: null, quickEdit: action.sectionId || null, activePanel: null, design: { ...state.design, activeView: "main" } };
     case "close-quick-edit": return { ...state, quickEdit: null };
-    case "set-inspector": return action.inspector ? { ...state, activeInspector: action.inspector, quickEdit: null } : { ...state, activeInspector: null };
+    case "set-inspector": return action.inspector ? { ...state, activeInspector: action.inspector, quickEdit: null, activePanel: null, design: { ...state.design, activeView: "main" } } : { ...state, activeInspector: null };
     case "mutate-document": {
       const current = currentSiteEditorDocument(state);
       if (!current || !action.document || documentFingerprint(current) === documentFingerprint(action.document)) return state;

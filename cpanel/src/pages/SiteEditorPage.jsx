@@ -115,6 +115,14 @@ export default function SiteEditorPage({ company, currentUser, isContextResolvin
   }, [siteKey]);
 
   React.useEffect(() => {
+    dispatch({ type: "design-reset" });
+  }, [company?.id, connection?.siteId]);
+
+  React.useEffect(() => {
+    dispatch({ type: "design-initialize", siteDesign: connected ? connection?.siteDesign || null : null });
+  }, [company?.id, connection?.siteId, connected, connection?.siteDesign]);
+
+  React.useEffect(() => {
     if (isContextResolving || !company || !capabilities.canAccess || connectionStatus !== "ready" || !connected || !sectionLibraryOpen) {
       sectionLibraryRequestRef.current = null;
       return undefined;

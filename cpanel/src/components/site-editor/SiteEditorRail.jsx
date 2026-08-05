@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { siteEditorText, siteEditorTools } from "../../utils/siteEditor.js";
 import SiteEditorPagesPanel, { siteEditorPagesPanelId } from "./SiteEditorPagesPanel.jsx";
+import SiteDesignPanel from "./SiteDesignPanel.jsx";
 
 const icons = {
   ai: Sparkles,
@@ -37,11 +38,13 @@ function utilityPlaceholder(panel, ar) {
 export default function SiteEditorRail({ company, dispatch, language, onSelectPage, pages, state }) {
   const ar = language === "ar";
   const activeTool = siteEditorTools.find((item) => item.id === state.activePanel);
-  const placeholder = state.activePanel === "add-section"
+  const placeholder = state.activePanel === "site-design"
     ? null
-    : activeTool && activeTool.id !== "pages-menu"
-      ? placeholderCopy(activeTool, ar)
-      : utilityPlaceholder(state.activePanel, ar);
+    : state.activePanel === "add-section"
+      ? null
+      : activeTool && activeTool.id !== "pages-menu"
+        ? placeholderCopy(activeTool, ar)
+        : utilityPlaceholder(state.activePanel, ar);
   const PlaceholderIcon = placeholder?.icon;
   const primaryTools = siteEditorTools.slice(0, 9);
   const footerTools = siteEditorTools.slice(9);
@@ -70,6 +73,7 @@ export default function SiteEditorRail({ company, dispatch, language, onSelectPa
       <div className="site-editor-rail-footer">{footerTools.map(renderTool)}</div>
     </nav>
     {state.activePanel === "pages-menu" && <SiteEditorPagesPanel company={company} dispatch={dispatch} language={language} onSelectPage={onSelectPage} pages={pages} state={state} />}
+    {state.activePanel === "site-design" && <SiteDesignPanel dispatch={dispatch} language={language} state={state} />}
     {placeholder && <aside className="site-editor-panel" aria-label={placeholder.title} id={activeTool ? `site-editor-panel-${activeTool.id}` : undefined}>
       <header><div><PlaceholderIcon size={20} /><h2>{placeholder.title}</h2></div><button aria-label={ar ? "إغلاق اللوحة" : "Close panel"} onClick={() => dispatch({ type: "close-panel" })} type="button"><X size={18} /></button></header>
       <div className="site-editor-panel-empty"><span><PlaceholderIcon size={28} /></span><strong>{ar ? "قريباً في مرحلة لاحقة" : "Coming in a later phase"}</strong><p>{placeholder.description}</p></div>

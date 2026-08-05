@@ -12,6 +12,13 @@ import {
   trustedPagePreview, trustedSitePreview,
 } from "../src/utils/siteEditor.js";
 import {
+  cloneColorTheme, colorThemesEqual, createDesignCssVariables, createInitialDesignState,
+  findColorField, findCurrentThemePreset, findDefaultTheme, getColorThemeValue, getPresetColorValue,
+  MAX_DESIGN_HISTORY, normalizeHexColor, resetColorThemeToPreset, resetColorThemeValue,
+  SITE_DESIGN_COLOR_FIELDS, SITE_DESIGN_COLOR_GROUPS, SITE_DESIGN_CSS_VARIABLES, updateColorThemeValue,
+  colorThemeIsCustomized,
+} from "../src/utils/siteEditorDesign.js";
+import {
   editorNodeStyles, findEditorNode, moveEditorSection, plainEditorText, replaceEditorImage,
   safeEditorLink, sectionMoveAvailability, updateEditorContentList, updateEditorImageSettings,
   updateEditorLink, updateEditorStyle, updateEditorText,
@@ -965,4 +972,585 @@ test("97 another tenant never sees the previous tenant's templates after a site 
   assert.ok(sectionTemplatesForCategory(state.sectionLibrary, standardPage, "welcome").length > 0);
   state = siteEditorReducer(state, { type: "section-library-reset" });
   assert.deepEqual(sectionTemplatesForCategory(state.sectionLibrary, standardPage, "welcome"), []);
+});
+
+const designPanelSource = read("../src/components/site-editor/SiteDesignPanel.jsx");
+const themeLibrarySource = read("../src/components/site-editor/ThemeLibraryView.jsx");
+const siteEditorDesignSource = read("../src/utils/siteEditorDesign.js");
+const railSourceForDesign = read("../src/components/site-editor/SiteEditorRail.jsx");
+const canvasSourceForDesign = read("../src/components/site-editor/SiteEditorCanvas.jsx");
+const colorThemeViewSource = read("../src/components/site-editor/ColorThemeView.jsx");
+const colorInputSource = read("../src/components/site-editor/DesignColorInput.jsx");
+
+const themeA = {
+  themeId: "light", name: { en: "Light", ar: "فاتح" }, description: { en: "Bright theme", ar: "سمة ساطعة" },
+  previewSwatches: ["#ffffff", "#2156a8"],
+  colorTheme: {
+    base: { primaryBackground: "#ffffff", secondaryBackground: "#f5f3ee" },
+    general: { linesAndDividers: "#e6e2d9" },
+    accent: { primary: "#2156a8", secondary: "#c79a6b", tertiary: "#e8d8c3", quaternary: "#f5f3ee" },
+    text: { titles: "#172033", subtitles: "#6b655c", body: "#2a2118", secondary: "#7d7468", linksAndActions: "#2156a8" },
+    buttons: { primary: { background: "#2156a8", border: "#2156a8", text: "#ffffff" }, secondary: { background: "#ffffff", border: "#2156a8", text: "#2156a8" } },
+  },
+};
+const themeB = {
+  themeId: "dark", name: { en: "Dark", ar: "داكن" }, description: { en: "Dark theme", ar: "سمة داكنة" },
+  previewSwatches: ["#151515", "#c79a6b"],
+  colorTheme: {
+    base: { primaryBackground: "#151515", secondaryBackground: "#2a2118" },
+    general: { linesAndDividers: "#3a332b" },
+    accent: { primary: "#c79a6b", secondary: "#151515", tertiary: "#6b655c", quaternary: "#2a2118" },
+    text: { titles: "#ffffff", subtitles: "#c9c2b8", body: "#f2eeea", secondary: "#a79d8f", linksAndActions: "#e0b58a" },
+    buttons: { primary: { background: "#c79a6b", border: "#c79a6b", text: "#151515" }, secondary: { background: "#151515", border: "#c79a6b", text: "#c79a6b" } },
+  },
+};
+const siteDesign = {
+  version: "1",
+  capabilities: { themes: true, colors: true, typography: false, pageBackgrounds: false, pageTransitions: false },
+  defaultThemeId: "light",
+  themePresets: [themeA, themeB],
+};
+
+function designedState(definition = siteDesign) {
+  let state = loadedState();
+  return siteEditorReducer(state, { type: "design-initialize", siteDesign: definition });
+}
+
+test("100 design initializes from connection.siteDesign", () => {
+  const state = designedState();
+  assert.equal(state.design.available, true);
+  assert.equal(state.design.definition, siteDesign);
+  assert.equal(state.design.currentThemeId, "light");
+  assert.equal(state.design.initialThemeId, "light");
+  assert.equal(state.design.colorTheme.base.primaryBackground, "#ffffff");
+  assert.equal(state.design.isDirty, false);
+  assert.deepEqual(state.design.history, { past: [], future: [] });
+  assert.equal(state.design.activeView, "main");
+});
+
+test("101 null siteDesign creates an unavailable design state", () => {
+  const state = designedState(null);
+  assert.equal(state.design.available, false);
+  assert.equal(state.design.definition, null);
+  assert.equal(state.design.colorTheme, null);
+  assert.equal(state.design.currentThemeId, "");
+  assert.equal(siteEditorReducer(state, { type: "design-open-view", view: "themes" }).design.activeView, "main");
+});
+
+test("102 Site Design opens from the rail", () => {
+  assert.match(railSourceForDesign, /SiteDesignPanel/);
+  assert.match(railSourceForDesign, /state\.activePanel === "site-design"/);
+  const state = siteEditorReducer(loadedState(), { type: "toggle-panel", panel: "site-design" });
+  assert.equal(state.activePanel, "site-design");
+});
+
+test("103 opening Site Design closes Pages, Add Section, Quick Edit, Inspector, and inline editing", () => {
+  let state = siteEditorReducer(loadedState(), { type: "toggle-panel", panel: "pages-menu" });
+  state = siteEditorReducer(state, { type: "open-site-design" });
+  assert.equal(state.activePanel, "site-design");
+
+  state = siteEditorReducer(state, { type: "toggle-panel", panel: "add-section" });
+  state = siteEditorReducer(state, { type: "open-site-design" });
+  assert.equal(state.activePanel, "site-design");
+  assert.equal(state.activeInspector, null);
+  assert.equal(state.quickEdit, null);
+  assert.equal(state.editingNodeId, null);
+});
+
+test("104 opening Site Design (via rail toggle) closes Quick Edit and Inspector", () => {
+  let state = siteEditorReducer(loadedState(), { type: "open-quick-edit", sectionId: "hero" });
+  state = siteEditorReducer(state, { type: "toggle-panel", panel: "site-design" });
+  assert.equal(state.activePanel, "site-design");
+  assert.equal(state.quickEdit, null);
+  assert.equal(state.activeInspector, null);
+
+  state = siteEditorReducer(loadedState(), { type: "set-inspector", inspector: "heading" });
+  state = siteEditorReducer(state, { type: "toggle-panel", panel: "site-design" });
+  assert.equal(state.activePanel, "site-design");
+  assert.equal(state.activeInspector, null);
+  assert.equal(state.quickEdit, null);
+});
+
+test("105 opening Pages closes Site Design", () => {
+  let state = siteEditorReducer(loadedState(), { type: "open-site-design" });
+  state = siteEditorReducer(state, { type: "toggle-panel", panel: "pages-menu" });
+  assert.equal(state.activePanel, "pages-menu");
+});
+
+test("106 opening Add Section closes Site Design", () => {
+  let state = siteEditorReducer(loadedState(), { type: "open-site-design" });
+  state = siteEditorReducer(state, { type: "toggle-panel", panel: "add-section" });
+  assert.equal(state.activePanel, "add-section");
+  assert.equal(state.design.activeView, "main");
+});
+
+test("107 opening Quick Edit closes Site Design", () => {
+  let state = siteEditorReducer(loadedState(), { type: "open-site-design" });
+  state = siteEditorReducer(state, { type: "open-quick-edit", sectionId: "hero" });
+  assert.equal(state.activePanel, null);
+  assert.equal(state.quickEdit, "hero");
+});
+
+test("108 opening Inspector closes Site Design", () => {
+  let state = siteEditorReducer(loadedState(), { type: "open-site-design" });
+  state = siteEditorReducer(state, { type: "set-inspector", inspector: "heading" });
+  assert.equal(state.activePanel, null);
+  assert.equal(state.activeInspector, "heading");
+});
+
+test("109 main panel enables Site Theme and Color Theme; future features are disabled with explanatory copy", () => {
+  assert.match(designPanelSource, /site-editor-design-row enabled/);
+  assert.match(designPanelSource, /Site Theme/);
+  assert.match(designPanelSource, /سمة الموقع/);
+  assert.match(designPanelSource, /site-editor-design-row \$\{colorsEnabled \? "enabled" : "disabled"\}/);
+  assert.equal((designPanelSource.match(/site-editor-design-row disabled/g) || []).length, 3);
+  assert.match(designPanelSource, /Color Theme/);
+  assert.match(designPanelSource, /سمة الألوان/);
+  assert.match(designPanelSource, /Coming in a later phase/);
+  assert.match(designPanelSource, /ستتوفر في مرحلة لاحقة/);
+  assert.doesNotMatch(designPanelSource, /design-save|design-publish|onSave|onPublish|localStorage/);
+});
+
+test("110 theme cards come from manifest themePresets, not hardcoded ids", () => {
+  assert.match(themeLibrarySource, /design\.definition\?\.themePresets/);
+  assert.match(themeLibrarySource, /preset\.themeId/);
+  assert.match(themeLibrarySource, /preset\.name\?\.\[language\]/);
+  assert.match(themeLibrarySource, /preset\.previewSwatches/);
+  assert.doesNotMatch(themeLibrarySource, /themeId: "icare|light" \x2d{1}/);
+});
+
+test("111 applying a theme updates currentThemeId and colorTheme with one history entry", () => {
+  let state = designedState();
+  state = siteEditorReducer(state, { type: "design-apply-theme", themeId: "dark" });
+  assert.equal(state.design.currentThemeId, "dark");
+  assert.equal(state.design.colorTheme.base.primaryBackground, "#151515");
+  assert.equal(state.design.history.past.length, 1);
+  assert.deepEqual(state.design.history.future, []);
+  assert.equal(state.design.isDirty, true);
+});
+
+test("112 applying the active theme again is a no-op", () => {
+  const state = designedState();
+  const result = siteEditorReducer(state, { type: "design-apply-theme", themeId: "light" });
+  assert.equal(result, state);
+  assert.equal(result.design.history.past.length, 0);
+  assert.equal(result.design.colorTheme.base.primaryBackground, "#ffffff");
+});
+
+test("113 applying a theme does not modify the page document, page history, revision, fingerprint, or page isDirty", () => {
+  let state = designedState();
+  const before = currentSiteEditorDocument(state);
+  const beforePast = state.history.past.length;
+  const beforeRevision = state.currentRevision;
+  const beforeFingerprint = state.savedFingerprints[page.id];
+  state = siteEditorReducer(state, { type: "design-apply-theme", themeId: "dark" });
+  assert.equal(currentSiteEditorDocument(state), before);
+  assert.equal(state.history.past.length, beforePast);
+  assert.equal(state.currentRevision, beforeRevision);
+  assert.equal(state.savedFingerprints[page.id], beforeFingerprint);
+  assert.equal(state.isDirty, false);
+});
+
+test("114 undo restores previous theme and colors; redo reapplies them", () => {
+  let state = designedState();
+  state = siteEditorReducer(state, { type: "design-apply-theme", themeId: "dark" });
+  state = siteEditorReducer(state, { type: "design-undo" });
+  assert.equal(state.design.currentThemeId, "light");
+  assert.equal(state.design.colorTheme.base.primaryBackground, "#ffffff");
+  assert.equal(state.design.isDirty, false);
+  state = siteEditorReducer(state, { type: "design-redo" });
+  assert.equal(state.design.currentThemeId, "dark");
+  assert.equal(state.design.colorTheme.base.primaryBackground, "#151515");
+  assert.equal(state.design.isDirty, true);
+});
+
+test("115 applying a theme does not touch page undo/redo stacks", () => {
+  let state = designedState();
+  state = siteEditorReducer(state, { type: "mutate-document", document: updateEditorText(document, "heading", "Changed") });
+  const pagePast = state.history.past.length;
+  state = siteEditorReducer(state, { type: "design-apply-theme", themeId: "dark" });
+  assert.equal(state.history.past.length, pagePast);
+  assert.equal(state.design.history.past.length, 1);
+});
+
+test("116 reset restores the manifest default theme; reset at default is a no-op", () => {
+  let state = designedState();
+  state = siteEditorReducer(state, { type: "design-apply-theme", themeId: "dark" });
+  state = siteEditorReducer(state, { type: "design-reset-default" });
+  assert.equal(state.design.currentThemeId, "light");
+  assert.equal(state.design.colorTheme.base.primaryBackground, "#ffffff");
+  assert.equal(state.design.isDirty, false);
+  const noop = siteEditorReducer(state, { type: "design-reset-default" });
+  assert.equal(noop, state);
+});
+
+test("117 tenant/site change resets the design state", () => {
+  let state = designedState();
+  state = siteEditorReducer(state, { type: "design-apply-theme", themeId: "dark" });
+  const reset = siteEditorReducer(state, { type: "design-reset" });
+  assert.equal(reset.design.available, false);
+  assert.equal(reset.design.definition, null);
+  assert.equal(reset.design.currentThemeId, "");
+  assert.equal(reset.design.colorTheme, null);
+});
+
+test("118 design CSS variables contain only allowlisted properties", () => {
+  const variables = createDesignCssVariables(themeA.colorTheme);
+  const allowlist = new Set(SITE_DESIGN_CSS_VARIABLES);
+  for (const key of Object.keys(variables)) {
+    assert.ok(allowlist.has(key), `unexpected variable ${key}`);
+  }
+  assert.equal(Object.keys(variables).length, SITE_DESIGN_CSS_VARIABLES.length);
+  assert.equal(variables["--site-bg-primary"], "#ffffff");
+  assert.equal(variables["--site-button-primary-bg"], "#2156a8");
+});
+
+test("119 invalid colors are excluded from generated variables", () => {
+  const variables = createDesignCssVariables({
+    base: { primaryBackground: "not-a-color", secondaryBackground: "#f5f3ee" },
+    general: { linesAndDividers: "#e6e2d9" },
+    accent: { primary: "#2156a8", secondary: "#c79a6b", tertiary: "#e8d8c3", quaternary: "#f5f3ee" },
+    text: { titles: "rgb(0,0,0)", subtitles: "#6b655c", body: "#2a2118", secondary: "#7d7468", linksAndActions: "#2156a8" },
+    buttons: { primary: { background: "#2156a8", border: "#2156a8", text: "#ffffff" }, secondary: { background: "#ffffff", border: "#2156a8", text: "#2156a8" } },
+  });
+  assert.equal(variables["--site-bg-primary"], undefined);
+  assert.equal(variables["--site-title-color"], undefined);
+  assert.equal(variables["--site-bg-secondary"], "#f5f3ee");
+});
+
+test("120 CSS variables apply only to the canvas wrapper", () => {
+  assert.match(canvasSourceForDesign, /createDesignCssVariables/);
+  assert.match(canvasSourceForDesign, /style=\{designVariables\}/);
+  assert.doesNotMatch(railSourceForDesign, /--site-bg-primary/);
+  assert.doesNotMatch(designPanelSource, /--site-bg-primary/);
+  assert.doesNotMatch(topbarSource, /--site-bg-primary/);
+  assert.doesNotMatch(pagesSource, /--site-bg-primary/);
+});
+
+test("121 no Site Design save or publish action exists", () => {
+  assert.doesNotMatch(designPanelSource, /design-save|design-publish/);
+  assert.doesNotMatch(themeLibrarySource, /design-save|design-publish/);
+  const saved = siteEditorReducer(designedState(), { type: "design-apply-theme", themeId: "dark" });
+  const afterPublish = siteEditorReducer(saved, { type: "design-publish" });
+  assert.equal(afterPublish, saved);
+  const afterSave = siteEditorReducer(saved, { type: "design-save" });
+  assert.equal(afterSave, saved);
+});
+
+test("122 Arabic and English copy is present in the design panels", () => {
+  assert.match(designPanelSource, /Site Design/);
+  assert.match(designPanelSource, /تصميم الموقع/);
+  assert.match(designPanelSource, /Preview only\. Saving Site Design will be added in the next phase\./);
+  assert.match(designPanelSource, /معاينة فقط\. ستتم إضافة حفظ تصميم الموقع في المرحلة القادمة\./);
+  assert.match(designPanelSource, /This website does not support Site Design yet\./);
+  assert.match(designPanelSource, /هذا الموقع لا يدعم تصميم الموقع حتى الآن\./);
+  assert.match(designPanelSource, /Undo Theme Change/);
+  assert.match(designPanelSource, /التراجع عن تغيير السمة/);
+  assert.match(designPanelSource, /Redo Theme Change/);
+  assert.match(designPanelSource, /إعادة تغيير السمة/);
+  assert.match(designPanelSource, /Reset to Default/);
+  assert.match(designPanelSource, /استعادة الافتراضي/);
+  assert.match(themeLibrarySource, /No theme presets are available for this website\./);
+  assert.match(themeLibrarySource, /لا تتوفر تصاميم جاهزة لهذا الموقع\./);
+});
+
+test("123 design utility helpers are pure and correct", () => {
+  assert.equal(normalizeHexColor("#AbCdEf"), "#abcdef");
+  assert.equal(normalizeHexColor("red"), null);
+  assert.equal(normalizeHexColor("#fff"), null);
+  assert.equal(normalizeHexColor("#gggggg"), null);
+  const clone = cloneColorTheme(themeA.colorTheme);
+  assert.deepEqual(clone, themeA.colorTheme);
+  clone.base.primaryBackground = "#000000";
+  assert.equal(themeA.colorTheme.base.primaryBackground, "#ffffff");
+  assert.equal(colorThemesEqual(themeA.colorTheme, clone), false);
+  assert.equal(colorThemesEqual(themeA.colorTheme, JSON.parse(JSON.stringify(themeA.colorTheme))), true);
+  assert.equal(findDefaultTheme(siteDesign).themeId, "light");
+  assert.equal(findDefaultTheme({ themePresets: [themeA] }), null);
+  assert.equal(findDefaultTheme(null), null);
+  assert.equal(createInitialDesignState().available, false);
+  assert.equal(createInitialDesignState().activeView, "main");
+});
+
+test("124 design is initialized again from the manifest default on reload and site change", () => {
+  let state = siteEditorReducer(designedState(), { type: "design-apply-theme", themeId: "dark" });
+  state = siteEditorReducer(state, { type: "design-initialize", siteDesign });
+  assert.equal(state.design.currentThemeId, "light");
+  assert.equal(state.design.colorTheme.base.primaryBackground, "#ffffff");
+  assert.equal(state.design.isDirty, false);
+  assert.deepEqual(state.design.history, { past: [], future: [] });
+  assert.equal(pageSource.includes("design-initialize"), true);
+  assert.equal(pageSource.includes("connection?.siteDesign"), true);
+});
+
+const noColorsDesign = {
+  version: "1",
+  capabilities: { themes: true, colors: false, typography: false, pageBackgrounds: false, pageTransitions: false },
+  defaultThemeId: "light",
+  themePresets: [themeA, themeB],
+};
+
+test("125 Color Theme opens only when the colors capability is true", () => {
+  const opened = siteEditorReducer(designedState(), { type: "design-open-color-theme" });
+  assert.equal(opened.design.activeView, "colors");
+  const denied = siteEditorReducer(designedState(noColorsDesign), { type: "design-open-color-theme" });
+  assert.equal(denied.design.activeView, "main");
+});
+
+test("126 unavailable design cannot open Color Theme", () => {
+  const state = designedState(null);
+  const result = siteEditorReducer(state, { type: "design-open-color-theme" });
+  assert.equal(result, state);
+  assert.equal(result.design.activeView, "main");
+});
+
+test("127 SITE_DESIGN_COLOR_FIELDS contains exactly 18 allowlisted fields with paths and labels", () => {
+  assert.equal(SITE_DESIGN_COLOR_FIELDS.length, 18);
+  const ids = SITE_DESIGN_COLOR_FIELDS.map((field) => field.id);
+  assert.equal(new Set(ids).size, 18);
+  for (const field of SITE_DESIGN_COLOR_FIELDS) {
+    assert.ok(Array.isArray(field.path) && field.path.length > 0, field.id);
+    assert.ok(field.label && field.label.en && field.label.ar, field.id);
+    assert.ok(findColorField(field.id) === field, field.id);
+  }
+  assert.ok(SITE_DESIGN_COLOR_GROUPS.length >= 6);
+  assert.ok(SITE_DESIGN_COLOR_GROUPS.every((group) => group.label.en && group.label.ar));
+});
+
+test("128 unknown field IDs are rejected by pure helpers and the reducer", () => {
+  assert.equal(findColorField("nope.unknown"), null);
+  assert.equal(updateColorThemeValue(themeA.colorTheme, "evil.path", "#000000"), null);
+  assert.equal(getColorThemeValue(themeA.colorTheme, "evil.path"), null);
+  const state = designedState();
+  const before = state.design.history.past.length;
+  const result = siteEditorReducer(state, { type: "design-update-color", fieldId: "__proto__.polluted", value: "#000000" });
+  assert.equal(result, state);
+  assert.equal(result.design.history.past.length, before);
+});
+
+test("129 valid uppercase hex normalizes to lowercase; invalid values are rejected", () => {
+  assert.equal(normalizeHexColor("#ABCDEF"), "#abcdef");
+  assert.equal(normalizeHexColor("  #AbCdEf  "), "#abcdef");
+  assert.equal(updateColorThemeValue(themeA.colorTheme, "accent.primary", "#ABCDEF").accent.primary, "#abcdef");
+  assert.equal(normalizeHexColor("#fff"), null);
+  assert.equal(normalizeHexColor("red"), null);
+  assert.equal(normalizeHexColor("rgb(0,0,0)"), null);
+  assert.equal(normalizeHexColor("var(--x)"), null);
+  assert.equal(normalizeHexColor("url(#x)"), null);
+  assert.equal(normalizeHexColor("linear-gradient(#000,#fff)"), null);
+  assert.equal(normalizeHexColor("#gggggg"), null);
+});
+
+test("130 one committed edit creates one history entry and clears future", () => {
+  let state = designedState();
+  state = siteEditorReducer(state, { type: "design-update-color", fieldId: "accent.primary", value: "#123456" });
+  assert.equal(state.design.history.past.length, 1);
+  assert.deepEqual(state.design.history.future, []);
+  assert.equal(state.design.colorTheme.accent.primary, "#123456");
+  state = siteEditorReducer(state, { type: "design-update-color", fieldId: "text.body", value: "#000000" });
+  assert.equal(state.design.history.past.length, 2);
+});
+
+test("131 editing to the current value is a no-op", () => {
+  const state = designedState();
+  const result = siteEditorReducer(state, { type: "design-update-color", fieldId: "accent.primary", value: "#2156A8" });
+  assert.equal(result, state);
+  assert.equal(result.design.history.past.length, 0);
+});
+
+test("132 invalid input does not change design state or preview variables", () => {
+  const state = designedState();
+  const beforeVars = createDesignCssVariables(state.design.colorTheme);
+  const result = siteEditorReducer(state, { type: "design-update-color", fieldId: "accent.primary", value: "red" });
+  assert.equal(result, state);
+  assert.deepEqual(createDesignCssVariables(result.design.colorTheme), beforeVars);
+});
+
+test("133 per-color reset restores the selected preset value", () => {
+  let state = designedState();
+  state = siteEditorReducer(state, { type: "design-update-color", fieldId: "accent.primary", value: "#123456" });
+  assert.equal(state.design.colorTheme.accent.primary, "#123456");
+  assert.equal(state.design.history.past.length, 1);
+  state = siteEditorReducer(state, { type: "design-reset-color", fieldId: "accent.primary" });
+  assert.equal(state.design.colorTheme.accent.primary, "#2156a8");
+  assert.equal(state.design.history.past.length, 2);
+  assert.equal(state.design.currentThemeId, "light");
+});
+
+test("134 per-color reset is a no-op when already at the preset value", () => {
+  const state = designedState();
+  const result = siteEditorReducer(state, { type: "design-reset-color", fieldId: "accent.primary" });
+  assert.equal(result, state);
+  assert.equal(result.design.history.past.length, 0);
+});
+
+test("135 full color reset restores the selected preset and is a no-op at preset", () => {
+  let state = designedState();
+  state = siteEditorReducer(state, { type: "design-update-color", fieldId: "accent.primary", value: "#123456" });
+  state = siteEditorReducer(state, { type: "design-update-color", fieldId: "text.body", value: "#000000" });
+  assert.equal(state.design.isDirty, true);
+  state = siteEditorReducer(state, { type: "design-reset-color-theme" });
+  assert.deepEqual(state.design.colorTheme, themeA.colorTheme);
+  assert.equal(state.design.currentThemeId, "light");
+  assert.equal(state.design.isDirty, false);
+  const noop = siteEditorReducer(state, { type: "design-reset-color-theme" });
+  assert.equal(noop, state);
+});
+
+test("136 full color reset does not switch to the manifest default theme", () => {
+  let state = designedState();
+  state = siteEditorReducer(state, { type: "design-apply-theme", themeId: "dark" });
+  state = siteEditorReducer(state, { type: "design-update-color", fieldId: "accent.primary", value: "#123456" });
+  state = siteEditorReducer(state, { type: "design-reset-color-theme" });
+  assert.equal(state.design.currentThemeId, "dark");
+  assert.deepEqual(state.design.colorTheme, themeB.colorTheme);
+});
+
+test("137 manual color edits retain currentThemeId and mark the design customized", () => {
+  let state = designedState();
+  assert.equal(colorThemeIsCustomized(state.design.definition, state.design.currentThemeId, state.design.colorTheme), false);
+  state = siteEditorReducer(state, { type: "design-update-color", fieldId: "accent.primary", value: "#123456" });
+  assert.equal(state.design.currentThemeId, "light");
+  assert.equal(state.design.isDirty, true);
+  assert.equal(colorThemeIsCustomized(state.design.definition, state.design.currentThemeId, state.design.colorTheme), true);
+});
+
+test("138 applying another theme clears customization and replaces the whole colorTheme", () => {
+  let state = designedState();
+  state = siteEditorReducer(state, { type: "design-update-color", fieldId: "accent.primary", value: "#123456" });
+  assert.equal(colorThemeIsCustomized(state.design.definition, state.design.currentThemeId, state.design.colorTheme), true);
+  state = siteEditorReducer(state, { type: "design-apply-theme", themeId: "dark" });
+  assert.equal(state.design.currentThemeId, "dark");
+  assert.deepEqual(state.design.colorTheme, themeB.colorTheme);
+  assert.equal(colorThemeIsCustomized(state.design.definition, state.design.currentThemeId, state.design.colorTheme), false);
+  assert.equal(state.design.history.past.length, 2);
+});
+
+test("139 undo restores the previous color and redo reapplies the edit", () => {
+  let state = designedState();
+  state = siteEditorReducer(state, { type: "design-update-color", fieldId: "accent.primary", value: "#123456" });
+  state = siteEditorReducer(state, { type: "design-undo" });
+  assert.equal(state.design.colorTheme.accent.primary, "#2156a8");
+  assert.equal(state.design.currentThemeId, "light");
+  assert.equal(state.design.isDirty, false);
+  state = siteEditorReducer(state, { type: "design-redo" });
+  assert.equal(state.design.colorTheme.accent.primary, "#123456");
+  assert.equal(state.design.isDirty, true);
+});
+
+test("140 a new edit after undo clears the future history", () => {
+  let state = designedState();
+  state = siteEditorReducer(state, { type: "design-update-color", fieldId: "accent.primary", value: "#123456" });
+  state = siteEditorReducer(state, { type: "design-update-color", fieldId: "text.body", value: "#000000" });
+  state = siteEditorReducer(state, { type: "design-undo" });
+  state = siteEditorReducer(state, { type: "design-undo" });
+  assert.equal(state.design.history.future.length, 2);
+  state = siteEditorReducer(state, { type: "design-update-color", fieldId: "text.titles", value: "#111111" });
+  assert.deepEqual(state.design.history.future, []);
+  assert.equal(state.design.history.past.length, 1);
+});
+
+test("141 design color history is capped at MAX_DESIGN_HISTORY", () => {
+  let state = designedState();
+  for (let i = 0; i < MAX_DESIGN_HISTORY + 10; i += 1) {
+    state = siteEditorReducer(state, { type: "design-update-color", fieldId: "accent.primary", value: `#${String(i % 0xffffff).padStart(6, "0")}` });
+  }
+  assert.ok(state.design.history.past.length <= MAX_DESIGN_HISTORY);
+  assert.equal(state.design.history.past.length, MAX_DESIGN_HISTORY);
+});
+
+test("142 color edits do not modify page document, page history, revision, fingerprint, or page isDirty", () => {
+  let state = designedState();
+  const beforeDoc = currentSiteEditorDocument(state);
+  const beforePast = state.history.past.length;
+  const beforeRevision = state.currentRevision;
+  const beforeFp = state.savedFingerprints[page.id];
+  state = siteEditorReducer(state, { type: "design-update-color", fieldId: "accent.primary", value: "#123456" });
+  assert.equal(currentSiteEditorDocument(state), beforeDoc);
+  assert.equal(state.history.past.length, beforePast);
+  assert.equal(state.currentRevision, beforeRevision);
+  assert.equal(state.savedFingerprints[page.id], beforeFp);
+  assert.equal(state.isDirty, false);
+});
+
+test("143 canvas variables update from edited colors and remain scoped to the canvas", () => {
+  let state = designedState();
+  state = siteEditorReducer(state, { type: "design-update-color", fieldId: "accent.primary", value: "#123456" });
+  const variables = createDesignCssVariables(state.design.colorTheme);
+  assert.equal(variables["--site-accent-primary"], "#123456");
+  const allowlist = new Set(SITE_DESIGN_CSS_VARIABLES);
+  for (const key of Object.keys(variables)) assert.ok(allowlist.has(key), key);
+  assert.match(canvasSourceForDesign, /createDesignCssVariables\(state\.design\?\.colorTheme\)/);
+  assert.match(canvasSourceForDesign, /style=\{designVariables\}/);
+  assert.doesNotMatch(designPanelSource, /--site-bg-primary/);
+  assert.doesNotMatch(colorInputSource, /--site-/);
+});
+
+test("144 Arabic and English labels, groups, and validation messages exist", () => {
+  assert.match(colorThemeViewSource, /ألوان الموقع/);
+  assert.match(colorThemeViewSource, /Color Theme/);
+  assert.match(colorThemeViewSource, /Back to Site Design/);
+  assert.match(colorThemeViewSource, /العودة إلى تصميم الموقع/);
+  assert.match(colorThemeViewSource, /Reset Color Theme/);
+  assert.match(colorThemeViewSource, /استعادة ألوان السمة الحالية/);
+  assert.match(siteEditorDesignSource, /الخلفيات الأساسية/);
+  assert.match(siteEditorDesignSource, /Base Backgrounds/);
+  assert.match(siteEditorDesignSource, /الخطوط والفواصل/);
+  assert.match(siteEditorDesignSource, /Lines and Dividers/);
+  assert.match(siteEditorDesignSource, /الألوان المميزة/);
+  assert.match(siteEditorDesignSource, /Accent Colors/);
+  assert.match(siteEditorDesignSource, /ألوان النصوص/);
+  assert.match(siteEditorDesignSource, /Text Colors/);
+  assert.match(siteEditorDesignSource, /الزر الأساسي/);
+  assert.match(siteEditorDesignSource, /Primary Button/);
+  assert.match(siteEditorDesignSource, /الزر الثانوي/);
+  assert.match(siteEditorDesignSource, /Secondary Button/);
+  assert.match(colorInputSource, /Enter a valid hex color like #2156a8/);
+  assert.match(colorInputSource, /أدخل لونًا سداسيًا صالحًا مثل #2156a8/);
+  assert.match(colorInputSource, /إعادة تعيين/);
+  assert.match(colorInputSource, /Reset /);
+  assert.match(designPanelSource, /مخصص/);
+  assert.match(designPanelSource, /Customized/);
+  assert.match(themeLibrarySource, /Customized:/);
+});
+
+test("145 DesignColorInput uses a local draft, commits on blur/Enter, and rejects invalid input", () => {
+  assert.match(colorInputSource, /useState/);
+  assert.match(colorInputSource, /draft/);
+  assert.match(colorInputSource, /onBlur=\{handleBlur\}/);
+  assert.match(colorInputSource, /onKeyDown=\{handleKeyDown\}/);
+  assert.match(colorInputSource, /event\.key === "Enter"/);
+  assert.match(colorInputSource, /event\.key === "Escape"/);
+  assert.match(colorInputSource, /type="color"/);
+  assert.match(colorInputSource, /role="alert"/);
+  assert.match(colorInputSource, /design-reset-color/);
+  assert.match(colorInputSource, /resetDisabled/);
+});
+
+test("146 DesignColorInput synchronizes its draft when the value changes externally", () => {
+  assert.match(colorInputSource, /useEffect/);
+  assert.match(colorInputSource, /setDraft\(value \|\| ""\)/);
+});
+
+test("147 Color Theme view reads fields and groups only from the centralized allowlist", () => {
+  assert.match(colorThemeViewSource, /SITE_DESIGN_COLOR_FIELDS/);
+  assert.match(colorThemeViewSource, /SITE_DESIGN_COLOR_GROUPS/);
+  assert.equal(colorThemeViewSource.includes("colorFieldValue"), false);
+  assert.doesNotMatch(colorThemeViewSource, /path: \[/);
+});
+
+test("148 Color Theme row is conditionally enabled by capability and shows unsupported copy otherwise", () => {
+  assert.match(designPanelSource, /design-open-color-theme/);
+  assert.match(designPanelSource, /colorsEnabled/);
+  assert.match(designPanelSource, /disabled=\{!colorsEnabled\}/);
+  assert.match(designPanelSource, /Unsupported for this website/);
+  assert.match(designPanelSource, /غير مدعومة لهذا الموقع/);
+});
+
+test("149 no persistence, save, publish, API call, or localStorage is introduced for colors", () => {
+  assert.doesNotMatch(colorThemeViewSource, /design-save|design-publish|fetch\(|localStorage|onSave|onPublish/);
+  assert.doesNotMatch(colorInputSource, /design-save|design-publish|fetch\(|localStorage/);
+  const state = siteEditorReducer(designedState(), { type: "design-update-color", fieldId: "accent.primary", value: "#123456" });
+  assert.equal(siteEditorReducer(state, { type: "design-publish" }), state);
+  assert.equal(siteEditorReducer(state, { type: "design-save" }), state);
 });

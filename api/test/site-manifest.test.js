@@ -543,3 +543,178 @@ test("site manifest section library", async (t) => {
     assert.deepEqual(roundTripped.sections[0].elements[0].content, { source: "featured", limit: 8, columns: 4, showPrice: true });
   });
 });
+
+function validSiteDesign(overrides = {}) {
+  return {
+    version: "1",
+    capabilities: {
+      themes: true,
+      colors: true,
+      typography: false,
+      pageBackgrounds: false,
+      pageTransitions: false,
+    },
+    defaultThemeId: "mock-default",
+    themePresets: [
+      {
+        themeId: "mock-default",
+        name: { en: "Mock Default", ar: "افتراضي تجريبي" },
+        description: { en: "A mock default theme", ar: "تصميم افتراضي تجريبي" },
+        previewSwatches: ["#ffffff", "#151515", "#c79a6b"],
+        colorTheme: {
+          base: { primaryBackground: "#FFFFFF", secondaryBackground: "#f5f3ee" },
+          general: { linesAndDividers: "#e6e2d9" },
+          accent: { primary: "#151515", secondary: "#c79a6b", tertiary: "#e8d8c3", quaternary: "#f5f3ee" },
+          text: { titles: "#151515", subtitles: "#6b655c", body: "#2a2118", secondary: "#7d7468", linksAndActions: "#b08048" },
+          buttons: {
+            primary: { background: "#151515", border: "#151515", text: "#ffffff" },
+            secondary: { background: "#ffffff", border: "#151515", text: "#151515" },
+          },
+        },
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function manifestWithSiteDesign(siteDesign) {
+  return validManifest({ siteDesign });
+}
+
+test("site manifest siteDesign section", async (t) => {
+  await t.test("remains backward compatible when siteDesign is absent", () => {
+    const result = validateSiteManifest(validManifest());
+    assert.equal(result.siteDesign, null);
+  });
+
+  await t.test("accepts a valid Phase 1 siteDesign and normalizes colors", () => {
+    const result = validateSiteManifest(manifestWithSiteDesign(validSiteDesign()));
+    assert.equal(result.siteDesign.version, "1");
+    assert.equal(result.siteDesign.defaultThemeId, "mock-default");
+    assert.equal(result.siteDesign.capabilities.themes, true);
+    assert.equal(result.siteDesign.capabilities.colors, true);
+    assert.equal(result.siteDesign.capabilities.typography, false);
+    assert.equal(result.siteDesign.themePresets.length, 1);
+    const preset = result.siteDesign.themePresets[0];
+    assert.equal(preset.themeId, "mock-default");
+    assert.equal(preset.name.en, "Mock Default");
+    assert.equal(preset.name.ar, "افتراضي تجريبي");
+    assert.deepEqual(preset.previewSwatches, ["#ffffff", "#151515", "#c79a6b"]);
+    assert.equal(preset.colorTheme.base.primaryBackground, "#ffffff");
+    assert.equal(preset.colorTheme.buttons.primary.background, "#151515");
+    assert.equal(preset.colorTheme.buttons.secondary.text, "#151515");
+  });
+
+  await t.test("rejects duplicate theme ids", () => {
+    const duplicates = validSiteDesign();
+    duplicates.themePresets.push(duplicates.themePresets[0]);
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(duplicates)), /duplicate/i);
+  });
+
+  await t.test("rejects an unknown defaultThemeId", () => {
+    const missing = validSiteDesign({ defaultThemeId: "does-not-exist" });
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(missing)), /unknown theme/i);
+  });
+
+  await t.test("rejects invalid hex colors", () => {
+    const badColor = validSiteDesign();
+    badColor.themePresets[0].colorTheme.accent.primary = "red";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(badColor)), /hex/i);
+    const shortColor = validSiteDesign();
+    shortColor.themePresets[0].previewSwatches = ["#fff"];
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(shortColor)), /hex/i);
+  });
+
+  await t.test("rejects unknown color properties", () => {
+    const unknown = validSiteDesign();
+    unknown.themePresets[0].colorTheme.text.extra = "#123456";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(unknown)), /unknown colorTheme\.text property/i);
+  });
+
+  await t.test("rejects more than 20 themes", () => {
+    const many = validSiteDesign({ themePresets: [] });
+    for (let index = 0; index < 21; index += 1) {
+      many.themePresets.push({
+        themeId: `theme-${index}`,
+        name: { en: `Theme ${index}`, ar: `تصميم ${index}` },
+        description: { en: "", ar: `وصف ${index}` },
+        previewSwatches: ["#ffffff"],
+        colorTheme: {
+          accent: { primary: "#123456" },
+          buttons: { primary: { background: "#123456" }, secondary: { background: "#654321" } },
+        },
+      });
+    }
+    many.defaultThemeId = "theme-0";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(many)), /too many/i);
+  });
+
+  await t.test("rejects unsafe text or CSS-like values", () => {
+    const unsafeName = validSiteDesign();
+    unsafeName.themePresets[0].name.en = "<script>alert(1)</script>";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(unsafeName)), /plain text/i);
+    const cssColor = validSiteDesign();
+    cssColor.themePresets[0].colorTheme.accent.secondary = "url(https://evil.example/x.png)";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(cssColor)), /hex/i);
+    const gradient = validSiteDesign();
+    gradient.themePresets[0].colorTheme.base.primaryBackground = "linear-gradient(red, blue)";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(gradient)), /hex/i);
+  });
+
+  await t.test("siteDesign remains tenant-manifest data and is normalized only from the manifest", () => {
+    const result = validateSiteManifest(manifestWithSiteDesign(validSiteDesign()));
+    assert.equal(typeof result.siteDesign.defaultThemeId, "string");
+    assert.deepEqual(
+      result.siteDesign.themePresets.map((preset) => preset.themeId),
+      ["mock-default"],
+    );
+    assert.ok(Object.keys(result.siteDesign).includes("themePresets"));
+    assert.ok(!Object.keys(result.siteDesign).includes("css"));
+  });
+
+  await t.test("rejects an unknown top-level siteDesign property", () => {
+    const extra = validSiteDesign({ css: { arbitrary: true } });
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(extra)), /unknown siteDesign property/i);
+  });
+
+  await t.test("rejects an unknown theme preset property", () => {
+    const extra = validSiteDesign();
+    extra.themePresets[0].fontUpload = true;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(extra)), /unknown themePresets\[0\] property/i);
+  });
+
+  await t.test("rejects an unknown colorTheme group", () => {
+    const extra = validSiteDesign();
+    extra.themePresets[0].colorTheme.videoBackground = { color: "#000000" };
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(extra)), /unknown colorTheme property/i);
+  });
+
+  await t.test("rejects an unknown colorTheme.buttons property", () => {
+    const extra = validSiteDesign();
+    extra.themePresets[0].colorTheme.buttons.hover = { background: "#123456" };
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(extra)), /unknown colorTheme\.buttons property/i);
+  });
+
+  await t.test("rejects more than 8 preview swatches instead of truncating", () => {
+    const manySwatches = validSiteDesign();
+    manySwatches.themePresets[0].previewSwatches = [
+      "#111111", "#222222", "#333333", "#444444", "#555555", "#666666", "#777777", "#888888", "#999999",
+    ];
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(manySwatches)), /too many preview swatches/i);
+  });
+
+  await t.test("rejects a missing required color group", () => {
+    const missingGroup = validSiteDesign();
+    delete missingGroup.themePresets[0].colorTheme.base;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(missingGroup)), /colorTheme\.base must be a color object/i);
+  });
+
+  await t.test("rejects a missing required color key", () => {
+    const missingKey = validSiteDesign();
+    delete missingKey.themePresets[0].colorTheme.text.body;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(missingKey)), /colorTheme\.text\.body is required/i);
+    const missingButtonKey = validSiteDesign();
+    delete missingButtonKey.themePresets[0].colorTheme.buttons.primary.border;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(missingButtonKey)), /buttons\.primary\.border is required/i);
+  });
+});

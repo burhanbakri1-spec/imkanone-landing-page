@@ -11,7 +11,7 @@ export default function EditableSection({ language, onAction, onCommitText, onSe
   const quickEditOpen = Boolean(state.quickEdit);
   const styles = editorNodeStyles(section, viewportMode);
   const sectionStyle = {
-    backgroundColor: styles.backgroundColor || "#f4f1eb",
+    backgroundColor: styles.backgroundColor || "var(--site-bg-secondary, #f4f1eb)",
     paddingBlock: `${styles.paddingBlock ?? 48}px`, paddingInline: `${styles.paddingInline ?? 48}px`,
     alignItems: styles.contentAlignment === "start" ? "flex-start" : styles.contentAlignment === "center" ? "center" : "flex-end",
   };
