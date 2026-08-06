@@ -988,6 +988,8 @@ const canvasSourceForDesign = read("../src/components/site-editor/SiteEditorCanv
 const colorThemeViewSource = read("../src/components/site-editor/ColorThemeView.jsx");
 const colorInputSource = read("../src/components/site-editor/DesignColorInput.jsx");
 const textLibrarySource = read("../src/components/site-editor/TextThemeLibraryView.jsx");
+const typographyEditorSource = read("../src/components/site-editor/TypographyEditorView.jsx");
+const typographyFieldSource = read("../src/components/site-editor/TypographyFieldControl.jsx");
 const siteEditorReducerSource = read("../src/utils/siteEditor.js");
 
 const themeA = {
@@ -2210,4 +2212,315 @@ test("207 no API, fetch, localStorage, save, publish, upload, URL, or @font-face
   const state = typographyState();
   assert.equal(siteEditorReducer(state, { type: "design-publish" }), state);
   assert.equal(siteEditorReducer(state, { type: "design-save" }), state);
+});
+
+test("208 Customize Typography button exists in English and Arabic", () => {
+  assert.match(textLibrarySource, /Customize Typography/);
+  assert.match(textLibrarySource, /تخصيص الخطوط/);
+  assert.match(textLibrarySource, /site-editor-typo-customize/);
+  assert.match(textLibrarySource, /setCustomizerOpen\(true\)/);
+  assert.match(textLibrarySource, /TypographyEditorView/);
+});
+
+test("209 the customizer reads current styles from design.textThemeStyles", () => {
+  assert.match(typographyEditorSource, /design\.textThemeStyles/);
+  assert.match(typographyEditorSource, /getTypographyValue\(styles/);
+  const state = typographyState();
+  assert.equal(getTypographyValue(state.design.textThemeStyles, "body", "fontSizePx"), 16);
+  assert.equal(getTypographyValue(state.design.textThemeStyles, "body", "fontFamily"), "system-sans");
+});
+
+test("210 the customizer reads fields from SITE_DESIGN_TYPOGRAPHY_FIELDS", () => {
+  assert.match(typographyEditorSource, /SITE_DESIGN_TYPOGRAPHY_FIELDS/);
+  assert.match(typographyFieldSource, /field\.property/);
+  assert.match(typographyFieldSource, /field\.label/);
+  assert.equal(SITE_DESIGN_TYPOGRAPHY_FIELDS.length, 5);
+  assert.deepEqual(SITE_DESIGN_TYPOGRAPHY_FIELDS.map((f) => f.property), ["fontFamily", "fontSizePx", "fontWeight", "lineHeight", "letterSpacingEm"]);
+});
+
+test("211 exactly seven token options exist", () => {
+  assert.equal(SITE_DESIGN_TEXT_STYLE_TOKENS.length, 7);
+  assert.deepEqual(SITE_DESIGN_TEXT_STYLE_TOKENS, ["display", "heading1", "heading2", "heading3", "body", "small", "button"]);
+  assert.match(typographyEditorSource, /SITE_DESIGN_TEXT_STYLE_TOKENS\.map/);
+});
+
+test("212 default selected token is body", () => {
+  assert.match(typographyEditorSource, /useState\("body"\)/);
+  assert.ok(SITE_DESIGN_TEXT_STYLE_TOKENS.includes("body"));
+  const state = typographyState();
+  assert.equal(getTypographyValue(state.design.textThemeStyles, "body", "fontSizePx"), 16);
+});
+
+test("213 all token labels exist in English and Arabic", () => {
+  for (const [token, copy] of [["display", "العنوان البارز"], ["heading1", "العنوان الأول"], ["heading2", "العنوان الثاني"], ["heading3", "العنوان الثالث"], ["body", "النص الأساسي"], ["small", "النص الصغير"], ["button", "نص الزر"]]) {
+    assert.match(typographyEditorSource, new RegExp(token));
+  }
+  for (const copy of ["Display", "Heading 1", "Heading 2", "Heading 3", "Body Text", "Small Text", "Button Text"]) {
+    assert.match(typographyEditorSource, new RegExp(copy.replace(/ /g, "\\s")));
+  }
+  for (const copy of ["العنوان البارز", "العنوان الأول", "العنوان الثاني", "العنوان الثالث", "النص الأساسي", "النص الصغير", "نص الزر"]) {
+    assert.match(typographyEditorSource, new RegExp(copy));
+  }
+});
+
+test("214 Font Family renders only safe mapped identifiers", () => {
+  const keys = Object.keys(SITE_DESIGN_FONT_FAMILY_MAP);
+  assert.equal(keys.length, 8);
+  for (const key of keys) {
+    assert.match(key, /^[a-z0-9-]+$/);
+    assert.doesNotMatch(key, /,/);
+    assert.doesNotMatch(key, /'|"|\s/);
+  }
+  assert.match(typographyFieldSource, /SITE_DESIGN_FONT_FAMILY_MAP/);
+  assert.match(typographyFieldSource, /Object\.keys\(SITE_DESIGN_FONT_FAMILY_MAP\)/);
+  assert.doesNotMatch(typographyFieldSource, /-apple-system|BlinkMacSystemFont|sans-serif|serif|monospace/);
+});
+
+test("215 Font Weight renders only the six allowed values", () => {
+  const weightField = findTypographyField("fontWeight");
+  assert.deepEqual(weightField.values, [300, 400, 500, 600, 700, 800]);
+  assert.match(typographyFieldSource, /FONT_WEIGHT_LABELS/);
+  for (const weight of [300, 400, 500, 600, 700, 800]) {
+    assert.match(typographyFieldSource, new RegExp(String(weight)));
+  }
+});
+
+test("216 numeric controls use contract min/max/step values", () => {
+  const size = findTypographyField("fontSizePx");
+  assert.deepEqual([size.min, size.max, size.step, size.integer], [10, 96, 1, true]);
+  const line = findTypographyField("lineHeight");
+  assert.deepEqual([line.min, line.max, line.step], [1, 2, 0.05]);
+  const spacing = findTypographyField("letterSpacingEm");
+  assert.deepEqual([spacing.min, spacing.max, spacing.step], [-0.1, 0.3, 0.005]);
+  assert.match(typographyFieldSource, /min=\{field\.min\}/);
+  assert.match(typographyFieldSource, /max=\{field\.max\}/);
+  assert.match(typographyFieldSource, /step=\{field\.step\}/);
+  assert.match(typographyFieldSource, /type="number"/);
+});
+
+test("217 select changes dispatch design-update-typography-value", () => {
+  assert.match(typographyFieldSource, /type: "design-update-typography-value"/);
+  assert.match(typographyFieldSource, /handleSelectChange/);
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontFamily", value: "georgia" });
+  assert.equal(state.design.textThemeStyles.body.fontFamily, "georgia");
+  assert.equal(state.design.textHistory.past.length, 1);
+});
+
+test("218 numeric input does not dispatch on each keystroke", () => {
+  assert.match(typographyFieldSource, /handleChange/);
+  assert.doesNotMatch(typographyFieldSource, /const handleChange = \(event\) => \{[^}]*dispatch/);
+  assert.match(typographyFieldSource, /onChange=\{handleChange\}[^]*type="number"/);
+  assert.match(typographyFieldSource, /onKeyDown=\{handleKeyDown\}/);
+  assert.match(typographyFieldSource, /onBlur=\{handleBlur\}/);
+});
+
+test("219 valid blur commits one update", () => {
+  assert.match(typographyFieldSource, /handleBlur/);
+  assert.match(typographyFieldSource, /commit\(draft\)/);
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  assert.equal(state.design.textThemeStyles.body.fontSizePx, 18);
+  assert.equal(state.design.textHistory.past.length, 1);
+});
+
+test("220 valid Enter commits one update", () => {
+  assert.match(typographyFieldSource, /event\.key === "Enter"/);
+  assert.match(typographyFieldSource, /commit\(draft\)/);
+  assert.match(typographyFieldSource, /event\.preventDefault\(\)/);
+});
+
+test("221 Escape restores the current state value", () => {
+  assert.match(typographyFieldSource, /event\.key === "Escape"/);
+  assert.match(typographyFieldSource, /setDraft\(value == null \? "" : String\(value\)\)/);
+  assert.match(typographyFieldSource, /setError\(""\)/);
+});
+
+test("222 invalid values do not dispatch", () => {
+  assert.match(typographyFieldSource, /normalizeTypographyValue/);
+  assert.equal(normalizeTypographyValue("fontSizePx", "16px"), null);
+  assert.equal(normalizeTypographyValue("fontSizePx", 4), null);
+  assert.equal(normalizeTypographyValue("lineHeight", 3), null);
+  assert.equal(normalizeTypographyValue("letterSpacingEm", 5), null);
+  assert.equal(normalizeTypographyValue("fontFamily", "Comic Sans MS"), null);
+  assert.equal(normalizeTypographyValue("fontWeight", 900), null);
+  const state = typographyState();
+  assert.equal(siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: "nope" }), state);
+});
+
+test("223 invalid values show an accessible error", () => {
+  assert.match(typographyFieldSource, /role="alert"/);
+  assert.match(typographyFieldSource, /has-error/);
+  assert.match(typographyFieldSource, /أدخل قيمة بين/);
+  assert.match(typographyFieldSource, /Enter a value between/);
+});
+
+test("224 local numeric draft synchronizes after undo", () => {
+  assert.match(typographyFieldSource, /useEffect/);
+  assert.match(typographyFieldSource, /\[value\]/);
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  state = siteEditorReducer(state, { type: "design-undo-text-theme" });
+  assert.equal(state.design.textThemeStyles.body.fontSizePx, 16);
+});
+
+test("225 local numeric draft synchronizes after redo", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  state = siteEditorReducer(state, { type: "design-undo-text-theme" });
+  state = siteEditorReducer(state, { type: "design-redo-text-theme" });
+  assert.equal(state.design.textThemeStyles.body.fontSizePx, 18);
+});
+
+test("226 local numeric draft synchronizes after reset", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  state = siteEditorReducer(state, { type: "design-reset-typography-value", token: "body", property: "fontSizePx" });
+  assert.equal(state.design.textThemeStyles.body.fontSizePx, 16);
+});
+
+test("227 field reset dispatches design-reset-typography-value", () => {
+  assert.match(typographyFieldSource, /type: "design-reset-typography-value"/);
+  assert.match(typographyFieldSource, /resetDisabled/);
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  state = siteEditorReducer(state, { type: "design-reset-typography-value", token: "body", property: "fontSizePx" });
+  assert.equal(state.design.textThemeStyles.body.fontSizePx, 16);
+});
+
+test("228 field reset is disabled when matching the preset", () => {
+  assert.match(typographyFieldSource, /value != null && presetValue != null && value === presetValue/);
+  const state = typographyState();
+  assert.equal(siteEditorReducer(state, { type: "design-reset-typography-value", token: "body", property: "fontSizePx" }), state);
+});
+
+test("229 token reset dispatches design-reset-typography-token", () => {
+  assert.match(typographyEditorSource, /type: "design-reset-typography-token"/);
+  assert.match(typographyEditorSource, /استعادة إعدادات هذا النص/);
+  assert.match(typographyEditorSource, /Reset This Text Style/);
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  state = siteEditorReducer(state, { type: "design-reset-typography-token", token: "body" });
+  assert.deepEqual(state.design.textThemeStyles.body, textThemeA.styles.body);
+});
+
+test("230 token reset is disabled when matching the preset", () => {
+  assert.match(typographyEditorSource, /disabled=\{!selectedTokenModified\}/);
+  const state = typographyState();
+  assert.equal(siteEditorReducer(state, { type: "design-reset-typography-token", token: "body" }), state);
+});
+
+test("231 full reset dispatches design-reset-typography-customization", () => {
+  assert.match(typographyEditorSource, /type: "design-reset-typography-customization"/);
+  assert.match(typographyEditorSource, /استعادة جميع التخصيصات/);
+  assert.match(typographyEditorSource, /Reset All Customization/);
+  assert.match(typographyEditorSource, /disabled=\{!customized\}/);
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 22 });
+  state = siteEditorReducer(state, { type: "design-reset-typography-customization" });
+  assert.deepEqual(state.design.textThemeStyles, textThemeA.styles);
+});
+
+test("232 full reset retains the current preset id through existing reducer behavior", () => {
+  assert.doesNotMatch(typographyEditorSource, /design-reset-text-theme/);
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-apply-text-theme", textThemeId: "classic" });
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 22 });
+  state = siteEditorReducer(state, { type: "design-reset-typography-customization" });
+  assert.equal(state.design.currentTextThemeId, "classic");
+  assert.deepEqual(state.design.textThemeStyles, textThemeB.styles);
+});
+
+test("233 undo and redo use the existing text history actions", () => {
+  assert.match(typographyEditorSource, /design-undo-text-theme/);
+  assert.match(typographyEditorSource, /design-redo-text-theme/);
+  assert.match(typographyEditorSource, /design\.textHistory\.past/);
+  assert.match(typographyEditorSource, /design\.textHistory\.future/);
+  assert.match(typographyEditorSource, /التراجع عن تعديل الخط/);
+  assert.match(typographyEditorSource, /إعادة تعديل الخط/);
+  assert.match(typographyEditorSource, /Undo Typography Change/);
+  assert.match(typographyEditorSource, /Redo Typography Change/);
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  assert.equal(state.design.textHistory.past.length, 1);
+  state = siteEditorReducer(state, { type: "design-undo-text-theme" });
+  assert.equal(state.design.textHistory.future.length, 1);
+  state = siteEditorReducer(state, { type: "design-redo-text-theme" });
+  assert.equal(state.design.textThemeStyles.body.fontSizePx, 18);
+});
+
+test("234 current preset displays Customized after a manual edit", () => {
+  assert.match(textLibrarySource, /textThemeIsCustomized/);
+  assert.match(textLibrarySource, /site-editor-design-customized/);
+  let state = typographyState();
+  assert.equal(textThemeIsCustomized(state.design.definition, state.design.currentTextThemeId, state.design.textThemeStyles), false);
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  assert.equal(textThemeIsCustomized(state.design.definition, state.design.currentTextThemeId, state.design.textThemeStyles), true);
+});
+
+test("235 switching to another preset removes the customized indicator", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  assert.equal(textThemeIsCustomized(state.design.definition, state.design.currentTextThemeId, state.design.textThemeStyles), true);
+  state = siteEditorReducer(state, { type: "design-apply-text-theme", textThemeId: "classic" });
+  assert.equal(state.design.currentTextThemeId, "classic");
+  assert.equal(textThemeIsCustomized(state.design.definition, state.design.currentTextThemeId, state.design.textThemeStyles), false);
+});
+
+test("236 field-level modified indicator compares against preset value", () => {
+  assert.match(typographyFieldSource, /modified = value != null && presetValue != null && value !== presetValue/);
+  assert.match(typographyFieldSource, /site-editor-typo-dot/);
+  let state = typographyState();
+  assert.equal(getPresetTypographyValue(state.design.definition, state.design.currentTextThemeId, "body", "fontSizePx"), 16);
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 20 });
+  assert.equal(getTypographyValue(state.design.textThemeStyles, "body", "fontSizePx"), 20);
+});
+
+test("237 token-level modified indicator appears when any field differs", () => {
+  assert.match(typographyEditorSource, /tokenModified/);
+  assert.match(typographyEditorSource, /SITE_DESIGN_TYPOGRAPHY_FIELDS\.some/);
+  let state = typographyState();
+  assert.equal(getPresetTypographyValue(state.design.definition, state.design.currentTextThemeId, "body", "fontWeight"), 400);
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontWeight", value: 700 });
+  assert.equal(getTypographyValue(state.design.textThemeStyles, "body", "fontWeight"), 700);
+});
+
+test("238 manual edits remain preview-only", () => {
+  for (const source of [typographyEditorSource, typographyFieldSource, textLibrarySource]) {
+    assert.doesNotMatch(source, /design-save|design-publish/);
+    assert.doesNotMatch(source, /localStorage|fetch\(|googleapis|@font-face|upload/);
+  }
+  const state = typographyState();
+  assert.equal(siteEditorReducer(state, { type: "design-save" }), state);
+  assert.equal(siteEditorReducer(state, { type: "design-publish" }), state);
+});
+
+test("239 typography variables remain scoped to SiteEditorCanvas", () => {
+  assert.match(cssSource, /\.site-editor-canvas \.site-editor-element-text p/);
+  assert.match(cssSource, /\.site-editor-canvas[^{]*?\.site-editor-element-heading h1/);
+  assert.match(canvasSourceForDesign, /createTypographyCssVariables/);
+  for (const source of [typographyEditorSource, typographyFieldSource, textLibrarySource]) {
+    assert.doesNotMatch(source, /:root|site-editor-rail|site-editor-topbar|site-editor-inspector/);
+  }
+  const applied = applyTextThemePreset(textThemeA);
+  assert.equal(Object.keys(createTypographyCssVariables(applied.textThemeStyles)).every((key) => SITE_DESIGN_TYPOGRAPHY_CSS_VARIABLES.includes(key)), true);
+});
+
+test("240 no save, publish, API, fetch, localStorage, font upload, external URL, Google Fonts, or @font-face logic is introduced", () => {
+  for (const source of [typographyEditorSource, typographyFieldSource, textLibrarySource]) {
+    assert.doesNotMatch(source, /@font-face|fetch\(|localStorage|googleapis|fonts\.googleapis|design-save|design-publish|upload/);
+    assert.doesNotMatch(source, /https?:\/\/[^"]+/);
+  }
+  assert.doesNotMatch(cssSource, /@font-face|fonts\.googleapis/);
+});
+
+test("241 Arabic and English UI text remains valid UTF-8", () => {
+  for (const source of [typographyEditorSource, typographyFieldSource, textLibrarySource]) {
+    assert.doesNotMatch(source, /\uFFFD/);
+    assert.doesNotMatch(source, /\?import/);
+  }
+  assert.doesNotMatch(typographyEditorSource, /[?]import/);
+  assert.match(typographyEditorSource, /تخصيص الخطوط/);
+  assert.equal(findTypographyField("letterSpacingEm").label.ar, "تباعد الأحرف");
+  assert.equal(findTypographyField("fontFamily").label.ar, "عائلة الخط");
 });

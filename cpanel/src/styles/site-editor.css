@@ -491,6 +491,41 @@
 .site-editor-text-preview-heading { overflow: hidden; font-family: var(--site-display-font-family, inherit); font-size: var(--site-display-font-size, 17px); font-weight: var(--site-display-font-weight, 700); letter-spacing: var(--site-display-letter-spacing, 0em); line-height: var(--site-display-line-height, 1.2); text-overflow: ellipsis; white-space: nowrap; }
 .site-editor-text-preview-body { overflow: hidden; color: var(--site-body-color, #4a5568); font-family: var(--site-body-font-family, inherit); font-size: var(--site-body-font-size, 11px); letter-spacing: var(--site-body-letter-spacing, 0em); line-height: var(--site-body-line-height, 1.5); text-overflow: ellipsis; white-space: nowrap; }
 .site-editor-text-theme-actions { display: grid; gap: 7px; }
+.site-editor-typo-customize { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; min-height: 40px; margin: 0 0 12px; padding-inline: 12px; border: 1px solid #b9d2ff; border-radius: 10px; background: #eef4ff; color: var(--editor-blue); font: inherit; font-size: 12px; font-weight: 700; }
+.site-editor-typo-customize:hover { border-color: var(--editor-blue); background: #e4eeff; }
+.site-editor-typo-customize.is-customized { border-color: #f0c48a; background: #fff0d8; color: #8a5510; }
+.site-editor-typo-customize-badge { display: inline-flex; align-items: center; border-radius: 999px; background: #ffffff; padding: 2px 8px; font-size: 10px; font-weight: 700; }
+
+/* Typography editor */
+.site-editor-typo-editor { grid-template-rows: 56px minmax(0, 1fr); }
+.site-editor-typo-theme { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 12px; padding: 9px 11px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fbfcfe; }
+.site-editor-typo-theme-name { color: #586477; font-size: 11px; line-height: 1.4; }
+.site-editor-typo-theme-name strong { color: #172033; font-weight: 700; }
+.site-editor-typo-tokens { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 0 0 12px; }
+.site-editor-typo-token { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 34px; padding: 6px 9px; border: 1px solid #dbe2ec; border-radius: 8px; background: #fff; color: #586477; font: inherit; font-size: 11px; font-weight: 650; text-align: start; }
+.site-editor-typo-token:hover { border-color: #b9d2ff; background: #f6f9ff; }
+.site-editor-typo-token.active { border-color: var(--editor-blue); box-shadow: inset 0 0 0 1px var(--editor-blue); background: #f0f6ff; color: var(--editor-blue); }
+.site-editor-typo-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #e09b2f; }
+.site-editor-typo-section { padding: 12px 11px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fbfcfe; }
+.site-editor-typo-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 2px 9px; }
+.site-editor-typo-section-head strong { color: #39465a; font-size: 12px; font-weight: 750; }
+.site-editor-typo-token-reset { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding-inline: 10px; border: 1px solid #e2d5c0; border-radius: 999px; background: #fdf8f0; color: #8a5a1d; font: inherit; font-size: 10px; font-weight: 650; }
+.site-editor-typo-token-reset:disabled { cursor: not-allowed; opacity: .45; }
+.site-editor-typo-fields { display: grid; gap: 10px; }
+.site-editor-typo-field { display: grid; gap: 5px; }
+.site-editor-typo-field.has-error .site-editor-typo-input { border-color: #d92d20; box-shadow: 0 0 0 3px #fdecec; }
+.site-editor-typo-label { display: flex; align-items: center; justify-content: space-between; gap: 6px; color: #586477; font-size: 11px; font-weight: 650; }
+.site-editor-typo-label .site-editor-typo-dot { width: 6px; height: 6px; }
+.site-editor-typo-controls { display: flex; align-items: center; gap: 8px; }
+.site-editor-typo-select, .site-editor-typo-input { flex: 1 1 auto; min-width: 0; min-height: 32px; padding-inline: 9px; border: 1px solid #cfd7e3; border-radius: 6px; background: #fff; color: #172033; font: inherit; font-size: 12px; }
+.site-editor-typo-input { width: 100%; }
+.site-editor-typo-select { cursor: pointer; }
+.site-editor-typo-select:focus, .site-editor-typo-input:focus { border-color: var(--editor-blue); box-shadow: 0 0 0 3px #e1ecff; outline: 0; }
+.site-editor-typo-reset { display: grid; place-items: center; width: 32px; height: 32px; flex: 0 0 auto; border: 1px solid #d7dee9; border-radius: 6px; background: #fff; color: #69758a; }
+.site-editor-typo-reset:disabled { cursor: not-allowed; opacity: .45; }
+.site-editor-typo-reset:hover:not(:disabled) { border-color: #b9d2ff; background: #f0f6ff; color: var(--editor-blue); }
+.site-editor-typo-error { margin: 0; color: #b3261e; font-size: 10px; line-height: 1.4; }
+.site-editor-typo-history { display: grid; gap: 7px; }
 
 /* Site Design typography tokens — apply only inside the canvas wrapper */
 .site-editor-canvas .site-editor-editable-page { font-family: var(--site-body-font-family, inherit); font-size: var(--site-body-font-size, inherit); font-weight: var(--site-body-font-weight, inherit); letter-spacing: var(--site-body-letter-spacing, normal); line-height: var(--site-body-line-height, inherit); }

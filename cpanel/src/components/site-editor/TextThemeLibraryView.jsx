@@ -1,6 +1,7 @@
-import React from "react";
-import { ArrowLeft, Check, Redo2, RotateCcw, Type, Undo2, X } from "lucide-react";
-import { applyTextThemePreset, createTypographyCssVariables } from "../../utils/siteEditorDesign.js";
+import React, { useState } from "react";
+import { ArrowLeft, Check, Redo2, RotateCcw, SlidersHorizontal, Type, Undo2, X } from "lucide-react";
+import { applyTextThemePreset, createTypographyCssVariables, textThemeIsCustomized } from "../../utils/siteEditorDesign.js";
+import TypographyEditorView from "./TypographyEditorView.jsx";
 
 export default function TextThemeLibraryView({ dispatch, language, state }) {
   const ar = language === "ar";
@@ -9,6 +10,14 @@ export default function TextThemeLibraryView({ dispatch, language, state }) {
   const currentTextThemeId = design.currentTextThemeId;
   const canUndo = design.textHistory.past.length > 0;
   const canRedo = design.textHistory.future.length > 0;
+  const typographyEnabled = design.definition?.capabilities?.typography === true;
+  const customized = typographyEnabled && textThemeIsCustomized(design.definition, currentTextThemeId, design.textThemeStyles);
+  const canCustomize = typographyEnabled && !!currentTextThemeId && !!design.textThemeStyles;
+  const [customizerOpen, setCustomizerOpen] = useState(false);
+
+  if (customizerOpen && canCustomize) {
+    return <TypographyEditorView dispatch={dispatch} language={language} onBack={() => setCustomizerOpen(false)} state={state} />;
+  }
 
   return <aside className="site-editor-panel site-editor-text-theme-library" id="site-editor-panel-site-design" aria-label={ar ? "سمة الخطوط" : "Text Theme"}>
     <header>
@@ -19,6 +28,7 @@ export default function TextThemeLibraryView({ dispatch, language, state }) {
       <button aria-label={ar ? "إغلاق اللوحة" : "Close panel"} onClick={() => dispatch({ type: "close-site-design" })} type="button"><X size={18} /></button>
     </header>
     <div className="site-editor-design-body">
+      {canCustomize ? <button className={`site-editor-typo-customize ${customized ? "is-customized" : ""}`} onClick={() => setCustomizerOpen(true)} type="button"><SlidersHorizontal size={15} />{ar ? "تخصيص الخطوط" : "Customize Typography"}{customized ? <span className="site-editor-typo-customize-badge">{ar ? "مخصص" : "Customized"}</span> : null}</button> : null}
       <p className="site-editor-design-notice">{ar ? "معاينة فقط. ستتم إضافة حفظ تصميم الموقع في المرحلة القادمة." : "Preview only. Saving Site Design will be added in the next phase."}</p>
       {presets.length === 0 ? <div className="site-editor-panel-empty"><span><Type size={28} /></span><strong>{ar ? "لا تتوفر سمات خطوط لهذا الموقع." : "No text theme presets are available for this website."}</strong></div>
         : <ul className="site-editor-theme-list">
@@ -34,7 +44,7 @@ export default function TextThemeLibraryView({ dispatch, language, state }) {
                   <strong>{name}</strong>
                   {description ? <small>{description}</small> : null}
                 </span>
-                <span className="site-editor-theme-state">{active ? <span className="site-editor-theme-current"><Check size={14} />{ar ? "الحالية" : "Current"}</span> : <span className="site-editor-theme-apply">{ar ? "تطبيق" : "Apply"}</span>}</span>
+                <span className="site-editor-theme-state">{active ? (<span className="site-editor-theme-current"><Check size={14} />{ar ? "الحالية" : "Current"}{customized ? <span className="site-editor-design-customized">{ar ? "مخصص" : "Customized"}</span> : null}</span>) : <span className="site-editor-theme-apply">{ar ? "تطبيق" : "Apply"}</span>}</span>
                 <span className="site-editor-text-card-preview" style={cssVars}>
                   <span className="site-editor-text-preview-heading">{ar ? "عناية جميلة بتعبير واضح" : "Beautiful care, clearly expressed"}</span>
                   <span className="site-editor-text-preview-body">{ar ? "خطوط متناسقة لجميع أجزاء موقعك." : "Thoughtful typography for every part of your website."}</span>
