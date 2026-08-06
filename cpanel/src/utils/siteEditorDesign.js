@@ -54,6 +54,55 @@ export const SITE_DESIGN_TYPOGRAPHY_CSS_VARIABLES = Object.freeze(
   ]),
 );
 
+export const SITE_DESIGN_TYPOGRAPHY_FIELDS = Object.freeze([
+  {
+    id: "fontFamily",
+    property: "fontFamily",
+    type: "select",
+    values: Object.freeze(Object.keys(SITE_DESIGN_FONT_FAMILY_MAP)),
+    step: null,
+    label: Object.freeze({ en: "Font family", ar: "عائلة الخط" }),
+  },
+  {
+    id: "fontSizePx",
+    property: "fontSizePx",
+    type: "number",
+    min: 10,
+    max: 96,
+    integer: true,
+    step: 1,
+    label: Object.freeze({ en: "Font size", ar: "حجم الخط" }),
+  },
+  {
+    id: "fontWeight",
+    property: "fontWeight",
+    type: "select",
+    values: Object.freeze([300, 400, 500, 600, 700, 800]),
+    step: null,
+    label: Object.freeze({ en: "Font weight", ar: "وزن الخط" }),
+  },
+  {
+    id: "lineHeight",
+    property: "lineHeight",
+    type: "number",
+    min: 1,
+    max: 2,
+    integer: false,
+    step: 0.05,
+    label: Object.freeze({ en: "Line height", ar: "ارتفاع السطر" }),
+  },
+  {
+    id: "letterSpacingEm",
+    property: "letterSpacingEm",
+    type: "number",
+    min: -0.1,
+    max: 0.3,
+    integer: false,
+    step: 0.005,
+    label: Object.freeze({ en: "Letter spacing", ar: "تباعد الأحرف" }),
+  },
+]);
+
 export const SITE_DESIGN_COLOR_GROUPS = Object.freeze([
   { id: "base", label: { en: "Base Backgrounds", ar: "الخلفيات الأساسية" } },
   { id: "general", label: { en: "Lines and Dividers", ar: "الخطوط والفواصل" } },
@@ -328,4 +377,109 @@ export function createTypographyCssVariables(textThemeStyles) {
     if (style.letterSpacingEm != null) variables[`--site-${token}-letter-spacing`] = `${style.letterSpacingEm}em`;
   }
   return variables;
+}
+
+export function findTypographyField(property) {
+  if (typeof property !== "string") return null;
+  return SITE_DESIGN_TYPOGRAPHY_FIELDS.find((field) => field.property === property) || null;
+}
+
+function isValidToken(token) {
+  return typeof token === "string" && SITE_DESIGN_TEXT_STYLE_TOKENS.includes(token);
+}
+
+function finiteNumber(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : NaN;
+  if (typeof value === "string") {
+    const candidate = value.trim();
+    if (candidate === "") return NaN;
+    const parsed = Number(candidate);
+    return Number.isFinite(parsed) ? parsed : NaN;
+  }
+  return NaN;
+}
+
+export function normalizeTypographyValue(property, value) {
+  const field = findTypographyField(property);
+  if (!field) return null;
+  if (field.property === "fontFamily") {
+    if (typeof value !== "string") return null;
+    const key = value.trim();
+    return Object.prototype.hasOwnProperty.call(SITE_DESIGN_FONT_FAMILY_MAP, key) ? key : null;
+  }
+  if (field.property === "fontWeight") {
+    const num = finiteNumber(value);
+    if (!Number.isFinite(num) || !TEXT_WEIGHTS.has(num)) return null;
+    return num;
+  }
+  const num = finiteNumber(value);
+  if (!Number.isFinite(num)) return null;
+  if (num < field.min || num > field.max) return null;
+  if (field.integer === true && !Number.isInteger(num)) return null;
+  return num;
+}
+
+export function getTypographyValue(styles, token, property) {
+  if (!isValidToken(token) || !findTypographyField(property)) return null;
+  if (!styles || typeof styles !== "object" || !styles[token] || typeof styles[token] !== "object") return null;
+  return normalizeTypographyValue(property, styles[token][property]);
+}
+
+export function getCurrentTextThemePreset(definition, currentTextThemeId) {
+  return findTextThemePreset(definition, currentTextThemeId);
+}
+
+export function getPresetTypographyValue(definition, currentTextThemeId, token, property) {
+  if (!isValidToken(token) || !findTypographyField(property)) return null;
+  const preset = getCurrentTextThemePreset(definition, currentTextThemeId);
+  const applied = applyTextThemePreset(preset);
+  if (!applied) return null;
+  return getTypographyValue(applied.textThemeStyles, token, property);
+}
+
+export function updateTypographyValue(styles, token, property, value) {
+  if (!isValidToken(token) || !findTypographyField(property)) return null;
+  if (!styles || typeof styles !== "object") return null;
+  const normalized = normalizeTypographyValue(property, value);
+  if (normalized == null) return null;
+  const tokenStyle = styles[token];
+  if (!tokenStyle || typeof tokenStyle !== "object") return null;
+  if (tokenStyle[property] === normalized) return cloneTextThemeStyles(styles);
+  const next = cloneTextThemeStyles(styles);
+  next[token] = { ...next[token] };
+  next[token][property] = normalized;
+  return next;
+}
+
+export function resetTypographyValueToPreset(definition, currentTextThemeId, styles, token, property) {
+  if (!isValidToken(token) || !findTypographyField(property)) return null;
+  const presetValue = getPresetTypographyValue(definition, currentTextThemeId, token, property);
+  if (presetValue == null) return null;
+  return updateTypographyValue(styles, token, property, presetValue);
+}
+
+export function resetTypographyTokenToPreset(definition, currentTextThemeId, styles, token) {
+  if (!isValidToken(token)) return null;
+  const preset = getCurrentTextThemePreset(definition, currentTextThemeId);
+  const applied = applyTextThemePreset(preset);
+  if (!applied || !applied.textThemeStyles[token]) return null;
+  if (!styles || typeof styles !== "object" || !styles[token] || typeof styles[token] !== "object") return null;
+  const presetTokenStyle = applied.textThemeStyles[token];
+  if (textThemeStylesEqual(styles[token], presetTokenStyle)) return cloneTextThemeStyles(styles);
+  const next = cloneTextThemeStyles(styles);
+  next[token] = cloneTextThemeStyles(presetTokenStyle);
+  return next;
+}
+
+export function resetTypographyStylesToPreset(definition, currentTextThemeId) {
+  const preset = getCurrentTextThemePreset(definition, currentTextThemeId);
+  const applied = applyTextThemePreset(preset);
+  if (!applied) return null;
+  return applied.textThemeStyles;
+}
+
+export function textThemeIsCustomized(definition, currentTextThemeId, styles) {
+  const presetStyles = resetTypographyStylesToPreset(definition, currentTextThemeId);
+  if (!presetStyles) return false;
+  return !textThemeStylesEqual(styles, presetStyles);
 }

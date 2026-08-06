@@ -15,11 +15,14 @@ import {
   applyTextThemePreset, cloneColorTheme, cloneTextThemeStyles, colorThemesEqual,
   createDesignCssVariables, createInitialDesignState, createTypographyCssVariables,
   findColorField, findCurrentThemePreset, findDefaultTheme, findDefaultTextTheme, findTextThemePreset,
-  getColorThemeValue, getPresetColorValue, MAX_DESIGN_HISTORY, MAX_TEXT_THEME_HISTORY,
-  normalizeHexColor, resetColorThemeToPreset, resetColorThemeValue, SITE_DESIGN_COLOR_FIELDS,
-  SITE_DESIGN_COLOR_GROUPS, SITE_DESIGN_CSS_VARIABLES, SITE_DESIGN_FONT_FAMILY_MAP,
-  SITE_DESIGN_TEXT_STYLE_TOKENS, SITE_DESIGN_TYPOGRAPHY_CSS_VARIABLES, textThemePresetsAvailable,
-  textThemeStylesEqual, updateColorThemeValue, colorThemeIsCustomized,
+  findTypographyField, getCurrentTextThemePreset, getColorThemeValue, getPresetColorValue,
+  getPresetTypographyValue, getTypographyValue, MAX_DESIGN_HISTORY, MAX_TEXT_THEME_HISTORY,
+  normalizeHexColor, normalizeTypographyValue, resetColorThemeToPreset, resetColorThemeValue,
+  resetTypographyStylesToPreset, resetTypographyTokenToPreset, resetTypographyValueToPreset,
+  SITE_DESIGN_COLOR_FIELDS, SITE_DESIGN_COLOR_GROUPS, SITE_DESIGN_CSS_VARIABLES,
+  SITE_DESIGN_FONT_FAMILY_MAP, SITE_DESIGN_TEXT_STYLE_TOKENS, SITE_DESIGN_TYPOGRAPHY_CSS_VARIABLES,
+  SITE_DESIGN_TYPOGRAPHY_FIELDS, textThemeIsCustomized, textThemePresetsAvailable,
+  textThemeStylesEqual, updateColorThemeValue, updateTypographyValue, colorThemeIsCustomized,
 } from "../src/utils/siteEditorDesign.js";
 import {
   editorNodeStyles, findEditorNode, moveEditorSection, plainEditorText, replaceEditorImage,
@@ -985,6 +988,7 @@ const canvasSourceForDesign = read("../src/components/site-editor/SiteEditorCanv
 const colorThemeViewSource = read("../src/components/site-editor/ColorThemeView.jsx");
 const colorInputSource = read("../src/components/site-editor/DesignColorInput.jsx");
 const textLibrarySource = read("../src/components/site-editor/TextThemeLibraryView.jsx");
+const siteEditorReducerSource = read("../src/utils/siteEditor.js");
 
 const themeA = {
   themeId: "light", name: { en: "Light", ar: "فاتح" }, description: { en: "Bright theme", ar: "سمة ساطعة" },
@@ -1868,4 +1872,342 @@ test("174 text theme helpers are pure and correct", () => {
   assert.equal(findDefaultTextTheme(null), null);
   assert.ok(SITE_DESIGN_TEXT_STYLE_TOKENS.includes("display"));
   assert.ok(SITE_DESIGN_TEXT_STYLE_TOKENS.includes("button"));
+});
+
+test("175 SITE_DESIGN_TYPOGRAPHY_FIELDS contains exactly five unique properties", () => {
+  assert.equal(SITE_DESIGN_TYPOGRAPHY_FIELDS.length, 5);
+  const properties = SITE_DESIGN_TYPOGRAPHY_FIELDS.map((field) => field.property);
+  assert.equal(new Set(properties).size, 5);
+  for (const field of SITE_DESIGN_TYPOGRAPHY_FIELDS) {
+    assert.equal(field.id, field.property);
+    assert.ok(field.type === "select" || field.type === "number");
+    assert.ok(field.label && field.label.en && field.label.ar, field.property);
+    assert.equal(findTypographyField(field.property), field);
+  }
+});
+
+test("176 Font Family exposes only safe mapped identifiers", () => {
+  const fontField = findTypographyField("fontFamily");
+  assert.equal(fontField.type, "select");
+  assert.deepEqual(fontField.values, Object.keys(SITE_DESIGN_FONT_FAMILY_MAP));
+  assert.ok(fontField.values.every((value) => Object.prototype.hasOwnProperty.call(SITE_DESIGN_FONT_FAMILY_MAP, value)));
+});
+
+test("177 numeric limits and steps match the contract", () => {
+  const size = findTypographyField("fontSizePx");
+  assert.equal(size.type, "number");
+  assert.equal(size.min, 10);
+  assert.equal(size.max, 96);
+  assert.equal(size.step, 1);
+  assert.equal(size.integer, true);
+  const weight = findTypographyField("fontWeight");
+  assert.equal(weight.type, "select");
+  assert.deepEqual(weight.values, [300, 400, 500, 600, 700, 800]);
+  const lineHeight = findTypographyField("lineHeight");
+  assert.equal(lineHeight.min, 1);
+  assert.equal(lineHeight.max, 2);
+  assert.equal(lineHeight.step, 0.05);
+  const spacing = findTypographyField("letterSpacingEm");
+  assert.equal(spacing.min, -0.1);
+  assert.equal(spacing.max, 0.3);
+  assert.equal(spacing.step, 0.005);
+});
+
+test("178 Arabic and English typography field labels exist", () => {
+  for (const field of SITE_DESIGN_TYPOGRAPHY_FIELDS) {
+    assert.ok(typeof field.label.en === "string" && field.label.en.length > 0, `${field.property}.en`);
+    assert.ok(typeof field.label.ar === "string" && field.label.ar.length > 0, `${field.property}.ar`);
+  }
+  assert.match(siteEditorDesignSource, /عائلة الخط/);
+  assert.match(siteEditorDesignSource, /Font family/);
+  assert.match(siteEditorDesignSource, /حجم الخط/);
+  assert.match(siteEditorDesignSource, /Font size/);
+  assert.match(siteEditorDesignSource, /وزن الخط/);
+  assert.match(siteEditorDesignSource, /Font weight/);
+  assert.match(siteEditorDesignSource, /ارتفاع السطر/);
+  assert.match(siteEditorDesignSource, /Line height/);
+  assert.match(siteEditorDesignSource, /تباعد الأحرف/);
+  assert.match(siteEditorDesignSource, /Letter spacing/);
+});
+
+test("179 findTypographyField rejects unknown properties", () => {
+  assert.equal(findTypographyField("bogus"), null);
+  assert.equal(findTypographyField("font-size"), null);
+  assert.equal(findTypographyField(""), null);
+  assert.equal(findTypographyField(123), null);
+  assert.equal(findTypographyField(null), null);
+  assert.equal(findTypographyField("fontFamily").property, "fontFamily");
+});
+
+test("180 getTypographyValue reads only valid tokens and properties", () => {
+  assert.equal(getTypographyValue(textThemeA.styles, "body", "fontSizePx"), 16);
+  assert.equal(getTypographyValue(textThemeA.styles, "body", "fontFamily"), "system-sans");
+  assert.equal(getTypographyValue(textThemeA.styles, "nope", "fontSizePx"), null);
+  assert.equal(getTypographyValue(textThemeA.styles, "body", "bogus"), null);
+  assert.equal(getTypographyValue(null, "body", "fontSizePx"), null);
+  assert.equal(getTypographyValue({}, "body", "fontSizePx"), null);
+});
+
+test("181 normalizeTypographyValue accepts valid numbers", () => {
+  assert.equal(normalizeTypographyValue("fontSizePx", 18), 18);
+  assert.equal(normalizeTypographyValue("fontSizePx", 10), 10);
+  assert.equal(normalizeTypographyValue("fontSizePx", 96), 96);
+  assert.equal(normalizeTypographyValue("lineHeight", 1.5), 1.5);
+  assert.equal(normalizeTypographyValue("letterSpacingEm", -0.05), -0.05);
+  assert.equal(normalizeTypographyValue("letterSpacingEm", 0.3), 0.3);
+  assert.equal(normalizeTypographyValue("fontWeight", 600), 600);
+  assert.equal(normalizeTypographyValue("fontWeight", 300), 300);
+  assert.equal(normalizeTypographyValue("fontFamily", "georgia"), "georgia");
+});
+
+test("182 normalizeTypographyValue accepts trimmed valid numeric strings", () => {
+  assert.equal(normalizeTypographyValue("fontSizePx", "18"), 18);
+  assert.equal(normalizeTypographyValue("fontSizePx", " 18 "), 18);
+  assert.equal(normalizeTypographyValue("lineHeight", "1.5"), 1.5);
+  assert.equal(normalizeTypographyValue("letterSpacingEm", "-0.05"), -0.05);
+  assert.equal(normalizeTypographyValue("fontWeight", "600"), 600);
+});
+
+test("183 normalizeTypographyValue rejects empty strings, NaN, Infinity, units, and mixed text", () => {
+  assert.equal(normalizeTypographyValue("fontSizePx", ""), null);
+  assert.equal(normalizeTypographyValue("fontSizePx", "   "), null);
+  assert.equal(normalizeTypographyValue("fontSizePx", NaN), null);
+  assert.equal(normalizeTypographyValue("fontSizePx", Infinity), null);
+  assert.equal(normalizeTypographyValue("fontSizePx", -Infinity), null);
+  assert.equal(normalizeTypographyValue("fontSizePx", "16px"), null);
+  assert.equal(normalizeTypographyValue("fontSizePx", "abc"), null);
+  assert.equal(normalizeTypographyValue("fontSizePx", "18abc"), null);
+  assert.equal(normalizeTypographyValue("fontSizePx", "1 8"), null);
+  assert.equal(normalizeTypographyValue("lineHeight", "1.5rem"), null);
+  assert.equal(normalizeTypographyValue("fontSizePx", undefined), null);
+  assert.equal(normalizeTypographyValue("fontSizePx", null), null);
+});
+
+test("184 fontSizePx rejects decimals and out-of-range integers", () => {
+  assert.equal(normalizeTypographyValue("fontSizePx", 16.5), null);
+  assert.equal(normalizeTypographyValue("fontSizePx", "16.5"), null);
+  assert.equal(normalizeTypographyValue("fontSizePx", 9), null);
+  assert.equal(normalizeTypographyValue("fontSizePx", 97), null);
+  assert.equal(normalizeTypographyValue("fontSizePx", "9"), null);
+  assert.equal(normalizeTypographyValue("fontSizePx", "97"), null);
+  assert.equal(normalizeTypographyValue("fontSizePx", 20), 20);
+});
+
+test("185 fontFamily rejects unknown identifiers and raw CSS stacks", () => {
+  assert.equal(normalizeTypographyValue("fontFamily", "Comic Sans MS"), null);
+  assert.equal(normalizeTypographyValue("fontFamily", "Arial, sans-serif"), null);
+  assert.equal(normalizeTypographyValue("fontFamily", "'Georgia', serif"), null);
+  assert.equal(normalizeTypographyValue("fontFamily", ""), null);
+  assert.equal(normalizeTypographyValue("fontFamily", 123), null);
+  assert.equal(normalizeTypographyValue("fontFamily", null), null);
+  assert.equal(normalizeTypographyValue("fontFamily", "arial"), "arial");
+  assert.equal(normalizeTypographyValue("fontFamily", " times-new-roman "), "times-new-roman");
+});
+
+test("186 updateTypographyValue does not mutate the original styles", () => {
+  const before = JSON.stringify(textThemeA.styles);
+  const next = updateTypographyValue(textThemeA.styles, "body", "fontSizePx", 18);
+  assert.equal(JSON.stringify(textThemeA.styles), before);
+  assert.equal(textThemeA.styles.body.fontSizePx, 16);
+  assert.equal(next.body.fontSizePx, 18);
+});
+
+test("187 a valid manual update changes one property only", () => {
+  const next = updateTypographyValue(textThemeA.styles, "body", "fontSizePx", 18);
+  assert.equal(next.body.fontSizePx, 18);
+  assert.equal(next.body.fontFamily, "system-sans");
+  assert.equal(next.body.fontWeight, 400);
+  assert.equal(next.body.lineHeight, 1.6);
+  assert.equal(next.body.letterSpacingEm, 0);
+  assert.equal(next.display.fontSizePx, 56);
+});
+
+test("188 an invalid update returns null", () => {
+  assert.equal(updateTypographyValue(textThemeA.styles, "nope", "fontSizePx", 18), null);
+  assert.equal(updateTypographyValue(textThemeA.styles, "body", "bogus", 18), null);
+  assert.equal(updateTypographyValue(textThemeA.styles, "body", "fontSizePx", 4), null);
+  assert.equal(updateTypographyValue(textThemeA.styles, "body", "fontSizePx", "16px"), null);
+  assert.equal(updateTypographyValue(null, "body", "fontSizePx", 18), null);
+  assert.equal(updateTypographyValue(textThemeA.styles, "body", "fontSizePx", "bogus"), null);
+});
+
+test("189 applying a manual update retains currentTextThemeId", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  assert.equal(state.design.currentTextThemeId, "modern");
+  assert.equal(state.design.textThemeStyles.body.fontSizePx, 18);
+  assert.equal(state.design.currentTextThemeId, "modern");
+});
+
+test("190 one manual update creates exactly one text history entry", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  assert.equal(state.design.textHistory.past.length, 1);
+  assert.deepEqual(state.design.textHistory.future, []);
+  assert.equal(state.design.textHistory.past[0].textThemeId, "modern");
+});
+
+test("191 updating to the current value is a reducer no-op", () => {
+  const state = typographyState();
+  const result = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 16 });
+  assert.equal(result, state);
+  assert.equal(result.design.textHistory.past.length, 0);
+  const sameValue = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontFamily", value: "system-sans" });
+  assert.equal(sameValue, state);
+});
+
+test("192 manual update after undo clears future history", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "lineHeight", value: 1.9 });
+  state = siteEditorReducer(state, { type: "design-undo-text-theme" });
+  state = siteEditorReducer(state, { type: "design-undo-text-theme" });
+  assert.equal(state.design.textHistory.future.length, 2);
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "letterSpacingEm", value: 0.1 });
+  assert.deepEqual(state.design.textHistory.future, []);
+  assert.equal(state.design.textHistory.past.length, 1);
+});
+
+test("193 text theme history remains capped at 30 after manual edits", () => {
+  let state = typographyState();
+  for (let i = 0; i < MAX_TEXT_THEME_HISTORY + 10; i += 1) {
+    state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: i % 2 === 0 ? 17 : 18 });
+  }
+  assert.ok(state.design.textHistory.past.length <= MAX_TEXT_THEME_HISTORY);
+  assert.equal(state.design.textHistory.past.length, MAX_TEXT_THEME_HISTORY);
+});
+
+test("194 existing text-theme undo restores the manual edit", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  state = siteEditorReducer(state, { type: "design-undo-text-theme" });
+  assert.equal(state.design.currentTextThemeId, "modern");
+  assert.equal(state.design.textThemeStyles.body.fontSizePx, 16);
+  assert.equal(state.design.textHistory.future.length, 1);
+});
+
+test("195 existing text-theme redo reapplies the manual edit", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  state = siteEditorReducer(state, { type: "design-undo-text-theme" });
+  state = siteEditorReducer(state, { type: "design-redo-text-theme" });
+  assert.equal(state.design.currentTextThemeId, "modern");
+  assert.equal(state.design.textThemeStyles.body.fontSizePx, 18);
+  assert.equal(state.design.textHistory.past.length, 1);
+  assert.deepEqual(state.design.textHistory.future, []);
+});
+
+test("196 reset one value restores the selected preset value", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  assert.equal(state.design.textThemeStyles.body.fontSizePx, 18);
+  state = siteEditorReducer(state, { type: "design-reset-typography-value", token: "body", property: "fontSizePx" });
+  assert.equal(state.design.textThemeStyles.body.fontSizePx, 16);
+  assert.equal(state.design.textThemeStyles.body.fontFamily, "system-sans");
+  assert.equal(state.design.currentTextThemeId, "modern");
+  assert.equal(state.design.textHistory.past.length, 2);
+});
+
+test("197 reset one token restores exactly its five preset properties", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "lineHeight", value: 1.9 });
+  state = siteEditorReducer(state, { type: "design-reset-typography-token", token: "body" });
+  assert.deepEqual(state.design.textThemeStyles.body, textThemeA.styles.body);
+  assert.equal(state.design.textThemeStyles.display.fontSizePx, 56);
+});
+
+test("198 reset all customization restores the selected preset styles", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-apply-text-theme", textThemeId: "classic" });
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 22 });
+  state = siteEditorReducer(state, { type: "design-reset-typography-customization" });
+  assert.equal(state.design.currentTextThemeId, "classic");
+  assert.deepEqual(state.design.textThemeStyles, textThemeB.styles);
+});
+
+test("199 reset customization does not switch to defaultTextThemeId", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-apply-text-theme", textThemeId: "classic" });
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 22 });
+  state = siteEditorReducer(state, { type: "design-reset-typography-customization" });
+  assert.equal(state.design.currentTextThemeId, "classic");
+  assert.notEqual(state.design.currentTextThemeId, "modern");
+});
+
+test("200 reset actions are no-ops when already matching the selected preset", () => {
+  const state = typographyState();
+  assert.equal(siteEditorReducer(state, { type: "design-reset-typography-value", token: "body", property: "fontSizePx" }), state);
+  assert.equal(siteEditorReducer(state, { type: "design-reset-typography-token", token: "body" }), state);
+  assert.equal(siteEditorReducer(state, { type: "design-reset-typography-customization" }), state);
+  const noPresetState = typographyState(noTypographyDesign);
+  assert.equal(siteEditorReducer(noPresetState, { type: "design-reset-typography-customization" }), noPresetState);
+});
+
+test("201 textThemeIsCustomized is false for exact preset styles", () => {
+  const state = typographyState();
+  assert.equal(textThemeIsCustomized(state.design.definition, state.design.currentTextThemeId, state.design.textThemeStyles), false);
+  const preset = getCurrentTextThemePreset(state.design.definition, state.design.currentTextThemeId);
+  assert.equal(preset.textThemeId, "modern");
+});
+
+test("202 textThemeIsCustomized becomes true after a manual edit", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  assert.equal(textThemeIsCustomized(state.design.definition, state.design.currentTextThemeId, state.design.textThemeStyles), true);
+  assert.equal(getPresetTypographyValue(state.design.definition, state.design.currentTextThemeId, "body", "fontSizePx"), 16);
+});
+
+test("203 switching to another preset clears the customized status", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  assert.equal(textThemeIsCustomized(state.design.definition, state.design.currentTextThemeId, state.design.textThemeStyles), true);
+  state = siteEditorReducer(state, { type: "design-apply-text-theme", textThemeId: "classic" });
+  assert.equal(state.design.currentTextThemeId, "classic");
+  assert.equal(textThemeIsCustomized(state.design.definition, state.design.currentTextThemeId, state.design.textThemeStyles), false);
+  assert.deepEqual(state.design.textThemeStyles, textThemeB.styles);
+});
+
+test("204 typography changes do not modify color state or color history", () => {
+  let state = typographyState();
+  const beforeColors = JSON.stringify(state.design.colorTheme);
+  const beforeColorHistory = JSON.stringify(state.design.history);
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  assert.equal(JSON.stringify(state.design.colorTheme), beforeColors);
+  assert.equal(JSON.stringify(state.design.history), beforeColorHistory);
+  assert.equal(state.design.currentThemeId, "light");
+  assert.equal(state.design.activeView, "main");
+});
+
+test("205 typography changes do not modify page document, page history, revision, fingerprint, or page isDirty", () => {
+  let state = typographyState();
+  const beforeDoc = currentSiteEditorDocument(state);
+  const beforePast = state.history.past.length;
+  const beforeRevision = state.currentRevision;
+  const beforeFp = state.savedFingerprints[page.id];
+  state = siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: 18 });
+  state = siteEditorReducer(state, { type: "design-reset-typography-token", token: "body" });
+  assert.equal(currentSiteEditorDocument(state), beforeDoc);
+  assert.equal(state.history.past.length, beforePast);
+  assert.equal(state.currentRevision, beforeRevision);
+  assert.equal(state.savedFingerprints[page.id], beforeFp);
+  assert.equal(state.isDirty, false);
+});
+
+test("206 unknown typography reducer actions and values remain no-ops", () => {
+  const state = typographyState();
+  assert.equal(siteEditorReducer(state, { type: "design-update-typography-bogus", token: "body", property: "fontSizePx", value: 18 }), state);
+  assert.equal(siteEditorReducer(state, { type: "design-update-typography-value", token: "nope", property: "fontSizePx", value: 18 }), state);
+  assert.equal(siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "bogus", value: 18 }), state);
+  assert.equal(siteEditorReducer(state, { type: "design-update-typography-value", token: "body", property: "fontSizePx", value: "16px" }), state);
+  assert.equal(siteEditorReducer(state, { type: "design-reset-typography-token", token: "nope" }), state);
+  assert.equal(siteEditorReducer(state, { type: "design-reset-typography-value", token: "body", property: "bogus" }), state);
+});
+
+test("207 no API, fetch, localStorage, save, publish, upload, URL, or @font-face logic is introduced for typography", () => {
+  assert.doesNotMatch(siteEditorDesignSource, /@font-face|fetch\(|localStorage|googleapis|design-save|design-publish|upload/);
+  assert.doesNotMatch(siteEditorReducerSource, /@font-face|fetch\(|localStorage|googleapis|design-save|design-publish|upload/);
+  const state = typographyState();
+  assert.equal(siteEditorReducer(state, { type: "design-publish" }), state);
+  assert.equal(siteEditorReducer(state, { type: "design-save" }), state);
 });

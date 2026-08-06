@@ -2,9 +2,11 @@ import { documentFingerprint } from "./siteEditorDocument.js";
 import {
   applyTextThemePreset, buildTextThemeState, cloneColorTheme, cloneTextThemeStyles,
   colorThemesEqual, createInitialDesignState, findColorField, findCurrentThemePreset,
-  findDefaultTheme, findDefaultTextTheme, findTextThemePreset, getColorThemeValue, getPresetColorValue, MAX_DESIGN_HISTORY,
-  MAX_TEXT_THEME_HISTORY, normalizeHexColor, resetColorThemeToPreset, resetColorThemeValue,
-  textThemePresetsAvailable, textThemeStylesEqual, updateColorThemeValue,
+  findDefaultTheme, findDefaultTextTheme, findTextThemePreset, getColorThemeValue, getPresetColorValue,
+  MAX_DESIGN_HISTORY, MAX_TEXT_THEME_HISTORY, normalizeHexColor,
+  resetColorThemeToPreset, resetColorThemeValue, resetTypographyStylesToPreset,
+  resetTypographyTokenToPreset, resetTypographyValueToPreset, textThemePresetsAvailable,
+  textThemeStylesEqual, updateColorThemeValue, updateTypographyValue,
 } from "./siteEditorDesign.js";
 import {
   blankSectionTemplate,
@@ -439,6 +441,66 @@ export function siteEditorReducer(state, action) {
           ...design,
           currentTextThemeId: applied.textThemeId,
           textThemeStyles: cloneTextThemeStyles(applied.textThemeStyles),
+          textHistory: { past: [...design.textHistory.past, currentEntry].slice(-MAX_TEXT_THEME_HISTORY), future: [] },
+        },
+      };
+    }
+    case "design-update-typography-value": {
+      const design = state.design;
+      if (!design.available || !design.definition) return state;
+      const nextStyles = updateTypographyValue(design.textThemeStyles, action.token, action.property, action.value);
+      if (!nextStyles || textThemeStylesEqual(nextStyles, design.textThemeStyles)) return state;
+      const currentEntry = { textThemeId: design.currentTextThemeId, textThemeStyles: design.textThemeStyles ? cloneTextThemeStyles(design.textThemeStyles) : null };
+      return {
+        ...state,
+        design: {
+          ...design,
+          textThemeStyles: nextStyles,
+          textHistory: { past: [...design.textHistory.past, currentEntry].slice(-MAX_TEXT_THEME_HISTORY), future: [] },
+        },
+      };
+    }
+    case "design-reset-typography-value": {
+      const design = state.design;
+      if (!design.available || !design.definition) return state;
+      const nextStyles = resetTypographyValueToPreset(design.definition, design.currentTextThemeId, design.textThemeStyles, action.token, action.property);
+      if (!nextStyles || textThemeStylesEqual(nextStyles, design.textThemeStyles)) return state;
+      const currentEntry = { textThemeId: design.currentTextThemeId, textThemeStyles: design.textThemeStyles ? cloneTextThemeStyles(design.textThemeStyles) : null };
+      return {
+        ...state,
+        design: {
+          ...design,
+          textThemeStyles: nextStyles,
+          textHistory: { past: [...design.textHistory.past, currentEntry].slice(-MAX_TEXT_THEME_HISTORY), future: [] },
+        },
+      };
+    }
+    case "design-reset-typography-token": {
+      const design = state.design;
+      if (!design.available || !design.definition) return state;
+      const nextStyles = resetTypographyTokenToPreset(design.definition, design.currentTextThemeId, design.textThemeStyles, action.token);
+      if (!nextStyles || textThemeStylesEqual(nextStyles, design.textThemeStyles)) return state;
+      const currentEntry = { textThemeId: design.currentTextThemeId, textThemeStyles: design.textThemeStyles ? cloneTextThemeStyles(design.textThemeStyles) : null };
+      return {
+        ...state,
+        design: {
+          ...design,
+          textThemeStyles: nextStyles,
+          textHistory: { past: [...design.textHistory.past, currentEntry].slice(-MAX_TEXT_THEME_HISTORY), future: [] },
+        },
+      };
+    }
+    case "design-reset-typography-customization": {
+      const design = state.design;
+      if (!design.available || !design.definition) return state;
+      const nextStyles = resetTypographyStylesToPreset(design.definition, design.currentTextThemeId);
+      if (!nextStyles || textThemeStylesEqual(nextStyles, design.textThemeStyles)) return state;
+      const currentEntry = { textThemeId: design.currentTextThemeId, textThemeStyles: design.textThemeStyles ? cloneTextThemeStyles(design.textThemeStyles) : null };
+      return {
+        ...state,
+        design: {
+          ...design,
+          textThemeStyles: nextStyles,
           textHistory: { past: [...design.textHistory.past, currentEntry].slice(-MAX_TEXT_THEME_HISTORY), future: [] },
         },
       };
