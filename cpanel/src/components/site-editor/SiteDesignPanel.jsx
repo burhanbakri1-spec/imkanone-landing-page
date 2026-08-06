@@ -1,9 +1,10 @@
 import React from "react";
 import { ChevronRight, Palette, Paintbrush, RotateCcw, Type, Undo2, Image as ImageIcon, MoveRight, Redo2, X } from "lucide-react";
 import { siteEditorText } from "../../utils/siteEditor.js";
-import { colorThemeIsCustomized } from "../../utils/siteEditorDesign.js";
+import { colorThemeIsCustomized, textThemePresetsAvailable } from "../../utils/siteEditorDesign.js";
 import ThemeLibraryView from "./ThemeLibraryView.jsx";
 import ColorThemeView from "./ColorThemeView.jsx";
+import TextThemeLibraryView from "./TextThemeLibraryView.jsx";
 
 export default function SiteDesignPanel({ dispatch, language, state }) {
   const ar = language === "ar";
@@ -12,6 +13,7 @@ export default function SiteDesignPanel({ dispatch, language, state }) {
   const canRedo = design.history.future.length > 0;
   const colorsEnabled = design.available && design.definition?.capabilities?.colors === true;
   const customized = design.available && colorThemeIsCustomized(design.definition, design.currentThemeId, design.colorTheme);
+  const textThemesEnabled = design.available && textThemePresetsAvailable(design.definition);
 
   if (!design.available) {
     return <aside className="site-editor-panel site-editor-design-panel" id="site-editor-panel-site-design" aria-label={siteEditorText("tool.site-design", language)}>
@@ -29,6 +31,10 @@ export default function SiteDesignPanel({ dispatch, language, state }) {
 
   if (design.activeView === "colors") {
     return <ColorThemeView dispatch={dispatch} language={language} state={state} />;
+  }
+
+  if (design.activeView === "text-themes") {
+    return <TextThemeLibraryView dispatch={dispatch} language={language} state={state} />;
   }
 
   return <aside className="site-editor-panel site-editor-design-panel" id="site-editor-panel-site-design" aria-label={siteEditorText("tool.site-design", language)}>
@@ -49,9 +55,10 @@ export default function SiteDesignPanel({ dispatch, language, state }) {
           <span className="site-editor-design-row-copy"><strong>{ar ? "سمة الألوان" : "Color Theme"}</strong><small>{ar ? (colorsEnabled ? "خصص ألوان الموقع" : "غير مدعومة لهذا الموقع") : (colorsEnabled ? "Customize the site colors" : "Unsupported for this website")}</small></span>
           {colorsEnabled ? (customized ? <span className="site-editor-design-customized">{ar ? "مخصص" : "Customized"}</span> : <ChevronRight size={16} />) : null}
         </button>
-        <button className="site-editor-design-row disabled" disabled type="button">
+        <button className={`site-editor-design-row ${textThemesEnabled ? "enabled" : "disabled"}`} disabled={!textThemesEnabled} onClick={() => dispatch({ type: "design-open-text-theme" })} type="button">
           <span className="site-editor-design-row-icon"><Type size={16} /></span>
-          <span className="site-editor-design-row-copy"><strong>{ar ? "سمة الخط" : "Text Theme"}</strong><small>{ar ? "ستتوفر في مرحلة لاحقة" : "Coming in a later phase"}</small></span>
+          <span className="site-editor-design-row-copy"><strong>{ar ? "سمة الخطوط" : "Text Theme"}</strong><small>{ar ? (textThemesEnabled ? "اختر خطوط الموقع" : "غير مدعومة لهذا الموقع") : (textThemesEnabled ? "Choose the site typography" : "Unsupported for this website")}</small></span>
+          {textThemesEnabled ? <ChevronRight size={16} /> : null}
         </button>
         <button className="site-editor-design-row disabled" disabled type="button">
           <span className="site-editor-design-row-icon"><ImageIcon size={16} /></span>

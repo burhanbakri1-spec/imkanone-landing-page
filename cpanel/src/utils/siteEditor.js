@@ -1,8 +1,10 @@
 import { documentFingerprint } from "./siteEditorDocument.js";
 import {
-  cloneColorTheme, colorThemesEqual, createInitialDesignState, findColorField, findCurrentThemePreset,
-  findDefaultTheme, getColorThemeValue, getPresetColorValue, MAX_DESIGN_HISTORY, normalizeHexColor,
-  resetColorThemeToPreset, resetColorThemeValue, updateColorThemeValue,
+  applyTextThemePreset, buildTextThemeState, cloneColorTheme, cloneTextThemeStyles,
+  colorThemesEqual, createInitialDesignState, findColorField, findCurrentThemePreset,
+  findDefaultTheme, findDefaultTextTheme, findTextThemePreset, getColorThemeValue, getPresetColorValue, MAX_DESIGN_HISTORY,
+  MAX_TEXT_THEME_HISTORY, normalizeHexColor, resetColorThemeToPreset, resetColorThemeValue,
+  textThemePresetsAvailable, textThemeStylesEqual, updateColorThemeValue,
 } from "./siteEditorDesign.js";
 import {
   blankSectionTemplate,
@@ -343,6 +345,7 @@ export function siteEditorReducer(state, action) {
       const defaultTheme = findDefaultTheme(siteDesign);
       if (!defaultTheme) return { ...state, design: createInitialDesignState() };
       const colorTheme = cloneColorTheme(defaultTheme.colorTheme);
+      const textThemeState = buildTextThemeState(siteDesign);
       return {
         ...state,
         design: {
@@ -355,6 +358,88 @@ export function siteEditorReducer(state, action) {
           history: { past: [], future: [] },
           isDirty: false,
           activeView: "main",
+          currentTextThemeId: textThemeState.currentTextThemeId,
+          textThemeStyles: textThemeState.textThemeStyles,
+          initialTextThemeId: textThemeState.initialTextThemeId,
+          initialTextThemeStyles: textThemeState.initialTextThemeStyles,
+          textHistory: textThemeState.textHistory,
+        },
+      };
+    }
+    case "design-open-text-theme": {
+      const design = state.design;
+      if (!design.available || !textThemePresetsAvailable(design.definition)) return state;
+      return { ...state, design: { ...design, activeView: "text-themes" } };
+    }
+    case "design-apply-text-theme": {
+      const design = state.design;
+      if (!design.available || !design.definition) return state;
+      const preset = findTextThemePreset(design.definition, action.textThemeId);
+      const applied = applyTextThemePreset(preset);
+      if (!applied) return state;
+      if (applied.textThemeId === design.currentTextThemeId && textThemeStylesEqual(design.textThemeStyles, applied.textThemeStyles)) return state;
+      const currentEntry = { textThemeId: design.currentTextThemeId, textThemeStyles: design.textThemeStyles ? cloneTextThemeStyles(design.textThemeStyles) : null };
+      return {
+        ...state,
+        design: {
+          ...design,
+          currentTextThemeId: applied.textThemeId,
+          textThemeStyles: applied.textThemeStyles,
+          textHistory: { past: [...design.textHistory.past, currentEntry].slice(-MAX_TEXT_THEME_HISTORY), future: [] },
+        },
+      };
+    }
+    case "design-undo-text-theme": {
+      const design = state.design;
+      const previous = design.textHistory.past.at(-1);
+      if (!design.available || !previous) return state;
+      const currentEntry = { textThemeId: design.currentTextThemeId, textThemeStyles: design.textThemeStyles ? cloneTextThemeStyles(design.textThemeStyles) : null };
+      return {
+        ...state,
+        design: {
+          ...design,
+          currentTextThemeId: previous.textThemeId,
+          textThemeStyles: previous.textThemeStyles ? cloneTextThemeStyles(previous.textThemeStyles) : null,
+          textHistory: {
+            past: design.textHistory.past.slice(0, -1),
+            future: [currentEntry, ...design.textHistory.future].slice(-MAX_TEXT_THEME_HISTORY),
+          },
+        },
+      };
+    }
+    case "design-redo-text-theme": {
+      const design = state.design;
+      const nextEntry = design.textHistory.future[0];
+      if (!design.available || !nextEntry) return state;
+      const currentEntry = { textThemeId: design.currentTextThemeId, textThemeStyles: design.textThemeStyles ? cloneTextThemeStyles(design.textThemeStyles) : null };
+      return {
+        ...state,
+        design: {
+          ...design,
+          currentTextThemeId: nextEntry.textThemeId,
+          textThemeStyles: nextEntry.textThemeStyles ? cloneTextThemeStyles(nextEntry.textThemeStyles) : null,
+          textHistory: {
+            past: [...design.textHistory.past, currentEntry].slice(-MAX_TEXT_THEME_HISTORY),
+            future: design.textHistory.future.slice(1),
+          },
+        },
+      };
+    }
+    case "design-reset-text-theme": {
+      const design = state.design;
+      if (!design.available || !design.definition || design.definition.capabilities?.typography !== true) return state;
+      const defaultPreset = findDefaultTextTheme(design.definition);
+      const applied = applyTextThemePreset(defaultPreset);
+      if (!applied) return state;
+      if (applied.textThemeId === design.currentTextThemeId && textThemeStylesEqual(design.textThemeStyles, applied.textThemeStyles)) return state;
+      const currentEntry = { textThemeId: design.currentTextThemeId, textThemeStyles: design.textThemeStyles ? cloneTextThemeStyles(design.textThemeStyles) : null };
+      return {
+        ...state,
+        design: {
+          ...design,
+          currentTextThemeId: applied.textThemeId,
+          textThemeStyles: cloneTextThemeStyles(applied.textThemeStyles),
+          textHistory: { past: [...design.textHistory.past, currentEntry].slice(-MAX_TEXT_THEME_HISTORY), future: [] },
         },
       };
     }

@@ -21,6 +21,39 @@ export const SITE_DESIGN_CSS_VARIABLES = Object.freeze([
   "--site-button-secondary-text",
 ]);
 
+export const MAX_TEXT_THEME_HISTORY = 30;
+
+export const SITE_DESIGN_TEXT_STYLE_TOKENS = Object.freeze([
+  "display",
+  "heading1",
+  "heading2",
+  "heading3",
+  "body",
+  "small",
+  "button",
+]);
+
+export const SITE_DESIGN_FONT_FAMILY_MAP = Object.freeze({
+  "system-sans": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+  arial: "Arial, 'Helvetica Neue', Helvetica, sans-serif",
+  georgia: "Georgia, 'Times New Roman', Times, serif",
+  "times-new-roman": "'Times New Roman', Times, serif",
+  verdana: "Verdana, Geneva, Tahoma, sans-serif",
+  tahoma: "Tahoma, Verdana, Geneva, sans-serif",
+  "trebuchet-ms": "'Trebuchet MS', 'Segoe UI', Arial, sans-serif",
+  "courier-new": "'Courier New', Courier, monospace",
+});
+
+export const SITE_DESIGN_TYPOGRAPHY_CSS_VARIABLES = Object.freeze(
+  SITE_DESIGN_TEXT_STYLE_TOKENS.flatMap((token) => [
+    `--site-${token}-font-family`,
+    `--site-${token}-font-size`,
+    `--site-${token}-font-weight`,
+    `--site-${token}-line-height`,
+    `--site-${token}-letter-spacing`,
+  ]),
+);
+
 export const SITE_DESIGN_COLOR_GROUPS = Object.freeze([
   { id: "base", label: { en: "Base Backgrounds", ar: "الخلفيات الأساسية" } },
   { id: "general", label: { en: "Lines and Dividers", ar: "الخطوط والفواصل" } },
@@ -108,6 +141,7 @@ export function createInitialDesignState() {
     history: { past: [], future: [] },
     isDirty: false,
     activeView: "main",
+    ...createInitialTextThemeState(),
   };
 }
 
@@ -185,4 +219,113 @@ export function colorThemeIsCustomized(definition, currentThemeId, colorTheme) {
   const preset = findCurrentThemePreset(definition, currentThemeId);
   if (!preset?.colorTheme) return false;
   return !colorThemesEqual(colorTheme, preset.colorTheme);
+}
+
+const TEXT_WEIGHTS = new Set([300, 400, 500, 600, 700, 800]);
+const TEXT_FONT_SIZE_MIN = 10;
+const TEXT_FONT_SIZE_MAX = 96;
+const TEXT_LINE_HEIGHT_MIN = 1;
+const TEXT_LINE_HEIGHT_MAX = 2;
+const TEXT_LETTER_SPACING_MIN = -0.1;
+const TEXT_LETTER_SPACING_MAX = 0.3;
+
+function sanitizeTextStyle(tokenStyle) {
+  if (!tokenStyle || typeof tokenStyle !== "object") return null;
+  const out = {};
+  if (typeof tokenStyle.fontFamily === "string" && Object.prototype.hasOwnProperty.call(SITE_DESIGN_FONT_FAMILY_MAP, tokenStyle.fontFamily)) {
+    out.fontFamily = tokenStyle.fontFamily;
+  }
+  if (Number.isInteger(tokenStyle.fontSizePx) && tokenStyle.fontSizePx >= TEXT_FONT_SIZE_MIN && tokenStyle.fontSizePx <= TEXT_FONT_SIZE_MAX) {
+    out.fontSizePx = tokenStyle.fontSizePx;
+  }
+  if (TEXT_WEIGHTS.has(tokenStyle.fontWeight)) out.fontWeight = tokenStyle.fontWeight;
+  if (typeof tokenStyle.lineHeight === "number" && tokenStyle.lineHeight >= TEXT_LINE_HEIGHT_MIN && tokenStyle.lineHeight <= TEXT_LINE_HEIGHT_MAX) {
+    out.lineHeight = tokenStyle.lineHeight;
+  }
+  if (typeof tokenStyle.letterSpacingEm === "number" && tokenStyle.letterSpacingEm >= TEXT_LETTER_SPACING_MIN && tokenStyle.letterSpacingEm <= TEXT_LETTER_SPACING_MAX) {
+    out.letterSpacingEm = tokenStyle.letterSpacingEm;
+  }
+  if (Object.keys(out).length === 0) return null;
+  return out;
+}
+
+export function cloneTextThemeStyles(styles) {
+  if (styles == null) return null;
+  return JSON.parse(JSON.stringify(styles));
+}
+
+export function textThemeStylesEqual(a, b) {
+  if (a === b) return true;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+export function findDefaultTextTheme(definition) {
+  if (!definition || !Array.isArray(definition.textThemePresets)) return null;
+  const defaultTextThemeId = definition.defaultTextThemeId;
+  return definition.textThemePresets.find((preset) => preset?.textThemeId === defaultTextThemeId) || null;
+}
+
+export function findTextThemePreset(definition, textThemeId) {
+  if (!definition || !Array.isArray(definition.textThemePresets)) return null;
+  return definition.textThemePresets.find((preset) => preset?.textThemeId === textThemeId) || null;
+}
+
+export function applyTextThemePreset(preset) {
+  if (!preset || typeof preset.textThemeId !== "string" || !preset.styles || typeof preset.styles !== "object") return null;
+  const textThemeStyles = {};
+  for (const token of SITE_DESIGN_TEXT_STYLE_TOKENS) {
+    const clean = sanitizeTextStyle(preset.styles[token]);
+    if (clean) textThemeStyles[token] = clean;
+  }
+  if (Object.keys(textThemeStyles).length === 0) return null;
+  return { textThemeId: preset.textThemeId, textThemeStyles };
+}
+
+export function textThemePresetsAvailable(definition) {
+  if (!definition || definition.capabilities?.typography !== true) return false;
+  if (!Array.isArray(definition.textThemePresets) || definition.textThemePresets.length === 0) return false;
+  return definition.textThemePresets.some((preset) => applyTextThemePreset(preset));
+}
+
+export function createInitialTextThemeState() {
+  return {
+    currentTextThemeId: "",
+    textThemeStyles: null,
+    initialTextThemeId: "",
+    initialTextThemeStyles: null,
+    textHistory: { past: [], future: [] },
+  };
+}
+
+export function buildTextThemeState(definition) {
+  const empty = createInitialTextThemeState();
+  if (!definition || definition.capabilities?.typography !== true) return empty;
+  if (!Array.isArray(definition.textThemePresets) || definition.textThemePresets.length === 0) return empty;
+  const defaultPreset = findDefaultTextTheme(definition);
+  const applied = applyTextThemePreset(defaultPreset);
+  if (!applied) return empty;
+  return {
+    currentTextThemeId: applied.textThemeId,
+    textThemeStyles: applied.textThemeStyles,
+    initialTextThemeId: applied.textThemeId,
+    initialTextThemeStyles: cloneTextThemeStyles(applied.textThemeStyles),
+    textHistory: { past: [], future: [] },
+  };
+}
+
+export function createTypographyCssVariables(textThemeStyles) {
+  const variables = {};
+  if (!textThemeStyles || typeof textThemeStyles !== "object") return variables;
+  for (const token of SITE_DESIGN_TEXT_STYLE_TOKENS) {
+    const style = sanitizeTextStyle(textThemeStyles[token]);
+    if (!style) continue;
+    if (style.fontFamily && Object.prototype.hasOwnProperty.call(SITE_DESIGN_FONT_FAMILY_MAP, style.fontFamily)) {
+      variables[`--site-${token}-font-family`] = SITE_DESIGN_FONT_FAMILY_MAP[style.fontFamily];
+    }
+    if (style.fontSizePx != null) variables[`--site-${token}-font-size`] = `${style.fontSizePx}px`;
+    if (style.fontWeight != null) variables[`--site-${token}-font-weight`] = style.fontWeight;
+    if (style.lineHeight != null) variables[`--site-${token}-line-height`] = style.lineHeight;
+    if (style.letterSpacingEm != null) variables[`--site-${token}-letter-spacing`] = `${style.letterSpacingEm}em`;
+  }
+  return variables;
 }

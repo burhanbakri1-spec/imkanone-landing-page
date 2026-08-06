@@ -484,6 +484,24 @@
 .site-editor-color-field.has-error .site-editor-color-text { border-color: #d92d20; box-shadow: 0 0 0 3px #fdecec; }
 .site-editor-color-error { margin: 0; color: #b3261e; font-size: 10px; line-height: 1.4; }
 
+/* Text Theme library */
+.site-editor-text-theme-library { grid-template-rows: 56px minmax(0, 1fr); }
+.site-editor-text-card { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 9px; }
+.site-editor-text-card-preview { display: grid; gap: 5px; grid-column: 1 / -1; min-width: 0; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 9px; background: #fbfcfe; }
+.site-editor-text-preview-heading { overflow: hidden; font-family: var(--site-display-font-family, inherit); font-size: var(--site-display-font-size, 17px); font-weight: var(--site-display-font-weight, 700); letter-spacing: var(--site-display-letter-spacing, 0em); line-height: var(--site-display-line-height, 1.2); text-overflow: ellipsis; white-space: nowrap; }
+.site-editor-text-preview-body { overflow: hidden; color: var(--site-body-color, #4a5568); font-family: var(--site-body-font-family, inherit); font-size: var(--site-body-font-size, 11px); letter-spacing: var(--site-body-letter-spacing, 0em); line-height: var(--site-body-line-height, 1.5); text-overflow: ellipsis; white-space: nowrap; }
+.site-editor-text-theme-actions { display: grid; gap: 7px; }
+
+/* Site Design typography tokens — apply only inside the canvas wrapper */
+.site-editor-canvas .site-editor-editable-page { font-family: var(--site-body-font-family, inherit); font-size: var(--site-body-font-size, inherit); font-weight: var(--site-body-font-weight, inherit); letter-spacing: var(--site-body-letter-spacing, normal); line-height: var(--site-body-line-height, inherit); }
+.site-editor-canvas .site-editor-element-text p { font-family: var(--site-body-font-family, inherit); font-size: var(--site-body-font-size, inherit); font-weight: var(--site-body-font-weight, inherit); letter-spacing: var(--site-body-letter-spacing, normal); line-height: var(--site-body-line-height, inherit); }
+.site-editor-canvas .site-editor-element-text small { font-family: var(--site-small-font-family, inherit); font-size: var(--site-small-font-size, inherit); font-weight: var(--site-small-font-weight, inherit); letter-spacing: var(--site-small-letter-spacing, normal); line-height: var(--site-small-line-height, inherit); }
+.site-editor-canvas .site-editor-editable-section:not(.type-hero) .site-editor-element-heading h1 { font-family: var(--site-heading1-font-family, inherit); font-size: var(--site-heading1-font-size, inherit); font-weight: var(--site-heading1-font-weight, inherit); letter-spacing: var(--site-heading1-letter-spacing, normal); line-height: var(--site-heading1-line-height, inherit); }
+.site-editor-canvas .site-editor-editable-section.type-hero .site-editor-element-heading h1 { font-family: var(--site-display-font-family, inherit); font-size: var(--site-display-font-size, inherit); font-weight: var(--site-display-font-weight, inherit); letter-spacing: var(--site-display-letter-spacing, normal); line-height: var(--site-display-line-height, inherit); }
+.site-editor-canvas .site-editor-element-heading h2 { font-family: var(--site-heading2-font-family, inherit); font-size: var(--site-heading2-font-size, inherit); font-weight: var(--site-heading2-font-weight, inherit); letter-spacing: var(--site-heading2-letter-spacing, normal); line-height: var(--site-heading2-line-height, inherit); }
+.site-editor-canvas .site-editor-element-heading h3 { font-family: var(--site-heading3-font-family, inherit); font-size: var(--site-heading3-font-size, inherit); font-weight: var(--site-heading3-font-weight, inherit); letter-spacing: var(--site-heading3-letter-spacing, normal); line-height: var(--site-heading3-line-height, inherit); }
+.site-editor-canvas .site-editor-element-button > button { font-family: var(--site-button-font-family, inherit); font-size: var(--site-button-font-size, inherit); font-weight: var(--site-button-font-weight, inherit); letter-spacing: var(--site-button-letter-spacing, normal); line-height: var(--site-button-line-height, inherit); }
+
 @media (max-width: 820px) {
   .site-editor-connection-grid { grid-template-columns: 1fr; }
   .site-editor-connection-actions { flex-direction: column; align-items: stretch; }

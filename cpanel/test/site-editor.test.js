@@ -12,11 +12,14 @@ import {
   trustedPagePreview, trustedSitePreview,
 } from "../src/utils/siteEditor.js";
 import {
-  cloneColorTheme, colorThemesEqual, createDesignCssVariables, createInitialDesignState,
-  findColorField, findCurrentThemePreset, findDefaultTheme, getColorThemeValue, getPresetColorValue,
-  MAX_DESIGN_HISTORY, normalizeHexColor, resetColorThemeToPreset, resetColorThemeValue,
-  SITE_DESIGN_COLOR_FIELDS, SITE_DESIGN_COLOR_GROUPS, SITE_DESIGN_CSS_VARIABLES, updateColorThemeValue,
-  colorThemeIsCustomized,
+  applyTextThemePreset, cloneColorTheme, cloneTextThemeStyles, colorThemesEqual,
+  createDesignCssVariables, createInitialDesignState, createTypographyCssVariables,
+  findColorField, findCurrentThemePreset, findDefaultTheme, findDefaultTextTheme, findTextThemePreset,
+  getColorThemeValue, getPresetColorValue, MAX_DESIGN_HISTORY, MAX_TEXT_THEME_HISTORY,
+  normalizeHexColor, resetColorThemeToPreset, resetColorThemeValue, SITE_DESIGN_COLOR_FIELDS,
+  SITE_DESIGN_COLOR_GROUPS, SITE_DESIGN_CSS_VARIABLES, SITE_DESIGN_FONT_FAMILY_MAP,
+  SITE_DESIGN_TEXT_STYLE_TOKENS, SITE_DESIGN_TYPOGRAPHY_CSS_VARIABLES, textThemePresetsAvailable,
+  textThemeStylesEqual, updateColorThemeValue, colorThemeIsCustomized,
 } from "../src/utils/siteEditorDesign.js";
 import {
   editorNodeStyles, findEditorNode, moveEditorSection, plainEditorText, replaceEditorImage,
@@ -981,6 +984,7 @@ const railSourceForDesign = read("../src/components/site-editor/SiteEditorRail.j
 const canvasSourceForDesign = read("../src/components/site-editor/SiteEditorCanvas.jsx");
 const colorThemeViewSource = read("../src/components/site-editor/ColorThemeView.jsx");
 const colorInputSource = read("../src/components/site-editor/DesignColorInput.jsx");
+const textLibrarySource = read("../src/components/site-editor/TextThemeLibraryView.jsx");
 
 const themeA = {
   themeId: "light", name: { en: "Light", ar: "فاتح" }, description: { en: "Bright theme", ar: "سمة ساطعة" },
@@ -1010,6 +1014,46 @@ const siteDesign = {
   defaultThemeId: "light",
   themePresets: [themeA, themeB],
 };
+
+const textThemeA = {
+  textThemeId: "modern", name: { en: "Modern", ar: "عصري" },
+  description: { en: "Clean and airy typography", ar: "خطوط نظيفة وجيدة التهوية" },
+  styles: {
+    display: { fontFamily: "system-sans", fontSizePx: 56, fontWeight: 700, lineHeight: 1.1, letterSpacingEm: -0.02 },
+    heading1: { fontFamily: "system-sans", fontSizePx: 40, fontWeight: 700, lineHeight: 1.2, letterSpacingEm: 0 },
+    heading2: { fontFamily: "system-sans", fontSizePx: 30, fontWeight: 600, lineHeight: 1.3, letterSpacingEm: 0 },
+    heading3: { fontFamily: "system-sans", fontSizePx: 22, fontWeight: 600, lineHeight: 1.35, letterSpacingEm: 0 },
+    body: { fontFamily: "system-sans", fontSizePx: 16, fontWeight: 400, lineHeight: 1.6, letterSpacingEm: 0 },
+    small: { fontFamily: "system-sans", fontSizePx: 12, fontWeight: 400, lineHeight: 1.5, letterSpacingEm: 0 },
+    button: { fontFamily: "system-sans", fontSizePx: 15, fontWeight: 600, lineHeight: 1.2, letterSpacingEm: 0.01 },
+  },
+};
+const textThemeB = {
+  textThemeId: "classic", name: { en: "Classic", ar: "كلاسيكي" },
+  description: { en: "Serif elegance", ar: "أناقة سيريف" },
+  styles: {
+    display: { fontFamily: "georgia", fontSizePx: 52, fontWeight: 700, lineHeight: 1.15, letterSpacingEm: 0 },
+    heading1: { fontFamily: "georgia", fontSizePx: 36, fontWeight: 700, lineHeight: 1.2, letterSpacingEm: 0 },
+    heading2: { fontFamily: "georgia", fontSizePx: 28, fontWeight: 600, lineHeight: 1.3, letterSpacingEm: 0 },
+    heading3: { fontFamily: "georgia", fontSizePx: 21, fontWeight: 600, lineHeight: 1.35, letterSpacingEm: 0 },
+    body: { fontFamily: "georgia", fontSizePx: 16, fontWeight: 400, lineHeight: 1.65, letterSpacingEm: 0 },
+    small: { fontFamily: "georgia", fontSizePx: 12, fontWeight: 400, lineHeight: 1.5, letterSpacingEm: 0 },
+    button: { fontFamily: "georgia", fontSizePx: 14, fontWeight: 600, lineHeight: 1.2, letterSpacingEm: 0.02 },
+  },
+};
+const typographyDesign = {
+  ...siteDesign,
+  capabilities: { ...siteDesign.capabilities, typography: true },
+  defaultTextThemeId: "modern",
+  textThemePresets: [textThemeA, textThemeB],
+};
+const noTypographyDesign = { ...siteDesign, capabilities: { ...siteDesign.capabilities, typography: false } };
+const noPresetsTypographyDesign = { ...typographyDesign, textThemePresets: [] };
+
+function typographyState(definition = typographyDesign) {
+  let state = loadedState();
+  return siteEditorReducer(state, { type: "design-initialize", siteDesign: definition });
+}
 
 function designedState(definition = siteDesign) {
   let state = loadedState();
@@ -1098,14 +1142,17 @@ test("108 opening Inspector closes Site Design", () => {
   assert.equal(state.activeInspector, "heading");
 });
 
-test("109 main panel enables Site Theme and Color Theme; future features are disabled with explanatory copy", () => {
+test("109 main panel enables Site Theme, Color Theme, and Text Theme; future features are disabled with explanatory copy", () => {
   assert.match(designPanelSource, /site-editor-design-row enabled/);
   assert.match(designPanelSource, /Site Theme/);
   assert.match(designPanelSource, /سمة الموقع/);
   assert.match(designPanelSource, /site-editor-design-row \$\{colorsEnabled \? "enabled" : "disabled"\}/);
-  assert.equal((designPanelSource.match(/site-editor-design-row disabled/g) || []).length, 3);
+  assert.equal((designPanelSource.match(/site-editor-design-row disabled/g) || []).length, 2);
   assert.match(designPanelSource, /Color Theme/);
   assert.match(designPanelSource, /سمة الألوان/);
+  assert.match(designPanelSource, /site-editor-design-row \$\{textThemesEnabled \? "enabled" : "disabled"\}/);
+  assert.match(designPanelSource, /Text Theme/);
+  assert.match(designPanelSource, /سمة الخطوط/);
   assert.match(designPanelSource, /Coming in a later phase/);
   assert.match(designPanelSource, /ستتوفر في مرحلة لاحقة/);
   assert.doesNotMatch(designPanelSource, /design-save|design-publish|onSave|onPublish|localStorage/);
@@ -1553,4 +1600,272 @@ test("149 no persistence, save, publish, API call, or localStorage is introduced
   const state = siteEditorReducer(designedState(), { type: "design-update-color", fieldId: "accent.primary", value: "#123456" });
   assert.equal(siteEditorReducer(state, { type: "design-publish" }), state);
   assert.equal(siteEditorReducer(state, { type: "design-save" }), state);
+});
+
+test("150 typography state initializes from the default text theme", () => {
+  const state = typographyState();
+  assert.equal(state.design.available, true);
+  assert.equal(state.design.currentTextThemeId, "modern");
+  assert.equal(state.design.initialTextThemeId, "modern");
+  assert.equal(state.design.textThemeStyles.body.fontSizePx, 16);
+  assert.equal(state.design.textThemeStyles.body.fontFamily, "system-sans");
+  assert.deepEqual(state.design.initialTextThemeStyles, state.design.textThemeStyles);
+  assert.deepEqual(state.design.textHistory, { past: [], future: [] });
+});
+
+test("151 missing typography creates empty text theme state", () => {
+  const state = typographyState(noTypographyDesign);
+  assert.equal(state.design.currentTextThemeId, "");
+  assert.equal(state.design.textThemeStyles, null);
+  assert.equal(state.design.initialTextThemeId, "");
+  assert.equal(state.design.initialTextThemeStyles, null);
+  assert.deepEqual(state.design.textHistory, { past: [], future: [] });
+  const noPresets = typographyState(noPresetsTypographyDesign);
+  assert.equal(noPresets.design.currentTextThemeId, "");
+  assert.equal(noPresets.design.textThemeStyles, null);
+});
+
+test("152 Text Theme opens when the typography capability is true", () => {
+  const opened = siteEditorReducer(typographyState(), { type: "design-open-text-theme" });
+  assert.equal(opened.design.activeView, "text-themes");
+});
+
+test("153 Text Theme cannot open when the typography capability is false", () => {
+  const denied = siteEditorReducer(typographyState(noTypographyDesign), { type: "design-open-text-theme" });
+  assert.equal(denied.design.activeView, "main");
+});
+
+test("154 Text Theme cannot open without valid presets", () => {
+  const denied = siteEditorReducer(typographyState(noPresetsTypographyDesign), { type: "design-open-text-theme" });
+  assert.equal(denied.design.activeView, "main");
+  assert.equal(textThemePresetsAvailable(noPresetsTypographyDesign), false);
+  assert.equal(textThemePresetsAvailable(noTypographyDesign), false);
+  assert.equal(textThemePresetsAvailable(typographyDesign), true);
+});
+
+test("155 text theme cards come from the manifest textThemePresets, not hardcoded ids", () => {
+  assert.match(textLibrarySource, /design\.definition\?\.textThemePresets/);
+  assert.match(textLibrarySource, /preset\.textThemeId/);
+  assert.match(textLibrarySource, /preset\.name\?\.\[language\]/);
+  assert.doesNotMatch(textLibrarySource, /textThemeId: "modern|classic"/);
+});
+
+test("156 applying a preset updates textThemeId and styles with one text history entry", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-apply-text-theme", textThemeId: "classic" });
+  assert.equal(state.design.currentTextThemeId, "classic");
+  assert.equal(state.design.textThemeStyles.body.fontFamily, "georgia");
+  assert.equal(state.design.textThemeStyles.display.fontSizePx, 52);
+  assert.equal(state.design.textHistory.past.length, 1);
+  assert.deepEqual(state.design.textHistory.future, []);
+  assert.equal(state.design.history.past.length, 0);
+});
+
+test("157 applying the current preset again is a no-op", () => {
+  const state = typographyState();
+  const result = siteEditorReducer(state, { type: "design-apply-text-theme", textThemeId: "modern" });
+  assert.equal(result, state);
+  assert.equal(result.design.textHistory.past.length, 0);
+  assert.equal(result.design.currentTextThemeId, "modern");
+});
+
+test("158 one apply creates exactly one text history entry", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-apply-text-theme", textThemeId: "classic" });
+  assert.equal(state.design.textHistory.past.length, 1);
+  assert.deepEqual(state.design.textHistory.future, []);
+  assert.equal(state.design.textHistory.past[0].textThemeId, "modern");
+});
+
+test("159 applying after undo clears future text history", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-apply-text-theme", textThemeId: "classic" });
+  state = siteEditorReducer(state, { type: "design-undo-text-theme" });
+  assert.equal(state.design.textHistory.future.length, 1);
+  assert.equal(state.design.currentTextThemeId, "modern");
+  state = siteEditorReducer(state, { type: "design-apply-text-theme", textThemeId: "classic" });
+  assert.deepEqual(state.design.textHistory.future, []);
+  assert.equal(state.design.textHistory.past.length, 1);
+});
+
+test("160 text theme history is capped at 30", () => {
+  let state = typographyState();
+  for (let i = 0; i < MAX_TEXT_THEME_HISTORY + 10; i += 1) {
+    state = siteEditorReducer(state, { type: "design-apply-text-theme", textThemeId: i % 2 === 0 ? "classic" : "modern" });
+  }
+  assert.ok(state.design.textHistory.past.length <= MAX_TEXT_THEME_HISTORY);
+  assert.equal(state.design.textHistory.past.length, MAX_TEXT_THEME_HISTORY);
+});
+
+test("161 undo restores the previous text preset", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-apply-text-theme", textThemeId: "classic" });
+  state = siteEditorReducer(state, { type: "design-undo-text-theme" });
+  assert.equal(state.design.currentTextThemeId, "modern");
+  assert.equal(state.design.textThemeStyles.body.fontFamily, "system-sans");
+  assert.equal(state.design.textHistory.future.length, 1);
+});
+
+test("162 redo reapplies the next text preset", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-apply-text-theme", textThemeId: "classic" });
+  state = siteEditorReducer(state, { type: "design-undo-text-theme" });
+  state = siteEditorReducer(state, { type: "design-redo-text-theme" });
+  assert.equal(state.design.currentTextThemeId, "classic");
+  assert.equal(state.design.textThemeStyles.body.fontFamily, "georgia");
+  assert.equal(state.design.textHistory.past.length, 1);
+  assert.deepEqual(state.design.textHistory.future, []);
+});
+
+test("163 reset restores defaultTextThemeId", () => {
+  let state = typographyState();
+  state = siteEditorReducer(state, { type: "design-apply-text-theme", textThemeId: "classic" });
+  state = siteEditorReducer(state, { type: "design-reset-text-theme" });
+  assert.equal(state.design.currentTextThemeId, "modern");
+  assert.equal(state.design.textThemeStyles.body.fontFamily, "system-sans");
+  assert.equal(state.design.textHistory.past.length, 2);
+  assert.equal(state.design.textHistory.past[0].textThemeId, "modern");
+  assert.equal(state.design.textHistory.past[1].textThemeId, "classic");
+});
+
+test("164 reset at default is a no-op", () => {
+  const state = typographyState();
+  const noop = siteEditorReducer(state, { type: "design-reset-text-theme" });
+  assert.equal(noop, state);
+  assert.equal(noop.design.textHistory.past.length, 0);
+});
+
+test("165 Text Theme changes do not modify colors or color history", () => {
+  let state = typographyState();
+  const beforeColors = JSON.stringify(state.design.colorTheme);
+  const beforeColorHistory = JSON.stringify(state.design.history);
+  state = siteEditorReducer(state, { type: "design-apply-text-theme", textThemeId: "classic" });
+  state = siteEditorReducer(state, { type: "design-undo-text-theme" });
+  assert.equal(JSON.stringify(state.design.colorTheme), beforeColors);
+  assert.equal(JSON.stringify(state.design.history), beforeColorHistory);
+  assert.equal(state.design.currentThemeId, "light");
+});
+
+test("166 Text Theme changes do not modify page document, page history, revision, fingerprint, or page isDirty", () => {
+  let state = typographyState();
+  const beforeDoc = currentSiteEditorDocument(state);
+  const beforePast = state.history.past.length;
+  const beforeRevision = state.currentRevision;
+  const beforeFp = state.savedFingerprints[page.id];
+  state = siteEditorReducer(state, { type: "design-apply-text-theme", textThemeId: "classic" });
+  assert.equal(currentSiteEditorDocument(state), beforeDoc);
+  assert.equal(state.history.past.length, beforePast);
+  assert.equal(state.currentRevision, beforeRevision);
+  assert.equal(state.savedFingerprints[page.id], beforeFp);
+  assert.equal(state.isDirty, false);
+});
+
+test("167 safe font identifiers map to fixed CSS stacks only", () => {
+  const variables = createTypographyCssVariables(textThemeA.styles);
+  assert.equal(variables["--site-body-font-family"], SITE_DESIGN_FONT_FAMILY_MAP["system-sans"]);
+  assert.match(variables["--site-display-font-family"], /sans-serif/);
+  assert.equal(variables["--site-button-font-family"], SITE_DESIGN_FONT_FAMILY_MAP["system-sans"]);
+  const georgiaVars = createTypographyCssVariables(textThemeB.styles);
+  assert.equal(georgiaVars["--site-heading1-font-family"], SITE_DESIGN_FONT_FAMILY_MAP.georgia);
+});
+
+test("168 invalid font identifiers generate no CSS variable", () => {
+  const applied = applyTextThemePreset({ textThemeId: "bad", styles: { body: { fontFamily: "Comic Sans MS", fontSizePx: 16, fontWeight: 400, lineHeight: 1.5, letterSpacingEm: 0 } } });
+  assert.ok(applied);
+  assert.equal(applied.textThemeStyles.body.fontFamily, undefined);
+  const variables = createTypographyCssVariables(applied.textThemeStyles);
+  assert.equal(variables["--site-body-font-family"], undefined);
+  assert.equal(variables["--site-body-font-size"], "16px");
+});
+
+test("169 invalid sizes, weights, line heights, and spacing are rejected", () => {
+  const bad = {
+    body: {
+      fontFamily: "arial", fontSizePx: 4, fontWeight: 900, lineHeight: 3, letterSpacingEm: 5,
+    },
+  };
+  const styles = { ...textThemeA.styles, body: { ...textThemeA.styles.body, ...bad.body } };
+  const variables = createTypographyCssVariables(styles);
+  assert.equal(variables["--site-body-font-size"], undefined);
+  assert.equal(variables["--site-body-font-weight"], undefined);
+  assert.equal(variables["--site-body-line-height"], undefined);
+  assert.equal(variables["--site-body-letter-spacing"], undefined);
+  assert.equal(variables["--site-body-font-family"], SITE_DESIGN_FONT_FAMILY_MAP.arial);
+  const applied = applyTextThemePreset({ textThemeId: "x", styles });
+  assert.equal(applied.textThemeStyles.body.fontFamily, "arial");
+  assert.equal(applied.textThemeStyles.body.fontSizePx, undefined);
+  assert.equal(applied.textThemeStyles.body.fontWeight, undefined);
+  assert.equal(applied.textThemeStyles.body.lineHeight, undefined);
+  assert.equal(applied.textThemeStyles.body.letterSpacingEm, undefined);
+});
+
+test("170 typography CSS variables use only the fixed allowlist", () => {
+  const variables = createTypographyCssVariables(textThemeA.styles);
+  const allowlist = new Set(SITE_DESIGN_TYPOGRAPHY_CSS_VARIABLES);
+  for (const key of Object.keys(variables)) {
+    assert.ok(allowlist.has(key), `unexpected variable ${key}`);
+  }
+  assert.equal(Object.keys(variables).length, SITE_DESIGN_TYPOGRAPHY_CSS_VARIABLES.length);
+  assert.equal(SITE_DESIGN_TYPOGRAPHY_CSS_VARIABLES.length, SITE_DESIGN_TEXT_STYLE_TOKENS.length * 5);
+  assert.ok(SITE_DESIGN_TYPOGRAPHY_CSS_VARIABLES.includes("--site-display-font-family"));
+  assert.ok(SITE_DESIGN_TYPOGRAPHY_CSS_VARIABLES.includes("--site-button-letter-spacing"));
+});
+
+test("171 typography variables are applied only to the canvas wrapper", () => {
+  assert.match(canvasSourceForDesign, /createTypographyCssVariables\(state\.design\?\.textThemeStyles\)/);
+  assert.match(canvasSourceForDesign, /style=\{designVariables\}/);
+  assert.doesNotMatch(railSourceForDesign, /--site-body-font-family|--site-display-font-family/);
+  assert.doesNotMatch(designPanelSource, /--site-body-font-family|--site-display-font-family/);
+  assert.doesNotMatch(topbarSource, /--site-body-font-family|--site-display-font-family/);
+  assert.doesNotMatch(pagesSource, /--site-body-font-family|--site-display-font-family/);
+});
+
+test("172 Arabic and English Text Theme panel copy exists", () => {
+  assert.match(textLibrarySource, /Text Theme/);
+  assert.match(textLibrarySource, /سمة الخطوط/);
+  assert.match(textLibrarySource, /Back to Site Design/);
+  assert.match(textLibrarySource, /العودة إلى تصميم الموقع/);
+  assert.match(textLibrarySource, /Undo Text Theme/);
+  assert.match(textLibrarySource, /التراجع عن تغيير الخط/);
+  assert.match(textLibrarySource, /Redo Text Theme/);
+  assert.match(textLibrarySource, /إعادة تغيير الخط/);
+  assert.match(textLibrarySource, /Reset to Default/);
+  assert.match(textLibrarySource, /استعادة الافتراضي/);
+  assert.match(textLibrarySource, /Current/);
+  assert.match(textLibrarySource, /الحالية/);
+  assert.match(textLibrarySource, /Apply/);
+  assert.match(textLibrarySource, /تطبيق/);
+  assert.match(textLibrarySource, /Beautiful care, clearly expressed/);
+  assert.match(textLibrarySource, /عناية جميلة بتعبير واضح/);
+  assert.match(textLibrarySource, /Thoughtful typography for every part of your website\./);
+  assert.match(textLibrarySource, /خطوط متناسقة لجميع أجزاء موقعك\./);
+  assert.match(designPanelSource, /سمة الخطوط/);
+  assert.match(designPanelSource, /Unsupported for this website/);
+  assert.match(designPanelSource, /غير مدعومة لهذا الموقع/);
+});
+
+test("173 no save, publish, API call, localStorage, font upload, URL, or @font-face is introduced for text themes", () => {
+  assert.doesNotMatch(textLibrarySource, /design-save|design-publish|fetch\(|localStorage|onSave|onPublish/);
+  assert.doesNotMatch(textLibrarySource, /@font-face|fonts\.googleapis|googleapis|font-upload|upload/);
+  assert.doesNotMatch(siteEditorDesignSource, /@font-face|fetch\(|localStorage|googleapis/);
+  assert.doesNotMatch(canvasSourceForDesign, /@font-face|googleapis|fetch\(/);
+  const state = typographyState();
+  assert.equal(siteEditorReducer(state, { type: "design-publish" }), state);
+  assert.equal(siteEditorReducer(state, { type: "design-save" }), state);
+});
+
+test("174 text theme helpers are pure and correct", () => {
+  const clone = cloneTextThemeStyles(textThemeA.styles);
+  assert.deepEqual(clone, textThemeA.styles);
+  clone.body.fontSizePx = 99;
+  assert.equal(textThemeA.styles.body.fontSizePx, 16);
+  assert.equal(textThemeStylesEqual(textThemeA.styles, JSON.parse(JSON.stringify(textThemeA.styles))), true);
+  assert.equal(textThemeStylesEqual(textThemeA.styles, clone), false);
+  assert.equal(findDefaultTextTheme(typographyDesign).textThemeId, "modern");
+  assert.equal(findTextThemePreset(typographyDesign, "classic").textThemeId, "classic");
+  assert.equal(findTextThemePreset(typographyDesign, "nope"), null);
+  assert.equal(findDefaultTextTheme({ textThemePresets: [textThemeA] }), null);
+  assert.equal(findDefaultTextTheme(null), null);
+  assert.ok(SITE_DESIGN_TEXT_STYLE_TOKENS.includes("display"));
+  assert.ok(SITE_DESIGN_TEXT_STYLE_TOKENS.includes("button"));
 });
