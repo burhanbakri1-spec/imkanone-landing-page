@@ -155,6 +155,10 @@ export const allPermissions = [
   "orders.delete",
   "orders.updateStatus",
   "customers.view",
+  "customers.create",
+  "customers.update",
+  "customers.archive",
+  "customers.manage",
   "employees.view",
   "website_media.manage",
   "website_texts.manage",
@@ -2049,6 +2053,59 @@ export const companyMembershipRepository = {
       current ? normalizeMembership(current) : null,
     );
     return { ...clone(membership), user };
+  },
+
+  async createCustomerContact(companyId, input) {
+    const company = assertMembershipCompany(companyId);
+    const email = String(input?.email || "").trim().toLowerCase();
+    let candidates = globalUsersByEmail(email);
+    if (isSupabaseConfigured()) {
+      const remoteUsers = await findUsersByEmailFromSupabase(email);
+      candidates = new Map(remoteUsers.map((user) => [user.id, user]));
+    }
+    if (candidates.size > 1) {
+      throw membershipRepositoryError(
+        "Multiple users match this email. Resolve duplicate identities first.",
+        409,
+      );
+    }
+
+    const existingUser = [...candidates.values()][0] || null;
+    if (existingUser && existingUser.role !== "customer") {
+      throw membershipRepositoryError("This email belongs to a non-customer user.", 409);
+    }
+    if (existingUser?.isActive === false) {
+      throw membershipRepositoryError("This customer identity is inactive.", 409);
+    }
+
+    const memberships = await membershipsForCompany(company.id);
+    if (existingUser && memberships.some((membership) => membership.userId === existingUser.id)) {
+      throw membershipRepositoryError("A contact with this email already exists.", 409);
+    }
+
+    const now = new Date().toISOString();
+    const user = existingUser || normalizeUser(withoutCompanyFields({
+      ...input,
+      id: `user-${crypto.randomUUID()}`,
+      email,
+      password: "",
+      role: "customer",
+      permissions: [],
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    }));
+    const membership = normalizeMembership({
+      id: `${company.id}:${user.id}`,
+      companyId: company.id,
+      userId: user.id,
+      role: "customer",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await persistMembershipRecord(membership, user, !existingUser);
+    return { ...clone(membership), user: clone(user) };
   },
 
   async updateMembership(companyId, userId, changes) {
