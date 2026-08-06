@@ -32,6 +32,7 @@ import activityLogRoutes from "./routes/activityLog.js";
 import dropshippingRoutes from "./routes/dropshipping.js";
 import adminDropshippingRoutes from "./routes/adminDropshipping.js";
 import reportsRoutes from "./routes/reports.js";
+import inboxRoutes from "./routes/inbox.js";
 import websiteMediaRoutes from "./routes/websiteMedia.js";
 import siteEditorRoutes from "./routes/siteEditor.js";
 import {
@@ -171,6 +172,7 @@ app.use("/api/admin", productFieldDefinitionRoutes);
 app.use("/api/admin/invoices", invoiceRoutes);
 app.use("/api/admin/delivery-zones", deliveryAdminRouter);
 app.use("/api/admin/dropshipping", adminDropshippingRoutes);
+app.use("/api/admin/inbox", inboxRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/delivery-zones", deliveryPublicRouter);
 app.use("/api/admin/activity-log", activityLogRoutes);

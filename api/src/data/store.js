@@ -36,6 +36,7 @@ import {
   saveSuperAdminUserToSupabase,
   saveProductWithTenantCatalogLockInSupabase,
   saveActivityLogEntryToSupabase,
+  saveInboxStateToSupabase,
   updateBrandForCompanyInSupabase,
   updateBrandStatusForCompanyInSupabase,
   updateCategoryWithTenantLockInSupabase,
@@ -159,6 +160,13 @@ export const allPermissions = [
   "customers.update",
   "customers.archive",
   "customers.manage",
+  "inbox.view",
+  "inbox.create",
+  "inbox.reply",
+  "inbox.assign",
+  "inbox.update",
+  "inbox.archive",
+  "inbox.manage",
   "employees.view",
   "website_media.manage",
   "website_texts.manage",
@@ -793,6 +801,27 @@ export const activityLogs = normalizeTenantRecords(
   [],
   (log) => log,
 );
+export const inboxConversations = normalizeTenantRecords(
+  persisted?.inboxConversations,
+  [],
+  (conversation) => conversation,
+);
+export const inboxMessages = normalizeTenantRecords(
+  persisted?.inboxMessages,
+  [],
+  (message) => message,
+);
+export const inboxConversationReads = normalizeTenantRecords(
+  persisted?.inboxConversationReads,
+  [],
+  (read) => ({
+    ...read,
+    id: read.id || `${read.conversationId || read.conversation_id}:${read.userId || read.user_id}`,
+    conversationId: read.conversationId || read.conversation_id,
+    userId: read.userId || read.user_id,
+    lastReadAt: read.lastReadAt || read.last_read_at,
+  }),
+);
 
 class TenantRepository {
   constructor(collection, idKey = "id") {
@@ -1119,6 +1148,85 @@ export const companyProductSchemaRepository = new TenantRepository(companyProduc
 export const invoiceRepository = new TenantRepository(invoices);
 export const deliveryZoneRepository = new TenantRepository(deliveryZones);
 export const activityLogRepository = new TenantRepository(activityLogs);
+export const inboxConversationRepository = new TenantRepository(inboxConversations);
+export const inboxMessageRepository = Object.freeze({
+  getByCompany(companyId) {
+    return new TenantRepository(inboxMessages).getByCompany(companyId);
+  },
+  findByCompany(companyId, id) {
+    return new TenantRepository(inboxMessages).findByCompany(companyId, id);
+  },
+  listForConversation(companyId, conversationId) {
+    return this.getByCompany(companyId)
+      .filter((message) => message.conversationId === conversationId)
+      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id.localeCompare(b.id));
+  },
+  appendForCompany(companyId, message) {
+    return new TenantRepository(inboxMessages).createForCompany(companyId, message);
+  },
+});
+export const inboxConversationReadRepository = Object.freeze({
+  getByCompany(companyId) {
+    return new TenantRepository(inboxConversationReads).getByCompany(companyId);
+  },
+  findForUser(companyId, conversationId, userId) {
+    return this.getByCompany(companyId).find(
+      (read) => read.conversationId === conversationId && read.userId === userId,
+    ) || null;
+  },
+  markRead(companyId, conversationId, userId, lastReadAt) {
+    const current = this.findForUser(companyId, conversationId, userId);
+    if (current) {
+      current.lastReadAt = lastReadAt;
+      return current;
+    }
+    return new TenantRepository(inboxConversationReads).createForCompany(companyId, {
+      id: `${conversationId}:${userId}`,
+      conversationId,
+      userId,
+      lastReadAt,
+    });
+  },
+});
+
+export function captureInboxMutationState(companyId) {
+  const normalized = normalizeCompanyId(companyId);
+  return {
+    companyId: normalized,
+    conversations: clone(inboxConversationRepository.getByCompany(normalized)),
+    messages: clone(inboxMessageRepository.getByCompany(normalized)),
+    reads: clone(inboxConversationReadRepository.getByCompany(normalized)),
+  };
+}
+
+function restoreInboxCollection(collection, companyId, records) {
+  for (let index = collection.length - 1; index >= 0; index -= 1) {
+    if (getRecordCompanyId(collection[index]) === companyId) collection.splice(index, 1);
+  }
+  for (const record of records) collection.push(tagRecord(record, companyId));
+}
+
+export async function persistInboxMutation(companyId, checkpoint) {
+  const normalized = normalizeCompanyId(companyId);
+  if (!checkpoint || checkpoint.companyId !== normalized) {
+    throw new Error("A matching Inbox mutation checkpoint is required.");
+  }
+  try {
+    if (isSupabaseConfigured()) {
+      if (!canPersistToSupabase) {
+        throw new Error("PostgreSQL Inbox persistence is configured but unavailable.");
+      }
+      const snapshot = currentStoreSnapshot(normalized);
+      return await saveInboxStateToSupabase(snapshot, normalized);
+    }
+    return await persistCompanyStore(normalized);
+  } catch (error) {
+    restoreInboxCollection(inboxConversations, normalized, checkpoint.conversations);
+    restoreInboxCollection(inboxMessages, normalized, checkpoint.messages);
+    restoreInboxCollection(inboxConversationReads, normalized, checkpoint.reads);
+    throw error;
+  }
+}
 
 async function persistInMemoryCatalog(companyId) {
   await persistCompanyStore(normalizeCompanyId(companyId));
@@ -2346,6 +2454,9 @@ export function currentStoreSnapshot(companyId = DEFAULT_COMPANY_ID) {
     invoices: invoiceRepository.getByCompany(normalized),
     deliveryZones: deliveryZoneRepository.getByCompany(normalized),
     activityLogs: activityLogRepository.getByCompany(normalized),
+    inboxConversations: inboxConversationRepository.getByCompany(normalized),
+    inboxMessages: inboxMessageRepository.getByCompany(normalized),
+    inboxConversationReads: inboxConversationReadRepository.getByCompany(normalized),
     carts: Object.fromEntries(
       cartRepository.getByCompany(normalized).map(({ userId, items }) => [userId, items]),
     ),
@@ -2415,6 +2526,9 @@ function persistLocalCompanyStore(companyId, store) {
     "invoices",
     "deliveryZones",
     "activityLogs",
+    "inboxConversations",
+    "inboxMessages",
+    "inboxConversationReads",
   ]) {
     merged[key] = mergeLocalTenantRecords(existing[key], store[key], normalized);
   }

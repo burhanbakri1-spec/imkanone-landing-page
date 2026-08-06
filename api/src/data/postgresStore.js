@@ -224,6 +224,7 @@ export function startupHydrationTimeoutMs(environment = process.env) {
 async function upsertRowsSql(table, rows, conflictColumn = "id", ignoreDuplicates = false) {
   if (!rows.length) return;
 
+  const conflictColumns = Array.isArray(conflictColumn) ? conflictColumn : [conflictColumn];
   const validColumns = await tableColumns(table);
   const filteredRows = rows
     .map((row) =>
@@ -231,7 +232,7 @@ async function upsertRowsSql(table, rows, conflictColumn = "id", ignoreDuplicate
         Object.entries(row).filter(([column]) => validColumns.has(column)),
       ),
     )
-    .filter((row) => Object.prototype.hasOwnProperty.call(row, conflictColumn));
+    .filter((row) => conflictColumns.every((column) => Object.hasOwn(row, column)));
   if (!filteredRows.length) return;
 
   const columns = [...new Set(filteredRows.flatMap((row) => Object.keys(row)))];
@@ -244,7 +245,7 @@ async function upsertRowsSql(table, rows, conflictColumn = "id", ignoreDuplicate
     return `(${placeholders.join(", ")})`;
   });
 
-  const updateColumns = columns.filter((column) => column !== conflictColumn);
+  const updateColumns = columns.filter((column) => !conflictColumns.includes(column));
   const conflictSql = ignoreDuplicates || !updateColumns.length
     ? "do nothing"
     : `do update set ${updateColumns
@@ -254,7 +255,7 @@ async function upsertRowsSql(table, rows, conflictColumn = "id", ignoreDuplicate
   await query(
     `insert into ${tableName(table)} (${columns.map(quoteIdent).join(", ")})
      values ${tuples.join(", ")}
-     on conflict (${quoteIdent(conflictColumn)}) ${conflictSql}`,
+     on conflict (${conflictColumns.map(quoteIdent).join(", ")}) ${conflictSql}`,
     values,
   );
 }
@@ -1081,6 +1082,9 @@ const LOADED_TENANT_COLLECTIONS = [
   "invoices",
   "deliveryZones",
   "activityLogs",
+  "inboxConversations",
+  "inboxMessages",
+  "inboxConversationReads",
 ];
 
 function tagLoadedRecord(record, companyId) {
@@ -1178,6 +1182,9 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID, depe
     companyInvoices,
     deliveryZoneRows,
     activityLogRows,
+    inboxConversationRows,
+    inboxMessageRows,
+    inboxReadRows,
     companies,
     companyDomains,
     companySettings,
@@ -1208,6 +1215,9 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID, depe
     selectTenantRows("company_invoices", normalizedCompanyId),
     selectTenantRows("company_delivery_zones", normalizedCompanyId),
     selectTenantRows("company_activity_logs", normalizedCompanyId),
+    selectTenantRows("company_inbox_conversations", normalizedCompanyId),
+    selectTenantRows("company_inbox_messages", normalizedCompanyId),
+    selectTenantRows("company_inbox_reads", normalizedCompanyId),
     selectAllRows("companies", "select=*"),
     selectAllRows("company_domains", "select=*"),
     selectAllRows("company_settings", "select=*"),
@@ -1243,6 +1253,9 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID, depe
     companyInvoices,
     deliveryZoneRows,
     activityLogRows,
+    inboxConversationRows,
+    inboxMessageRows,
+    inboxReadRows,
   ].some((rows) => rows.length);
 
   const store = tagLoadedTenantStore(rewriteStorageUrls({
@@ -1277,6 +1290,34 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID, depe
     invoices: companyInvoices.map(mergeCompanyInvoice),
     deliveryZones: deliveryZoneRows.map(mergeDeliveryZone),
     activityLogs: activityLogRows.map(mergeActivityLog),
+    inboxConversations: inboxConversationRows.map((row) => ({
+      id: row.id,
+      contactId: row.contact_user_id,
+      subject: row.subject || "",
+      channel: row.channel,
+      status: row.status,
+      assignedEmployeeId: row.assigned_user_id || null,
+      createdByUserId: row.created_by_user_id,
+      lastMessageAt: row.last_message_at || null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      closedAt: row.closed_at || null,
+      archivedAt: row.archived_at || null,
+    })),
+    inboxMessages: inboxMessageRows.map((row) => ({
+      id: row.id,
+      conversationId: row.conversation_id,
+      senderType: row.sender_type,
+      senderUserId: row.sender_user_id || null,
+      body: row.body,
+      createdAt: row.created_at,
+    })),
+    inboxConversationReads: inboxReadRows.map((row) => ({
+      id: `${row.conversation_id}:${row.user_id}`,
+      conversationId: row.conversation_id,
+      userId: row.user_id,
+      lastReadAt: row.last_read_at,
+    })),
     companies: companies.map((company) =>
       mergeCompany(company, companyDomains, companySettings),
     ),
@@ -1311,6 +1352,9 @@ const PLATFORM_TENANT_TABLES = [
   "company_invoices",
   "company_delivery_zones",
   "company_activity_logs",
+  "company_inbox_conversations",
+  "company_inbox_messages",
+  "company_inbox_reads",
 ];
 
 let platformLoadDependenciesForTest = null;
@@ -1547,6 +1591,34 @@ export async function loadPlatformStoreFromSupabase(dependencies = null) {
     invoices: tenantRows("company_invoices", mergeCompanyInvoice),
     deliveryZones: tenantRows("company_delivery_zones", mergeDeliveryZone),
     activityLogs: tenantRows("company_activity_logs", mergeActivityLog),
+    inboxConversations: tenantRows("company_inbox_conversations", (row) => ({
+      id: row.id,
+      contactId: row.contact_user_id,
+      subject: row.subject || "",
+      channel: row.channel,
+      status: row.status,
+      assignedEmployeeId: row.assigned_user_id || null,
+      createdByUserId: row.created_by_user_id,
+      lastMessageAt: row.last_message_at || null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      closedAt: row.closed_at || null,
+      archivedAt: row.archived_at || null,
+    })),
+    inboxMessages: tenantRows("company_inbox_messages", (row) => ({
+      id: row.id,
+      conversationId: row.conversation_id,
+      senderType: row.sender_type,
+      senderUserId: row.sender_user_id || null,
+      body: row.body,
+      createdAt: row.created_at,
+    })),
+    inboxConversationReads: tenantRows("company_inbox_reads", (row) => ({
+      id: `${row.conversation_id}:${row.user_id}`,
+      conversationId: row.conversation_id,
+      userId: row.user_id,
+      lastReadAt: row.last_read_at,
+    })),
     companies: companyRows.map((company) =>
       mergeCompany(company, companyDomains, companySettings)),
   });
@@ -1577,6 +1649,9 @@ export async function saveStoreToSupabase(store, options = {}) {
   const customAdminModuleEntries = store.customAdminModuleEntries || [];
   const companyProductSchemas = store.companyProductSchemas || [];
   const carts = Object.entries(store.carts || {});
+  const inboxConversations = store.inboxConversations || [];
+  const inboxMessages = store.inboxMessages || [];
+  const inboxConversationReads = store.inboxConversationReads || [];
 
   const productRows = products.map((product) => productRow(product, companyId));
   const productVariantRows = ensureUniqueRowIds(
@@ -1745,6 +1820,36 @@ export async function saveStoreToSupabase(store, options = {}) {
     user_agent: log.user_agent || null,
     created_at: rowDate(log.created_at),
   }));
+  const inboxConversationRows = inboxConversations.map((conversation) => ({
+    id: conversation.id,
+    company_id: companyId,
+    contact_user_id: conversation.contactId,
+    subject: conversation.subject || "",
+    channel: "internal",
+    status: conversation.status || "open",
+    assigned_user_id: conversation.assignedEmployeeId || null,
+    created_by_user_id: conversation.createdByUserId,
+    last_message_at: conversation.lastMessageAt ? rowDate(conversation.lastMessageAt) : null,
+    created_at: rowDate(conversation.createdAt),
+    updated_at: rowDate(conversation.updatedAt),
+    closed_at: conversation.closedAt ? rowDate(conversation.closedAt) : null,
+    archived_at: conversation.archivedAt ? rowDate(conversation.archivedAt) : null,
+  }));
+  const inboxMessageRows = inboxMessages.map((message) => ({
+    id: message.id,
+    company_id: companyId,
+    conversation_id: message.conversationId,
+    sender_type: message.senderType,
+    sender_user_id: message.senderUserId || null,
+    body: message.body,
+    created_at: rowDate(message.createdAt),
+  }));
+  const inboxReadRows = inboxConversationReads.map((read) => ({
+    company_id: companyId,
+    conversation_id: read.conversationId,
+    user_id: read.userId,
+    last_read_at: rowDate(read.lastReadAt),
+  }));
 
   await upsertRows("users", userRows);
   // Runtime store saves may seed missing memberships, but must never overwrite
@@ -1785,6 +1890,13 @@ export async function saveStoreToSupabase(store, options = {}) {
   await upsertCompanyRows("company_invoices", invoiceRows, companyId);
   await upsertCompanyRows("company_delivery_zones", deliveryZoneRows, companyId);
   await upsertCompanyRows("company_activity_logs", activityLogRows, companyId);
+  await upsertCompanyRows("company_inbox_conversations", inboxConversationRows, companyId);
+  await upsertCompanyRows("company_inbox_messages", inboxMessageRows, companyId);
+  await upsertRows(
+    "company_inbox_reads",
+    inboxReadRows,
+    ["company_id", "conversation_id", "user_id"],
+  );
 
   if (pruneMissing) {
     if (includeProducts) {
@@ -1808,6 +1920,78 @@ export async function saveStoreToSupabase(store, options = {}) {
     await deleteMissingCompanyRows("company_invoices", invoiceRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("company_delivery_zones", deliveryZoneRows.map((row) => row.id), companyId);
     await deleteMissingCompanyRows("company_activity_logs", activityLogRows.map((row) => row.id), companyId);
+  }
+}
+
+export async function saveInboxStateToSupabase(store, companyId) {
+  if (!isSupabaseConfigured()) throw new Error("PostgreSQL DATABASE_URL is not configured.");
+  const normalizedCompanyId = normalizeCompanyId(companyId);
+  const client = await getPool().connect();
+  let transactionStarted = false;
+  try {
+    await client.query("begin");
+    transactionStarted = true;
+    for (const conversation of store.inboxConversations || []) {
+      await client.query(
+        `insert into public.company_inbox_conversations
+          (id, company_id, contact_user_id, subject, channel, status, assigned_user_id,
+           created_by_user_id, last_message_at, created_at, updated_at, closed_at, archived_at)
+         values ($1,$2,$3,$4,'internal',$5,$6,$7,$8,$9,$10,$11,$12)
+         on conflict (id) do update set
+           subject = excluded.subject,
+           status = excluded.status,
+           assigned_user_id = excluded.assigned_user_id,
+           last_message_at = excluded.last_message_at,
+           updated_at = excluded.updated_at,
+           closed_at = excluded.closed_at,
+           archived_at = excluded.archived_at
+         where company_inbox_conversations.company_id = excluded.company_id`,
+        [
+          conversation.id,
+          normalizedCompanyId,
+          conversation.contactId,
+          conversation.subject || "",
+          conversation.status || "open",
+          conversation.assignedEmployeeId || null,
+          conversation.createdByUserId,
+          conversation.lastMessageAt || null,
+          conversation.createdAt,
+          conversation.updatedAt,
+          conversation.closedAt || null,
+          conversation.archivedAt || null,
+        ],
+      );
+    }
+    for (const message of store.inboxMessages || []) {
+      await client.query(
+        `insert into public.company_inbox_messages
+          (id, company_id, conversation_id, sender_type, sender_user_id, body, created_at)
+         values ($1,$2,$3,$4,$5,$6,$7)
+         on conflict (id) do nothing`,
+        [message.id, normalizedCompanyId, message.conversationId, message.senderType,
+          message.senderUserId || null, message.body, message.createdAt],
+      );
+    }
+    for (const read of store.inboxConversationReads || []) {
+      await client.query(
+        `insert into public.company_inbox_reads
+          (company_id, conversation_id, user_id, last_read_at)
+         values ($1,$2,$3,$4)
+         on conflict (company_id, conversation_id, user_id)
+         do update set last_read_at = excluded.last_read_at`,
+        [normalizedCompanyId, read.conversationId, read.userId, read.lastReadAt],
+      );
+    }
+    await client.query("commit");
+    transactionStarted = false;
+    return store;
+  } catch (error) {
+    if (transactionStarted) {
+      try { await client.query("rollback"); } catch {}
+    }
+    throw error;
+  } finally {
+    client.release();
   }
 }
 

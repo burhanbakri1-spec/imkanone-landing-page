@@ -891,8 +891,8 @@ test("tenant catalog and company settings contracts", async (t) => {
 
     calls.length = 0;
     await loadPlatformStoreFromSupabase(dependencies);
-    assert.equal(calls.length, 26);
-    assert.equal(new Set(calls.map((call) => call.table)).size, 26);
+    assert.equal(calls.length, 29);
+    assert.equal(new Set(calls.map((call) => call.table)).size, 29);
     assert.equal(calls.every((call) => call.query === "select=*"), true);
 
     const previousDatabaseUrl = process.env.DATABASE_URL;
