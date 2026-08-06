@@ -608,6 +608,31 @@ function validTextSiteDesign(overrides = {}) {
   });
 }
 
+function validPageBackgroundPreset(overrides = {}) {
+  return {
+    pageBackgroundId: "mock-page-bg",
+    name: { en: "Mock Page Background", ar: "خلفية صفحة تجريبية" },
+    description: { en: "A mock page background", ar: "خلفية صفحة تجريبية" },
+    background: {
+      pageColor: "#F8F4EE",
+      contentColor: "#ffffff",
+      pattern: "none",
+      patternColor: "#d9d1c5",
+      patternOpacity: 0,
+    },
+    ...overrides,
+  };
+}
+
+function validPageBackgroundSiteDesign(overrides = {}) {
+  return validSiteDesign({
+    capabilities: { ...validSiteDesign().capabilities, pageBackgrounds: true },
+    defaultPageBackgroundId: "mock-page-bg",
+    pageBackgroundPresets: [validPageBackgroundPreset()],
+    ...overrides,
+  });
+}
+
 test("site manifest siteDesign section", async (t) => {
   await t.test("remains backward compatible when siteDesign is absent", () => {
     const result = validateSiteManifest(validManifest());
@@ -910,5 +935,243 @@ test("site manifest siteDesign section", async (t) => {
     const missingStyles = validTextSiteDesign();
     delete missingStyles.textThemePresets[0].styles;
     assert.throws(() => validateSiteManifest(manifestWithSiteDesign(missingStyles)), /styles must be an object/i);
+  });
+});
+
+test("site manifest siteDesign page backgrounds", async (t) => {
+  await t.test("existing siteDesign without Page Backgrounds remains valid", () => {
+    const result = validateSiteManifest(manifestWithSiteDesign(validSiteDesign()));
+    assert.equal(result.siteDesign.defaultThemeId, "mock-default");
+    assert.equal(result.siteDesign.themePresets.length, 1);
+    assert.equal(result.siteDesign.capabilities.pageBackgrounds, false);
+  });
+
+  await t.test("missing Page Backgrounds normalize to empty ID and empty array", () => {
+    const result = validateSiteManifest(manifestWithSiteDesign(validSiteDesign()));
+    assert.equal(result.siteDesign.defaultPageBackgroundId, "");
+    assert.deepEqual(result.siteDesign.pageBackgroundPresets, []);
+  });
+
+  await t.test("a valid Page Background preset normalizes correctly", () => {
+    const result = validateSiteManifest(manifestWithSiteDesign(validPageBackgroundSiteDesign()));
+    assert.equal(result.siteDesign.capabilities.pageBackgrounds, true);
+    assert.equal(result.siteDesign.defaultPageBackgroundId, "mock-page-bg");
+    assert.equal(result.siteDesign.pageBackgroundPresets.length, 1);
+    const preset = result.siteDesign.pageBackgroundPresets[0];
+    assert.equal(preset.pageBackgroundId, "mock-page-bg");
+    assert.equal(preset.name.en, "Mock Page Background");
+    assert.equal(preset.name.ar, "خلفية صفحة تجريبية");
+    assert.equal(preset.description.en, "A mock page background");
+    assert.equal(preset.background.pageColor, "#f8f4ee");
+    assert.equal(preset.background.contentColor, "#ffffff");
+    assert.equal(preset.background.pattern, "none");
+    assert.equal(preset.background.patternColor, "#d9d1c5");
+    assert.equal(preset.background.patternOpacity, 0);
+  });
+
+  await t.test("hex colors normalize to lowercase", () => {
+    const custom = validPageBackgroundSiteDesign();
+    custom.pageBackgroundPresets[0].background.pageColor = "#AB12EF";
+    custom.pageBackgroundPresets[0].background.patternColor = "#ABCDEF";
+    const result = validateSiteManifest(manifestWithSiteDesign(custom));
+    assert.equal(result.siteDesign.pageBackgroundPresets[0].background.pageColor, "#ab12ef");
+    assert.equal(result.siteDesign.pageBackgroundPresets[0].background.patternColor, "#abcdef");
+  });
+
+  await t.test("more than 12 page background presets is rejected", () => {
+    const many = validPageBackgroundSiteDesign({ pageBackgroundPresets: [] });
+    for (let index = 0; index < 13; index += 1) {
+      many.pageBackgroundPresets.push(validPageBackgroundPreset({ pageBackgroundId: `bg-${index}` }));
+    }
+    many.defaultPageBackgroundId = "bg-0";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(many)), /too many page background presets/i);
+  });
+
+  await t.test("non-array pageBackgroundPresets is rejected", () => {
+    const nonArray = validPageBackgroundSiteDesign({ pageBackgroundPresets: "not-an-array" });
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(nonArray)), /pageBackgroundPresets must be an array/i);
+  });
+
+  await t.test("duplicate pageBackgroundId is rejected", () => {
+    const duplicates = validPageBackgroundSiteDesign();
+    duplicates.pageBackgroundPresets.push(duplicates.pageBackgroundPresets[0]);
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(duplicates)), /duplicate page background id/i);
+  });
+
+  await t.test("unknown defaultPageBackgroundId is rejected", () => {
+    const missing = validPageBackgroundSiteDesign({ defaultPageBackgroundId: "does-not-exist" });
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(missing)), /unknown page background/i);
+  });
+
+  await t.test("missing defaultPageBackgroundId with presets is rejected", () => {
+    const noDefault = validPageBackgroundSiteDesign();
+    delete noDefault.defaultPageBackgroundId;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(noDefault)), /defaultPageBackgroundId is required/i);
+  });
+
+  await t.test("missing required description is rejected", () => {
+    const missing = validPageBackgroundSiteDesign();
+    delete missing.pageBackgroundPresets[0].description;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(missing)), /description is required/i);
+  });
+
+  await t.test("missing pageBackgroundId is rejected", () => {
+    const missing = validPageBackgroundSiteDesign();
+    delete missing.pageBackgroundPresets[0].pageBackgroundId;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(missing)), /pageBackgroundId is required/i);
+  });
+
+  await t.test("missing name is rejected", () => {
+    const missing = validPageBackgroundSiteDesign();
+    delete missing.pageBackgroundPresets[0].name;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(missing)), /name is required/i);
+  });
+
+  await t.test("missing background is rejected", () => {
+    const missing = validPageBackgroundSiteDesign();
+    delete missing.pageBackgroundPresets[0].background;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(missing)), /background is required/i);
+  });
+
+  await t.test("unknown preset property is rejected", () => {
+    const extra = validPageBackgroundSiteDesign();
+    extra.pageBackgroundPresets[0].image = "https://evil.example/bg.png";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(extra)), /unknown pageBackgroundPresets\[0\] property/i);
+  });
+
+  await t.test("unknown background property is rejected", () => {
+    const extra = validPageBackgroundSiteDesign();
+    extra.pageBackgroundPresets[0].background.gradient = "linear-gradient(red, blue)";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(extra)), /unknown pageBackgroundPresets\[0\]\.background property/i);
+  });
+
+  await t.test("every missing required background property is rejected", () => {
+    for (const key of ["pageColor", "contentColor", "pattern", "patternColor", "patternOpacity"]) {
+      const missing = validPageBackgroundSiteDesign();
+      delete missing.pageBackgroundPresets[0].background[key];
+      assert.throws(() => validateSiteManifest(manifestWithSiteDesign(missing)), new RegExp(`\\.background\\.${key} is required`, "i"));
+    }
+  });
+
+  await t.test("an unsafe pageBackgroundId is rejected", () => {
+    const unsafe = validPageBackgroundSiteDesign();
+    unsafe.pageBackgroundPresets[0].pageBackgroundId = "evil id!";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(unsafe)), /pageBackgroundId is invalid/i);
+  });
+
+  await t.test("an unsupported pattern identifier is rejected", () => {
+    const unsupported = validPageBackgroundSiteDesign();
+    unsupported.pageBackgroundPresets[0].background.pattern = "polka-dots";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(unsupported)), /must be one of none, soft-grain, subtle-dots, soft-grid/i);
+    const nonString = validPageBackgroundSiteDesign();
+    nonString.pageBackgroundPresets[0].background.pattern = 42;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(nonString)), /supported pattern identifier/i);
+  });
+
+  await t.test("three-digit hex is rejected", () => {
+    const short = validPageBackgroundSiteDesign();
+    short.pageBackgroundPresets[0].background.pageColor = "#fff";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(short)), /hex/i);
+  });
+
+  await t.test("eight-digit hex is rejected", () => {
+    const alpha = validPageBackgroundSiteDesign();
+    alpha.pageBackgroundPresets[0].background.contentColor = "#12345678";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(alpha)), /hex/i);
+  });
+
+  await t.test("rgb, rgba, hsl, gradients, CSS variables, functions, and URLs are rejected", () => {
+    for (const value of ["rgb(255,0,0)", "rgba(0,0,0,0.5)", "hsl(120, 50%, 50%)", "linear-gradient(red, blue)", "var(--bg)", "url(https://evil.example/x.png)"]) {
+      const bad = validPageBackgroundSiteDesign();
+      bad.pageBackgroundPresets[0].background.pageColor = value;
+      assert.throws(() => validateSiteManifest(manifestWithSiteDesign(bad)), /hex/i);
+    }
+  });
+
+  await t.test("patternOpacity below 0 is rejected", () => {
+    const low = validPageBackgroundSiteDesign();
+    low.pageBackgroundPresets[0].background.pattern = "soft-grain";
+    low.pageBackgroundPresets[0].background.patternOpacity = -0.01;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(low)), /allowed range \(0 to 0\.25\)/i);
+  });
+
+  await t.test("patternOpacity above 0.25 is rejected", () => {
+    const high = validPageBackgroundSiteDesign();
+    high.pageBackgroundPresets[0].background.pattern = "soft-grain";
+    high.pageBackgroundPresets[0].background.patternOpacity = 0.26;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(high)), /allowed range \(0 to 0\.25\)/i);
+  });
+
+  await t.test("a numeric-string opacity is rejected", () => {
+    const string = validPageBackgroundSiteDesign();
+    string.pageBackgroundPresets[0].background.patternOpacity = "0.1";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(string)), /must be a number/i);
+  });
+
+  await t.test("NaN and Infinity opacity values are rejected", () => {
+    const nan = validPageBackgroundSiteDesign();
+    nan.pageBackgroundPresets[0].background.patternOpacity = NaN;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(nan)), /must be a number/i);
+    const inf = validPageBackgroundSiteDesign();
+    inf.pageBackgroundPresets[0].background.patternOpacity = Infinity;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(inf)), /must be a number/i);
+  });
+
+  await t.test("pattern none with non-zero opacity is rejected", () => {
+    const none = validPageBackgroundSiteDesign();
+    none.pageBackgroundPresets[0].background.pattern = "none";
+    none.pageBackgroundPresets[0].background.patternOpacity = 0.1;
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(none)), /must be 0 when the pattern is "none"/i);
+  });
+
+  await t.test("non-none patterns with valid opacity are accepted", () => {
+    for (const pattern of ["soft-grain", "subtle-dots", "soft-grid"]) {
+      const preset = validPageBackgroundSiteDesign();
+      preset.pageBackgroundPresets[0].background.pattern = pattern;
+      preset.pageBackgroundPresets[0].background.patternOpacity = 0.12;
+      const result = validateSiteManifest(manifestWithSiteDesign(preset));
+      assert.equal(result.siteDesign.pageBackgroundPresets[0].background.pattern, pattern);
+      assert.equal(result.siteDesign.pageBackgroundPresets[0].background.patternOpacity, 0.12);
+    }
+  });
+
+  await t.test("HTML and scripts in localized text are rejected", () => {
+    const unsafeName = validPageBackgroundSiteDesign();
+    unsafeName.pageBackgroundPresets[0].name.en = "<script>alert(1)</script>";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(unsafeName)), /plain text/i);
+    const unsafeDescription = validPageBackgroundSiteDesign();
+    unsafeDescription.pageBackgroundPresets[0].description.ar = "<img src=x onerror=alert(1)>";
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(unsafeDescription)), /plain text/i);
+  });
+
+  await t.test("unknown top-level Site Design properties remain rejected", () => {
+    const extra = validPageBackgroundSiteDesign({ css: { arbitrary: true } });
+    assert.throws(() => validateSiteManifest(manifestWithSiteDesign(extra)), /unknown siteDesign property/i);
+  });
+
+  await t.test("pageTransitions behavior remains unchanged", () => {
+    const result = validateSiteManifest(manifestWithSiteDesign(validPageBackgroundSiteDesign()));
+    assert.equal(result.siteDesign.capabilities.pageTransitions, false);
+    const enabled = validPageBackgroundSiteDesign({ capabilities: { ...validSiteDesign().capabilities, pageBackgrounds: true, pageTransitions: true } });
+    const enabledResult = validateSiteManifest(manifestWithSiteDesign(enabled));
+    assert.equal(enabledResult.siteDesign.capabilities.pageTransitions, true);
+  });
+
+  await t.test("themes, colors, typography, and page backgrounds coexist without conflict", () => {
+    const combined = validPageBackgroundSiteDesign();
+    combined.capabilities = { ...combined.capabilities, typography: true };
+    combined.defaultTextThemeId = "mock-text-default";
+    combined.textThemePresets = [validTextThemePreset()];
+    const result = validateSiteManifest(manifestWithSiteDesign(combined));
+    assert.equal(result.siteDesign.capabilities.themes, true);
+    assert.equal(result.siteDesign.capabilities.colors, true);
+    assert.equal(result.siteDesign.capabilities.typography, true);
+    assert.equal(result.siteDesign.capabilities.pageBackgrounds, true);
+    assert.equal(result.siteDesign.defaultThemeId, "mock-default");
+    assert.equal(result.siteDesign.defaultTextThemeId, "mock-text-default");
+    assert.equal(result.siteDesign.defaultPageBackgroundId, "mock-page-bg");
+    assert.equal(result.siteDesign.themePresets.length, 1);
+    assert.equal(result.siteDesign.textThemePresets.length, 1);
+    assert.equal(result.siteDesign.pageBackgroundPresets.length, 1);
   });
 });

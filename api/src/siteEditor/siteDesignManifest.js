@@ -10,8 +10,13 @@ import { SiteEditorValidationError } from "./schema.js";
  * fontSizePx, fontWeight, lineHeight, and letterSpacingEm, and font families
  * are restricted to a fixed allowlist of well-known system fonts. Typography
  * never accepts raw CSS font strings, font uploads, or external font URLs.
- * Page backgrounds, page transitions, font upload, and arbitrary CSS remain
- * unsupported.
+ * Phase 3A adds generic page background presets: each preset carries exactly
+ * pageColor, contentColor, pattern, patternColor, and patternOpacity. Colors
+ * are strict six-digit hex values, patterns are limited to a fixed allowlist,
+ * and opacity is a finite number between 0 and 0.25. Page backgrounds never
+ * accept images, image URLs, file uploads, external URLs, gradients, custom
+ * CSS, or arbitrary CSS functions. Page transitions, font upload, and
+ * arbitrary CSS remain unsupported.
  *
  * The schema mirrors the CPanel's allowlist of design tokens so the validated
  * payload maps 1:1 to the editor preview variables.
@@ -26,6 +31,7 @@ export const SITE_DESIGN_VERSION = "1";
 export const MAX_THEMES = 20;
 export const MAX_PREVIEW_SWATCHES = 8;
 export const MAX_TEXT_THEMES = 12;
+export const MAX_PAGE_BACKGROUNDS = 12;
 export const SITE_DESIGN_FONT_FAMILY_ALLOWLIST = Object.freeze([
   "system-sans",
   "arial",
@@ -83,6 +89,8 @@ export const SITE_DESIGN_TOP_LEVEL_KEYS = Object.freeze([
   "themePresets",
   "defaultTextThemeId",
   "textThemePresets",
+  "defaultPageBackgroundId",
+  "pageBackgroundPresets",
 ]);
 export const SITE_DESIGN_PRESET_KEYS = Object.freeze([
   "themeId",
@@ -92,6 +100,26 @@ export const SITE_DESIGN_PRESET_KEYS = Object.freeze([
   "colorTheme",
 ]);
 export const SITE_DESIGN_BUTTON_GROUPS = Object.freeze(["primary", "secondary"]);
+export const SITE_DESIGN_PAGE_BACKGROUND_PATTERNS = Object.freeze([
+  "none",
+  "soft-grain",
+  "subtle-dots",
+  "soft-grid",
+]);
+export const SITE_DESIGN_PAGE_BACKGROUND_PRESET_KEYS = Object.freeze([
+  "pageBackgroundId",
+  "name",
+  "description",
+  "background",
+]);
+export const SITE_DESIGN_PAGE_BACKGROUND_KEYS = Object.freeze([
+  "pageColor",
+  "contentColor",
+  "pattern",
+  "patternColor",
+  "patternOpacity",
+]);
+export const SITE_DESIGN_PAGE_BACKGROUND_OPACITY_RANGE = Object.freeze({ min: 0, max: 0.25 });
 
 const THEME_ID_PATTERN = /^[a-z0-9][a-z0-9:_-]{0,159}$/i;
 const VERSION_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,31}$/i;
@@ -287,10 +315,63 @@ function normalizeTextThemePreset(preset, index) {
   return { textThemeId, name, description, styles };
 }
 
+function normalizePatternIdentifier(value, field) {
+  if (typeof value !== "string") throw designError(`${field} must be a supported pattern identifier.`);
+  const candidate = value.trim().toLowerCase();
+  if (!SITE_DESIGN_PAGE_BACKGROUND_PATTERNS.includes(candidate)) {
+    throw designError(`${field} must be one of ${SITE_DESIGN_PAGE_BACKGROUND_PATTERNS.join(", ")}.`);
+  }
+  return candidate;
+}
+
+function normalizePatternOpacity(value, field, pattern) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw designError(`${field} must be a number.`);
+  }
+  const range = SITE_DESIGN_PAGE_BACKGROUND_OPACITY_RANGE;
+  if (value < range.min || value > range.max) {
+    throw designError(`${field} is out of the allowed range (${range.min} to ${range.max}).`);
+  }
+  if (pattern === "none" && value !== 0) {
+    throw designError(`${field} must be 0 when the pattern is "none".`);
+  }
+  return value;
+}
+
+function normalizePageBackgroundBackground(background, field) {
+  if (!isRecord(background)) throw designError(`${field} must be an object.`);
+  rejectUnknownKeys(background, SITE_DESIGN_PAGE_BACKGROUND_KEYS, field);
+  for (const key of SITE_DESIGN_PAGE_BACKGROUND_KEYS) {
+    if (!Object.hasOwn(background, key)) throw designError(`${field}.${key} is required.`);
+  }
+  const pattern = normalizePatternIdentifier(background.pattern, `${field}.pattern`);
+  return {
+    pageColor: normalizeHexColor(background.pageColor, `${field}.pageColor`),
+    contentColor: normalizeHexColor(background.contentColor, `${field}.contentColor`),
+    pattern,
+    patternColor: normalizeHexColor(background.patternColor, `${field}.patternColor`),
+    patternOpacity: normalizePatternOpacity(background.patternOpacity, `${field}.patternOpacity`, pattern),
+  };
+}
+
+function normalizePageBackgroundPreset(preset, index) {
+  if (!isRecord(preset)) throw designError(`pageBackgroundPresets[${index}] must be an object.`);
+  rejectUnknownKeys(preset, SITE_DESIGN_PAGE_BACKGROUND_PRESET_KEYS, `pageBackgroundPresets[${index}]`);
+  for (const key of SITE_DESIGN_PAGE_BACKGROUND_PRESET_KEYS) {
+    if (!Object.hasOwn(preset, key)) throw designError(`pageBackgroundPresets[${index}].${key} is required.`);
+  }
+  const pageBackgroundId = safeThemeId(preset.pageBackgroundId, `pageBackgroundPresets[${index}].pageBackgroundId`);
+  const name = localizedDesignText(preset.name, `pageBackgroundPresets[${index}].name`);
+  const description = localizedDesignText(preset.description, `pageBackgroundPresets[${index}].description`);
+  const background = normalizePageBackgroundBackground(preset.background, `pageBackgroundPresets[${index}].background`);
+  return { pageBackgroundId, name, description, background };
+}
+
 /**
  * Normalize and validate the `siteDesign` manifest section (themes, colors,
- * and safe text theme presets). Returns null when the section is absent.
- * Throws SiteEditorValidationError on any unknown, unsafe, or malformed value.
+ * safe text theme presets, and page backgrounds). Returns null when the
+ * section is absent. Throws SiteEditorValidationError on any unknown, unsafe,
+ * or malformed value.
  */
 export function normalizeSiteDesign(input) {
   if (input == null) return null;
@@ -346,5 +427,41 @@ export function normalizeSiteDesign(input) {
     throw designError("defaultTextThemeId is required when text theme presets are declared.");
   }
 
-  return { version, capabilities, defaultThemeId, themePresets, defaultTextThemeId, textThemePresets };
+  if (input.pageBackgroundPresets != null && !Array.isArray(input.pageBackgroundPresets)) {
+    throw designError("siteDesign.pageBackgroundPresets must be an array.");
+  }
+  const rawPageBackgroundPresets = Array.isArray(input.pageBackgroundPresets) ? input.pageBackgroundPresets : [];
+  if (rawPageBackgroundPresets.length > MAX_PAGE_BACKGROUNDS) {
+    throw designError("siteDesign declares too many page background presets.");
+  }
+  const pageBackgroundPresets = rawPageBackgroundPresets.map((preset, index) => normalizePageBackgroundPreset(preset, index));
+
+  const seenPageBackgroundIds = new Set();
+  for (const preset of pageBackgroundPresets) {
+    if (seenPageBackgroundIds.has(preset.pageBackgroundId)) {
+      throw designError(`Duplicate page background id: ${preset.pageBackgroundId}.`);
+    }
+    seenPageBackgroundIds.add(preset.pageBackgroundId);
+  }
+
+  let defaultPageBackgroundId = "";
+  if (input.defaultPageBackgroundId != null) {
+    defaultPageBackgroundId = safeThemeId(input.defaultPageBackgroundId, "defaultPageBackgroundId");
+    if (!seenPageBackgroundIds.has(defaultPageBackgroundId)) {
+      throw designError(`defaultPageBackgroundId references an unknown page background: ${defaultPageBackgroundId}.`);
+    }
+  } else if (pageBackgroundPresets.length > 0) {
+    throw designError("defaultPageBackgroundId is required when page background presets are declared.");
+  }
+
+  return {
+    version,
+    capabilities,
+    defaultThemeId,
+    themePresets,
+    defaultTextThemeId,
+    textThemePresets,
+    defaultPageBackgroundId,
+    pageBackgroundPresets,
+  };
 }
