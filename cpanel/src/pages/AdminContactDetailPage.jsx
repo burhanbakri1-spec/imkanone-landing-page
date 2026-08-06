@@ -1,10 +1,12 @@
 import React from "react";
-import { Archive, ArrowLeft, BellRing, CalendarDays, ChevronDown, ClipboardList, Edit3, FileText, Inbox, Mail, MessageSquare, Paperclip, ReceiptText, Send, ShoppingBag, ShoppingCart, Tags, User, Users, Workflow, X } from "lucide-react";
+import { Archive, ArrowLeft, BellRing, CalendarDays, ChevronDown, ClipboardList, Edit3, FileText, Inbox, LoaderCircle, Mail, MessageSquare, Paperclip, ReceiptText, RotateCcw, ShoppingBag, ShoppingCart, Tags, User, Users, Workflow, X } from "lucide-react";
 import AdminLayout from "../components/AdminLayout.jsx";
-import { fetchCustomers } from "../utils/customersApi.js";
+import ContactFormDialog from "../components/ContactFormDialog.jsx";
+import { archiveCustomer, fetchCustomer, restoreCustomer, updateCustomer } from "../utils/customersApi.js";
 import { invoicesForContact, ordersForContact } from "../utils/contacts.js";
 import { apiRequest } from "../utils/api.js";
 import { formatCompanyCurrency } from "../utils/sales.js";
+import { canUseCustomerAction } from "../utils/roles.js";
 import { AdminUnderDevelopmentContent } from "./AdminPlaceholderPage.jsx";
 
 const TAB_KEYS = ["overview", "inbox", "pipelines", "notes", "subscriptions", "bookings", "invoices", "orders"];
@@ -16,6 +18,11 @@ const COPY = {
   ar: {
     accountType: "نوع الحساب", activity: "الخط الزمني", allActivity: "كل الأنشطة", attachments: "المرفقات", back: "جهات الاتصال", bookings: "الحجوزات", contactCreated: "تم إنشاء جهة الاتصال", contactUnavailable: "تفاصيل جهة الاتصال غير متاحة", contactUnavailableDescription: "تعذر تحميل تفاصيل جهة الاتصال من واجهة الشركة.", edit: "تعديل", email: "البريد الأساسي", filter: "تصفية", goBooking: "الانتقال إلى تقويم الحجوزات", goPipelines: "الانتقال إلى المسارات", inbox: "البريد الوارد", invoiceEmpty: "لا توجد فواتير بعد", invoiceEmptyDescription: "ستظهر الفواتير الحقيقية لجهة الاتصال هنا.", invoices: "الفواتير", labels: "التصنيفات", language: "اللغة", memberInfo: "معلومات العضو", more: "إجراءات أخرى", newAppointment: "موعد جديد", newNote: "ملاحظة جديدة", noBookings: "لا توجد حجوزات بعد", noBookingsDescription: "ستظهر الحجوزات عند توفر مصدر حجوزات مدعوم.", noContact: "لم يتم العثور على جهة الاتصال", noContactDescription: "لم يتم العثور على جهة الاتصال المطلوبة.", noConversation: "لا توجد محادثة متاحة", noConversationDescription: "لا توجد قناة مراسلة متصلة لجهة الاتصال هذه.", noPipelines: "لا توجد لوحات مسارات بعد", noPipelinesDescription: "أنشئ مساراً لتنظيم وتتبع تقدم جهات الاتصال الحقيقي.", notes: "ملاحظات", notesEmpty: "لا توجد ملاحظات بعد", notesEmptyDescription: "الملاحظات خاصة وستظهر عند توفر تخزين للملاحظات.", orderCreated: "تم تقديم طلب", orderEmpty: "لم تقدم جهة الاتصال أي طلبات بعد", orderEmptyDescription: "ستظهر الطلبات الحقيقية لجهة الاتصال هنا.", orders: "الطلبات", overview: "نظرة عامة", past: "السابقة", phone: "الهاتف الأساسي", pipelines: "المسارات", purchaseStats: "إحصاءات الشراء", purchases: "المشتريات", segments: "الشرائح", send: "إرسال رسالة", setup: "إعداد", subscriptions: "الاشتراكات", subscriptionsEmpty: "لا يوجد ما يمكن عرضه بعد", subscriptionsEmptyDescription: "ستظهر الخطط أو الاشتراكات أو الفواتير المتكررة المدعومة هنا.", tasks: "المهام والتذكيرات", tasksEmpty: "لا توجد مهام متاحة لجهة الاتصال.", totalAmount: "المبلغ الإجمالي", upcoming: "القادمة", unavailable: "غير متاح", workflows: "سير العمل",
   },
+};
+
+const CRM_COPY = {
+  en: { active: "Active", archive: "Archive contact", archiveConfirm: "Archive this contact?", archiveDescription: "Archiving removes this contact from the active list. It does not delete the customer or their orders.", archived: "Archived", archiveSuccess: "Contact archived.", cancel: "Cancel", created: "Created", editSuccess: "Contact updated.", labelsValue: "Labels", notesValue: "Notes", notFound: "Contact not found", permissionDenied: "You do not have permission to view this contact.", restore: "Restore contact", restoreSuccess: "Contact restored.", retry: "Try again", source: "Source", status: "Status", type: "Type", updated: "Updated" },
+  ar: { active: "نشط", archive: "أرشفة جهة الاتصال", archiveConfirm: "هل تريد أرشفة جهة الاتصال؟", archiveDescription: "تؤدي الأرشفة إلى إزالة جهة الاتصال من القائمة النشطة، ولا تحذف العميل أو طلباته.", archived: "مؤرشف", archiveSuccess: "تمت أرشفة جهة الاتصال.", cancel: "إلغاء", created: "تاريخ الإنشاء", editSuccess: "تم تحديث جهة الاتصال.", labelsValue: "التصنيفات", notesValue: "الملاحظات", notFound: "لم يتم العثور على جهة الاتصال", permissionDenied: "ليست لديك صلاحية عرض جهة الاتصال هذه.", restore: "استعادة جهة الاتصال", restoreSuccess: "تمت استعادة جهة الاتصال.", retry: "إعادة المحاولة", source: "المصدر", status: "الحالة", type: "النوع", updated: "آخر تحديث" },
 };
 
 const TAB_ICONS = { overview: User, inbox: Inbox, pipelines: Workflow, notes: MessageSquare, subscriptions: Archive, bookings: CalendarDays, invoices: FileText, orders: ShoppingCart };
@@ -86,6 +93,12 @@ function OrdersTab({ labels, language, money, orders }) {
   return <section className="contact-records-tab"><header><h2>{labels.orders}</h2></header>{orders.length ? <div className="contact-records-scroll"><table><thead><tr><th>{language === "ar" ? "المرجع" : "Reference"}</th><th>{language === "ar" ? "التاريخ" : "Date"}</th><th>{language === "ar" ? "الإجمالي" : "Total"}</th><th>{language === "ar" ? "الحالة" : "Status"}</th><th>{language === "ar" ? "العناصر" : "Items"}</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id}><td>{order.reference || order.id}</td><td>{formatDate(order.createdAt, language)}</td><td><bdi dir="ltr">{money(Number(order.total || 0))}</bdi></td><td>{order.status || "—"}</td><td>{Array.isArray(order.items) ? order.items.length : 0}</td></tr>)}</tbody></table></div> : <div className="contact-records-empty"><EmptyVisual icon={ShoppingCart} tone="green"/><h3>{labels.orderEmpty}</h3><p>{labels.orderEmptyDescription}</p></div>}</section>;
 }
 
+function ArchiveConfirmDialog({ busy, contact, language, onClose, onConfirm }) {
+  const copy = CRM_COPY[language] || CRM_COPY.en;
+  React.useEffect(() => { const handler = (event) => event.key === "Escape" && !busy && onClose(); document.addEventListener("keydown", handler); return () => document.removeEventListener("keydown", handler); }, [busy, onClose]);
+  return <div className="customers-modal-backdrop" onMouseDown={() => !busy && onClose()} role="presentation"><div aria-labelledby="archive-contact-title" aria-modal="true" className="customers-modal crm-contact-confirm" dir={language === "ar" ? "rtl" : "ltr"} onMouseDown={(event) => event.stopPropagation()} role="alertdialog"><h2 id="archive-contact-title">{copy.archiveConfirm}</h2><p>{copy.archiveDescription}</p><strong>{contact.displayName || contact.name}</strong><footer><button className="customers-secondary-button" disabled={busy} onClick={onClose} type="button">{copy.cancel}</button><button className="customers-primary-button crm-danger-button" disabled={busy} onClick={onConfirm} type="button">{busy && <LoaderCircle className="crm-spin" size={16}/>} {copy.archive}</button></footer></div></div>;
+}
+
 export default function AdminContactDetailPage({ language = "en", t: translate, currentUser, company, orders = [], onNavigate, ...layout }) {
   const [activeTab, setActiveTab] = React.useState("overview");
   const [contact, setContact] = React.useState(null);
@@ -93,42 +106,54 @@ export default function AdminContactDetailPage({ language = "en", t: translate, 
   const [invoices, setInvoices] = React.useState([]);
   const [invoiceError, setInvoiceError] = React.useState("");
   const [loadError, setLoadError] = React.useState("");
+  const [loadStatus, setLoadStatus] = React.useState(0);
   const [loading, setLoading] = React.useState(true);
+  const [refreshKey, setRefreshKey] = React.useState(0);
   const [showUnsupported, setShowUnsupported] = React.useState(false);
-  const labels = COPY[language] || COPY.en;
-  const contactId = React.useMemo(() => window.location.pathname.match(/\/admin\/customers\/(\d+)/)?.[1] || null, []);
+  const [showEdit, setShowEdit] = React.useState(false);
+  const [showArchive, setShowArchive] = React.useState(false);
+  const [actionBusy, setActionBusy] = React.useState(false);
+  const [actionError, setActionError] = React.useState("");
+  const [notice, setNotice] = React.useState("");
+  const labels = { ...(COPY[language] || COPY.en), ...(CRM_COPY[language] || CRM_COPY.en) };
+  const contactId = React.useMemo(() => { const match = window.location.pathname.match(/\/admin\/customers\/([^/]+)$/); return match?.[1] ? decodeURIComponent(match[1]) : null; }, []);
+  const canUpdate = canUseCustomerAction(currentUser, "customers.update");
+  const canArchive = canUseCustomerAction(currentUser, "customers.archive");
 
   React.useEffect(() => {
-    if (!contactId) { setLoading(false); return; }
-    let active = true;
-    setLoading(true); setLoadError(""); setInvoiceError("");
-    Promise.allSettled([fetchCustomers(), apiRequest("/admin/invoices")]).then(([customersResult, invoicesResult]) => {
-      if (!active) return;
-      if (customersResult.status === "rejected") {
-        setContact(null); setLoadError(customersResult.reason?.message || labels.contactUnavailableDescription); setLoading(false); return;
-      }
-      const found = (Array.isArray(customersResult.value) ? customersResult.value : []).find((item) => String(item.id) === contactId) || null;
-      setContact(found);
-      if (invoicesResult.status === "fulfilled") setInvoices(found ? invoicesForContact(Array.isArray(invoicesResult.value) ? invoicesResult.value : [], found) : []);
+    if (!contactId) { setLoading(false); setLoadStatus(404); return undefined; }
+    const controller = new AbortController();
+    setLoading(true); setLoadError(""); setLoadStatus(0); setInvoiceError("");
+    Promise.allSettled([fetchCustomer(contactId, { signal: controller.signal }), apiRequest("/admin/invoices", { signal: controller.signal })]).then(([contactResult, invoicesResult]) => {
+      if (controller.signal.aborted) return;
+      if (contactResult.status === "rejected") { setContact(null); setLoadStatus(contactResult.reason?.status || 0); setLoadError(contactResult.reason?.message || labels.contactUnavailableDescription); setLoading(false); return; }
+      const found = contactResult.value; setContact(found);
+      if (invoicesResult.status === "fulfilled") setInvoices(invoicesForContact(Array.isArray(invoicesResult.value) ? invoicesResult.value : [], found));
       else { setInvoices([]); setInvoiceError(invoicesResult.reason?.message || labels.contactUnavailableDescription); }
       setLoading(false);
     });
-    return () => { active = false; };
-  }, [company?.id, contactId, labels.contactUnavailableDescription]);
+    return () => controller.abort();
+  }, [company?.id, contactId, labels.contactUnavailableDescription, refreshKey]);
 
   React.useEffect(() => { setContactOrders(contact ? ordersForContact(orders, contact) : []); }, [contact, orders]);
   const money = React.useCallback((value) => formatCompanyCurrency(value, company, language), [company, language]);
   const unsupported = () => setShowUnsupported(true);
   const shell = (content) => <AdminLayout activePage="admin-customers-detail" company={company} currentUser={currentUser} hideHeader language={language} onNavigate={onNavigate} t={translate} {...layout}>{content}</AdminLayout>;
+  async function saveEdit(values) { const saved = await updateCustomer(contactId, values, contact); setContact(saved); setShowEdit(false); setNotice(labels.editSuccess); }
+  async function archive() { if (actionBusy) return; setActionBusy(true); setActionError(""); try { const saved = await archiveCustomer(contactId); setContact(saved); setShowArchive(false); setNotice(labels.archiveSuccess); } catch (error) { setActionError(error?.message || labels.contactUnavailableDescription); } finally { setActionBusy(false); } }
+  async function restore() { if (actionBusy) return; setActionBusy(true); setActionError(""); try { const saved = await restoreCustomer(contactId); setContact(saved); setNotice(labels.restoreSuccess); } catch (error) { setActionError(error?.message || labels.contactUnavailableDescription); } finally { setActionBusy(false); } }
 
-  if (loading) return shell(<div className="admin-contact-detail-loading">{language === "ar" ? "جارٍ التحميل..." : "Loading contact..."}</div>);
-  if (loadError) return shell(<div className="admin-empty-state admin-contacts-error" role="alert"><User size={40}/><strong>{labels.contactUnavailable}</strong><span>{labels.contactUnavailableDescription}</span><small>{loadError}</small></div>);
+  if (loading) return shell(<div aria-busy="true" className="admin-contact-detail admin-contact-detail-skeleton"><span/><span/><span/></div>);
+  if (loadStatus === 404) return shell(<div className="admin-empty-state"><User size={40}/><strong>{labels.notFound}</strong><span>{labels.noContactDescription}</span><button className="customers-secondary-button" onClick={() => onNavigate?.("admin-customers", { path: "/admin/customers" })} type="button">{labels.back}</button></div>);
+  if (loadStatus === 403) return shell(<div className="admin-empty-state admin-contacts-error" role="alert"><User size={40}/><strong>{labels.permissionDenied}</strong><small>{loadError}</small></div>);
+  if (loadError) return shell(<div className="admin-empty-state admin-contacts-error" role="alert"><User size={40}/><strong>{labels.contactUnavailable}</strong><span>{labels.contactUnavailableDescription}</span><small>{loadError}</small><button className="customers-secondary-button" onClick={() => setRefreshKey((value) => value + 1)} type="button">{labels.retry}</button></div>);
   if (!contact) return shell(<div className="admin-empty-state"><User size={40}/><strong>{labels.noContact}</strong><span>{labels.noContactDescription}</span></div>);
 
-  return shell(<><div className="admin-contact-detail" dir={language === "ar" ? "rtl" : "ltr"}>
-    <nav className="contact-breadcrumb"><button onClick={() => onNavigate?.("admin-customers", { path: "/admin/customers" })} type="button">{language === "ar" && <ArrowLeft size={15}/>} {labels.back} {language !== "ar" && <ArrowLeft size={15}/>}</button><span>/</span><strong>{contact.name || "—"}</strong></nav>
-    <section className="admin-contact-identity-card"><div className="contact-identity-heading"><span className="admin-contact-avatar-lg">{initials(contact)}</span><div><h1>{contact.name || "—"}</h1><span>{contact.accountType || "—"}</span></div></div><div className="contact-identity-actions"><button aria-label={labels.edit} className="customers-icon-button" onClick={unsupported} type="button"><Edit3 size={17}/></button><button className="customers-secondary-button" onClick={unsupported} type="button">{labels.more}<ChevronDown size={14}/></button><button className="customers-primary-button" onClick={unsupported} type="button"><Send size={16}/>{labels.send}</button></div><div className="contact-identity-fields"><div><span>{labels.email}</span><strong>{contact.email || "—"}</strong></div><div><span>{labels.phone}</span><strong>{contact.phone || "—"}</strong></div><div><span>{labels.accountType}</span><strong>{contact.accountType || "—"}</strong></div>{contact.language && <div><span>{labels.language}</span><strong>{contact.language}</strong></div>}<div><span>{labels.orders}</span><strong>{contactOrders.length}</strong></div></div></section>
+  return shell(<><div className="admin-contact-detail crm-contact-detail-phase-one" dir={language === "ar" ? "rtl" : "ltr"}>
+    <nav className="contact-breadcrumb"><button onClick={() => onNavigate?.("admin-customers", { path: "/admin/customers" })} type="button">{language === "ar" && <ArrowLeft size={15}/>} {labels.back} {language !== "ar" && <ArrowLeft size={15}/>}</button><span>/</span><strong>{contact.displayName || contact.name || "—"}</strong></nav>
+    {notice && <div className="crm-contact-notice" role="status"><span>{notice}</span><button aria-label="Close" onClick={() => setNotice("")} type="button"><X size={15}/></button></div>}{actionError && <div className="crm-contact-notice error" role="alert"><span>{actionError}</span><button aria-label="Close" onClick={() => setActionError("")} type="button"><X size={15}/></button></div>}
+    <section className="admin-contact-identity-card"><div className="contact-identity-heading"><span className="admin-contact-avatar-lg">{initials(contact)}</span><div><h1>{contact.displayName || contact.name || "—"}</h1><span className={`crm-contact-status ${contact.isArchived ? "archived" : "active"}`}>{contact.isArchived ? labels.archived : labels.active}</span></div></div><div className="contact-identity-actions">{canUpdate && <button aria-label={labels.edit} className="customers-secondary-button" onClick={() => setShowEdit(true)} type="button"><Edit3 size={17}/>{labels.edit}</button>}{canArchive && (contact.isArchived ? <button className="customers-primary-button" disabled={actionBusy} onClick={restore} type="button"><RotateCcw size={16}/>{labels.restore}</button> : <button className="customers-secondary-button crm-danger-outline" disabled={actionBusy} onClick={() => setShowArchive(true)} type="button"><Archive size={16}/>{labels.archive}</button>)}</div><div className="contact-identity-fields"><div><span>{labels.email}</span><strong>{contact.email || "—"}</strong></div><div><span>{labels.phone}</span><strong>{contact.phone || "—"}</strong></div><div><span>{labels.type}</span><strong>{contact.type || "—"}</strong></div><div><span>{labels.source}</span><strong>{contact.source || "—"}</strong></div><div><span>{labels.orders}</span><strong>{contact.orderCount ?? contactOrders.length}</strong></div><div><span>{labels.labelsValue}</span><strong>{contact.labels?.length ? contact.labels.join(", ") : "—"}</strong></div><div><span>{labels.created}</span><strong>{formatDate(contact.createdAt, language)}</strong></div><div><span>{labels.updated}</span><strong>{formatDate(contact.updatedAt, language)}</strong></div><div className="crm-contact-notes-value"><span>{labels.notesValue}</span><strong>{contact.notes || "—"}</strong></div></div></section>
     <div className="admin-contact-tabs" role="tablist">{TAB_KEYS.map((key) => { const Icon = TAB_ICONS[key]; return <button aria-selected={activeTab === key} className={activeTab === key ? "active" : ""} key={key} onClick={() => setActiveTab(key)} role="tab" type="button"><Icon size={15}/>{labels[key]}</button>; })}</div>
     <div className="admin-contact-tab-content">{activeTab === "overview" && <OverviewTab contact={contact} labels={labels} language={language} money={money} onUnsupported={unsupported} orders={contactOrders}/>} {activeTab === "inbox" && <ContactInboxTab labels={labels} onUnsupported={unsupported}/>} {activeTab === "pipelines" && <PipelinesTab labels={labels} onNavigate={onNavigate}/>} {activeTab === "notes" && <NotesTab labels={labels} onUnsupported={unsupported}/>} {activeTab === "subscriptions" && <SubscriptionsTab labels={labels}/>} {activeTab === "bookings" && <BookingsTab labels={labels} onNavigate={onNavigate} onUnsupported={unsupported}/>} {activeTab === "invoices" && <InvoicesTab error={invoiceError} invoices={invoices} labels={labels} language={language} money={money}/>} {activeTab === "orders" && <OrdersTab labels={labels} language={language} money={money} orders={contactOrders}/>}</div>
-  </div>{showUnsupported && <UnsupportedDialog onClose={() => setShowUnsupported(false)} t={translate}/>}</>);
+  </div>{showEdit && <ContactFormDialog contact={contact} language={language} onClose={() => setShowEdit(false)} onSubmit={saveEdit}/>} {showArchive && <ArchiveConfirmDialog busy={actionBusy} contact={contact} language={language} onClose={() => setShowArchive(false)} onConfirm={archive}/>} {showUnsupported && <UnsupportedDialog onClose={() => setShowUnsupported(false)} t={translate}/>}</>);
 }

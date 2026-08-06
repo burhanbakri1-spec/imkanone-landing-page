@@ -120,6 +120,9 @@ export async function apiRequest(path, options = {}) {
     });
     const error = new Error(message);
     error.status = response.status;
+    error.code = data.code || "";
+    error.errors = data.errors && typeof data.errors === "object" ? data.errors : {};
+    error.response = data;
     throw error;
   }
 

@@ -21,6 +21,15 @@ export function isAdminPortalRole(role) {
   return isPlatformAdmin(role) || isTenantOperator(role) || isStaffRole(role);
 }
 
+export function canUseCustomerAction(user, permission) {
+  const role = roleFromUser(user);
+  if (isCompanyAdmin(role)) return true;
+  if (role === "super_admin") return user?.isCompanyScope === true && Boolean(user?.activeCompany);
+  if (!isStaffRole(role)) return false;
+  const permissions = permissionsFromUser(user);
+  return permissions.includes("customers.manage") || permissions.includes(permission);
+}
+
 export function isPlatformPage(page) {
   return platformPageKeys.has(page) || page?.startsWith("admin-platform-placeholder-");
 }

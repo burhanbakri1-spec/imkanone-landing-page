@@ -36,26 +36,25 @@ test("Inbox unsupported actions use the shared bilingual flow", () => {
 
 test("Contacts uses the verified authenticated customer endpoint", () => {
   const client = source("utils/customersApi.js");
-  assert.match(client, /apiRequest\("\/admin\/customers"\)/);
+  assert.match(client, /apiRequest\(`\/admin\/customers\$\{buildCustomerQuery\(filters\)\}`/);
   assert.doesNotMatch(client, /apiRequest\("\/customers"\)/);
   assert.doesNotMatch(client, /companyId|X-Company-Id/i);
-  assert.match(client, /pendingCustomersRequest\?\.token === token/);
+  assert.match(client, /signal: options\.signal/);
 });
 
 test("Contacts matches the reference page composition", () => {
   const page = source("pages/AdminContactsPage.jsx");
   for (const marker of ["admin-contacts-header", "admin-contacts-summary-strip", "admin-contacts-overview", "admin-contacts-audience-grid", "admin-contacts-toolbar", "admin-contacts-table-scroll"]) assert.match(page, new RegExp(marker));
   assert.match(page, /Manage Segments/);
-  assert.match(page, /Create New/);
+  assert.match(page, /Add Contact/);
   assert.match(page, /Import \/ Export/);
 });
 
 test("Contacts audience counts and table rows use real API records", () => {
   const page = source("pages/AdminContactsPage.jsx");
   assert.match(page, /customers\.length/);
-  assert.match(page, /recentCount\(customers, "updatedAt"\)/);
-  assert.match(page, /recentCount\(customers, "createdAt"\)/);
-  assert.match(page, /filtered\.map\(\(contact\)/);
+  assert.match(page, /customers\.filter\(\(contact\) => contact\.type === "customer"\)/);
+  assert.match(page, /customers\.map\(\(contact\)/);
   assert.doesNotMatch(page, /uniqueCustomersFromOrders|const fake|mockContacts/i);
 });
 
@@ -105,7 +104,7 @@ test("real invoices and orders are filtered for the selected contact", () => {
   const page = source("pages/AdminContactDetailPage.jsx");
   assert.match(page, /invoicesForContact\(/);
   assert.match(page, /ordersForContact\(orders, contact\)/);
-  assert.match(page, /apiRequest\("\/admin\/invoices"\)/);
+  assert.match(page, /apiRequest\("\/admin\/invoices", \{ signal: controller\.signal \}\)/);
   assert.match(page, /invoice\.invoice_number/);
   assert.match(page, /order\.reference/);
   assert.match(page, /formatCompanyCurrency/);
