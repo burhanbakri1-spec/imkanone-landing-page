@@ -18,7 +18,7 @@ fs.writeFileSync(path.join(dataStoreDir, "store.json"), JSON.stringify({
   ],
   users: [], memberships: [], orders: [],
   products: [
-    { id: "play-1", company_id: "kids-velvet", slug: "play-one", sku: "PLAY-1", name: { en: "Play One", ar: "اللعبة الأولى" }, shortDescription: "Short", shortDescriptionAr: "قصير", fullDescription: "Full", fullDescriptionAr: "كامل", price: 25, categoryId: "toys", image: "https://cdn.example/play-one.png", visible: true, isActive: true, variants: [{ id: "v1", size: "Standard", price: 25, stock: 3, wholesalePrice: 4, visible: true }] },
+    { id: "play-1", company_id: "kids-velvet", slug: "play-one", sku: "PLAY-1", name: { en: "Play One", ar: "اللعبة الأولى" }, shortDescription: { en: "Short", ar: "قصير" }, fullDescription: "Full", fullDescriptionAr: "كامل", price: 25, categoryId: "toys", image: "https://cdn.example/play-one.png", visible: true, isActive: true, variants: [{ id: "v1", size: "Standard", price: 25, stock: 3, wholesalePrice: 4, visible: true }] },
     { id: "play-hidden", company_id: "kids-velvet", slug: "hidden", name: { en: "Hidden", ar: "مخفي" }, isActive: false },
     { id: "other-1", company_id: "other-shop", slug: "other-product", name: { en: "Other product", ar: "منتج آخر" }, isActive: true, visible: true },
   ],
@@ -71,6 +71,7 @@ test("tenant-scoped storefront content returns safe active records", async () =>
   assert.equal(body.site.companyId, "kids-velvet");
   assert.equal(body.site.locale, "ar");
   assert.deepEqual(body.products.map((item) => item.slug), ["play-one"]);
+  assert.deepEqual(body.products[0].shortDescription, { en: "Short", ar: "قصير" });
   assert.deepEqual(body.categories.map((item) => item.slug), ["toys"]);
   assert.equal(body.texts[0].value, "العب أكثر");
   assert.equal(body.media[0].sectionKey, "home.hero");

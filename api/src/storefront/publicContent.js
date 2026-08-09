@@ -9,6 +9,16 @@ const localized = (value, fallback = "") => {
   return { en: text, ar: text };
 };
 
+const localizedWithLegacyArabic = (value, arabicValue, fallback = "") => {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return localized({
+      ...value,
+      ar: arabicValue ?? value.ar ?? value.arabic ?? value.en ?? value.english ?? fallback,
+    }, fallback);
+  }
+  return localized({ en: value ?? fallback, ar: arabicValue ?? value ?? fallback }, fallback);
+};
+
 const finiteNumber = (value, fallback = 0) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
@@ -58,11 +68,11 @@ export function serializePublicProduct(product = {}) {
     slug: String(product.slug || ""),
     sku: String(product.sku || ""),
     name: localized(product.name || { en: product.nameEn, ar: product.nameAr }),
-    shortDescription: localized({ en: product.shortDescription || "", ar: product.shortDescriptionAr || product.shortDescription || "" }),
-    description: localized({
-      en: product.fullDescription || product.description?.en || product.description || "",
-      ar: product.fullDescriptionAr || product.description?.ar || product.descriptionAr || product.fullDescription || "",
-    }),
+    shortDescription: localizedWithLegacyArabic(product.shortDescription, product.shortDescriptionAr),
+    description: localizedWithLegacyArabic(
+      product.fullDescription || product.description,
+      product.fullDescriptionAr || product.descriptionAr,
+    ),
     price: finiteNumber(product.price ?? product.basePrice, variants[0]?.price || 0),
     originalPrice: product.originalPrice == null ? null : finiteNumber(product.originalPrice, 0),
     categoryId: String(product.categoryId || ""),
@@ -73,8 +83,8 @@ export function serializePublicProduct(product = {}) {
     gallery,
     variants,
     options: (Array.isArray(product.options) ? product.options : []).map(safeOption),
-    badge: localized({ en: product.label || product.badge || "", ar: product.labelAr || product.badgeAr || product.label || "" }),
-    availability: localized({ en: product.availability || "", ar: product.availabilityAr || product.availability || "" }),
+    badge: localizedWithLegacyArabic(product.label || product.badge, product.labelAr || product.badgeAr),
+    availability: localizedWithLegacyArabic(product.availability, product.availabilityAr),
     featured: product.featured === true,
     sortOrder: finiteNumber(product.sortOrder, 0),
   };
