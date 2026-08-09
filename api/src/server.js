@@ -35,6 +35,7 @@ import reportsRoutes from "./routes/reports.js";
 import inboxRoutes from "./routes/inbox.js";
 import websiteMediaRoutes from "./routes/websiteMedia.js";
 import siteEditorRoutes from "./routes/siteEditor.js";
+import storefrontRoutes from "./routes/storefront.js";
 import {
   adminWebsiteTextsRouter,
   publicWebsiteTextsRouter,
@@ -158,6 +159,7 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/brands", brandRoutes);
 app.use("/api/platform", platformRoutes);
 app.use("/api/products", productRoutes);
+app.use("/api/storefront", storefrontRoutes);
 app.use("/api/product-schema", publicProductSchemaRouter);
 app.use("/api/auth", authRoutes);
 app.use("/api/dropshipping", dropshippingRoutes);
@@ -204,7 +206,7 @@ function setCorsOnError(err, req, res) {
     res.setHeader("Access-Control-Allow-Origin", "https://ebchemi.com");
   }
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Company-Id, x-company-id");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Company-Id, x-company-id, X-Site-Id, x-site-id");
   res.setHeader("Access-Control-Allow-Credentials", "true");
 }
 
