@@ -84,16 +84,24 @@ await writeFile(backupFile, `${JSON.stringify({ exportedAt: new Date().toISOStri
 
 for (const category of seed.categories) {
   const existing = current.categories.find((item) => item.slug === category.slug);
+  const { id: _seedCategoryId, ...categoryPayload } = category;
   await request(`${apiUrl}/api/categories${existing ? `/${encodeURIComponent(existing.id)}` : ""}`, {
     method: existing ? "PATCH" : "POST",
-    body: JSON.stringify(existing ? { ...category, id: undefined } : category),
+    body: JSON.stringify(categoryPayload),
   });
 }
+const importedCategories = await request(`${apiUrl}/api/categories`);
+const categoryIdBySeedId = new Map(seed.categories.map((category) => [
+  category.id,
+  importedCategories.find((entry) => entry.slug === category.slug)?.id,
+]));
 for (const product of seed.products) {
   const existing = current.products.find((item) => item.slug === product.slug);
+  const categoryId = categoryIdBySeedId.get(product.categoryId);
+  if (!categoryId) fail(`Imported category not found for product ${product.slug}.`);
   await request(`${apiUrl}/api/products${existing ? `/${encodeURIComponent(existing.id)}` : ""}`, {
     method: existing ? "PUT" : "POST",
-    body: JSON.stringify({ ...product, ...(existing ? { id: existing.id } : {}) }),
+    body: JSON.stringify({ ...product, categoryId, ...(existing ? { id: existing.id } : {}) }),
   });
 }
 for (const item of seed.texts) {
