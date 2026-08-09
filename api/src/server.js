@@ -6,8 +6,9 @@ import { fileURLToPath } from "node:url";
 import { resolveCompany } from "./middleware/company.js";
 import { enforceCompanyModuleAccess } from "./middleware/moduleAccess.js";
 import { sanitizeTenantRequestBody } from "./middleware/tenantInput.js";
-import { companyDomains } from "./data/store.js";
+import { companies, companyDomains } from "./data/store.js";
 import { normalizeCompanyHost } from "./tenancy/company.js";
+import { websiteConnectionSettings } from "./siteEditor/websiteConnection.js";
 import { cpanelOrigins } from "./cpanel.js";
 import adminRoutes from "./routes/admin.js";
 import authRoutes from "./routes/auth.js";
@@ -118,6 +119,20 @@ function isAllowedStorefrontOrigin(origin) {
   }
 }
 
+function isAllowedConnectedStorefrontOrigin(origin) {
+  const normalizedOrigin = normalizeOrigin(origin);
+  if (!normalizedOrigin) return false;
+  return companies.some((company) => {
+    const connection = websiteConnectionSettings(company);
+    if (!connection?.storefrontBaseUrl) return false;
+    try {
+      return normalizeOrigin(new URL(connection.storefrontBaseUrl).origin) === normalizedOrigin;
+    } catch {
+      return false;
+    }
+  });
+}
+
 app.set("trust proxy", 1);
 app.use(
   cors({
@@ -132,7 +147,8 @@ app.use(
         || iGroupProductionOrigins.includes(normalizedOrigin)
         || cpanelOrigins.includes(normalizedOrigin)
         || isLocalDevelopmentOrigin(normalizedOrigin)
-        || isAllowedStorefrontOrigin(normalizedOrigin);
+        || isAllowedStorefrontOrigin(normalizedOrigin)
+        || isAllowedConnectedStorefrontOrigin(normalizedOrigin);
       return callback(null, allowed);
     },
     credentials: true,
@@ -199,7 +215,8 @@ function setCorsOnError(err, req, res) {
     || iGroupProductionOrigins.includes(normalizedOrigin)
     || cpanelOrigins.includes(normalizedOrigin)
     || isLocalDevelopmentOrigin(normalizedOrigin)
-    || isAllowedStorefrontOrigin(normalizedOrigin);
+    || isAllowedStorefrontOrigin(normalizedOrigin)
+    || isAllowedConnectedStorefrontOrigin(normalizedOrigin);
   if (normalizedOrigin && allowed) {
     res.setHeader("Access-Control-Allow-Origin", normalizedOrigin);
   } else {

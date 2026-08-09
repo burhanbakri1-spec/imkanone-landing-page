@@ -101,6 +101,8 @@ test("a verified origin belonging to another tenant cannot read kids-velvet cont
 test("the exact connected storefront origin is allowed without weakening tenant isolation", async () => {
   const allowed = await request("/content", { origin: "https://feature-preview.vercel.app" });
   assert.equal(allowed.response.status, 200);
+  assert.equal(allowed.response.headers.get("access-control-allow-origin"), "https://feature-preview.vercel.app");
   const denied = await request("/content", { origin: "https://unregistered-preview.vercel.app" });
   assert.equal(denied.response.status, 404);
+  assert.equal(denied.response.headers.get("access-control-allow-origin"), null);
 });
