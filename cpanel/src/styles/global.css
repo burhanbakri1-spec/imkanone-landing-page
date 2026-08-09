@@ -33800,3 +33800,10 @@ main.admin-panel-main:has(.admin-studio-shell) {
   .getting-paid-setup-hero > div:first-child,
   .getting-paid-onboarding-copy { padding: 32px 22px; }
 }
+/* Tenant Website Texts canonical content */
+.website-text-key {
+  display: block;
+  margin-block-start: 4px;
+  color: var(--admin-muted, #667085);
+  font-size: 11px;
+}

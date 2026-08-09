@@ -33,16 +33,17 @@ test("Website Content exposes two canonical tenant routes", () => {
   }
 });
 
-test("legacy Website Content routes and keys canonicalize", () => {
-  assert.equal(resolvePage("/admin/website-texts", companyAdmin, modules), "admin-website-content-cms");
+test("tenant Website Texts route remains canonical while legacy placeholder routes canonicalize", () => {
+  assert.equal(resolvePage("/admin/website-texts", companyAdmin, modules), "admin-website-texts");
   assert.equal(resolvePage("/admin/coming-soon/website-content/multilingual", companyAdmin, modules), "admin-website-content-multilingual");
-  assert.equal(canonicalAdminPageKey("admin-website-texts"), "admin-website-content-cms");
+  assert.equal(canonicalAdminPageKey("admin-website-texts"), "admin-website-texts");
   assert.equal(canonicalAdminPageKey("admin-tenant-placeholder-website-content-multilingual"), "admin-website-content-multilingual");
 });
 
-test("Website Content navigation has exactly CMS and Multilingual", () => {
+test("Website Content navigation exposes persisted page text plus CMS and Multilingual", () => {
   const group = tenantNavigation.find((item) => item.id === "tenant-website-content");
   assert.deepEqual(group.children.map((item) => item.pageKey), [
+    "admin-website-texts",
     "admin-website-content-cms",
     "admin-website-content-multilingual",
   ]);
@@ -87,6 +88,29 @@ test("CMS and Multilingual render distinct reference structures without fabricat
   assert.match(page, /multilingual-table-wrap/);
   assert.match(page, /additionalLanguagesFromCompany\(company/);
   assert.doesNotMatch(page, /10,000|Enter Contest|Contact 2|German|translated words|word count/i);
+});
+
+test("Website Texts exposes tenant-scoped bilingual fields with semantic locations", async () => {
+  const page = await read("../src/pages/AdminFeaturePage.jsx");
+  assert.match(page, /endpoint: "\/admin\/website-texts"/);
+  assert.match(page, /websiteTextLocation/);
+  assert.match(page, /valueEn/);
+  assert.match(page, /valueAr/);
+  assert.match(page, /Page/);
+  assert.match(page, /Section/);
+  assert.match(page, /Field/);
+});
+
+test("Category editor preserves English and Arabic values independently", async () => {
+  const dashboard = await read("../src/pages/AdminDashboardPage.jsx");
+  assert.match(dashboard, /nameEn: current\?\.name\?\.en/);
+  assert.match(dashboard, /nameAr: current\?\.name\?\.ar/);
+  assert.match(dashboard, /descriptionEn: current\?\.description\?\.en/);
+  assert.match(dashboard, /descriptionAr: current\?\.description\?\.ar/);
+  assert.match(dashboard, /name: createLocalizedCopy\(form\.nameEn, form\.nameAr\)/);
+  assert.match(dashboard, /description: form\.descriptionEn \|\| form\.descriptionAr \? createLocalizedCopy\(form\.descriptionEn, form\.descriptionAr\)/);
+  assert.match(dashboard, /name: "nameAr"[\s\S]*?dir: "rtl"/);
+  assert.doesNotMatch(dashboard, /name: createLocalizedCopy\(form\.name, form\.name\)/);
 });
 
 test("unsupported Website Content actions use the shared bilingual flow", async () => {

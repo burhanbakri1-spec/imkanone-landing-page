@@ -163,6 +163,7 @@ export const tenantNavigation = Object.freeze([
   existing("admin-automations", "Automations", "الأتمتة", "workflow", { requiresModule: true }),
   existing("admin-settings", "Settings", "الإعدادات", "settings", { requiresModule: true }),
   group("tenant-website-content", "Website Content", "محتوى الموقع", "panelsTopLeft", [
+    existing("admin-website-texts", "Page Text", "نصوص الصفحات", "fileText", { requiresModule: true }),
     existing("admin-website-content-cms", "CMS", "نظام إدارة المحتوى", "database", { requiresModule: true }),
     existing("admin-website-content-multilingual", "Multilingual", "متعدد اللغات", "languages", { requiresModule: true }),
   ]),

@@ -10,13 +10,11 @@ const pathToPage = Object.freeze(
 );
 
 const legacyPaths = Object.freeze({
-  "/admin/website-texts": "admin-website-content-cms",
   "/admin/coming-soon/website-content/cms": "admin-website-content-cms",
   "/admin/coming-soon/website-content/multilingual": "admin-website-content-multilingual",
 });
 
 const legacyPageKeys = Object.freeze({
-  "admin-website-texts": "admin-website-content-cms",
   "admin-tenant-placeholder-website-content-cms": "admin-website-content-cms",
   "admin-tenant-placeholder-website-content-multilingual": "admin-website-content-multilingual",
 });

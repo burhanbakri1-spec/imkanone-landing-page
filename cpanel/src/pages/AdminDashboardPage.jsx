@@ -2042,11 +2042,11 @@ function GenericEntityForm({ fields, initial, isEditing = false, language = "en"
       <h2>{title}</h2>
       <form className="admin-form" onSubmit={(event) => { event.preventDefault(); onSave(form); }}>
         {fields.map((field) => {
-          if (field.type === "textarea") return <label key={field.name}>{field.label}<textarea name={field.name} value={form[field.name] || ""} onChange={change} /></label>;
+          if (field.type === "textarea") return <label key={field.name}>{field.label}<textarea dir={field.dir} name={field.name} value={form[field.name] || ""} onChange={change} /></label>;
           if (field.type === "checkbox") return <label className="checkbox-line" key={field.name}><input name={field.name} type="checkbox" checked={Boolean(form[field.name])} onChange={change} />{field.label}</label>;
           if (field.type === "media") return <MediaField key={field.name} label={field.label} name={field.name} value={form[field.name]} onChange={change} />;
           if (field.type === "select") return <label key={field.name}>{field.label}<select name={field.name} value={form[field.name] || ""} onChange={change}>{field.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
-          return <label key={field.name}>{field.label}<input name={field.name} required={field.required} value={form[field.name] || ""} onChange={change} /></label>;
+          return <label key={field.name}>{field.label}<input dir={field.dir} name={field.name} required={field.required} value={form[field.name] || ""} onChange={change} /></label>;
         })}
         <div className="form-actions full-field">
           <button className="secondary-action" onClick={onCancel} type="button">{language === "ar" ? "إلغاء" : "Cancel"}</button>
@@ -2344,9 +2344,17 @@ function AdminDashboardPage({
       const current = editingCategory;
       if (current && !canUpdateCategories) return <EmptyState title="Access denied" description="You do not have permission to edit categories." />;
       if (!current && !canCreateCategories) return <EmptyState title="Access denied" description="You do not have permission to create categories." />;
-      return <GenericEntityForm isEditing={Boolean(current)} language={language} title={current ? "Edit Category" : "New Category"} initial={{ active: current?.isActive !== false, description: getText(current?.description, language), image: current?.imageUrl || "", name: getText(current?.name, language), parentId: current?.parentId || "", slug: current?.slug || "" }} fields={[
-        { name: "name", label: "Category Name *", required: true }, { name: "slug", label: "Slug" }, { name: "description", label: "Description", type: "textarea" }, { name: "image", label: "Category Image", type: "media" }, { name: "parentId", label: "Parent Category", type: "select", options: [{ value: "", label: "None (top-level)" }, ...adminCategories.map((category) => ({ value: category.id, label: getText(category.name) }))] }, { name: "active", label: "Active", type: "checkbox" }, { name: "metaTitle", label: "Meta Title" }, { name: "metaDescription", label: "Meta Description", type: "textarea" },
-      ]} onCancel={() => { setEditingCategory(null); onNavigate("admin-categories"); }} onSave={async (form) => { await onSaveCategory({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.name), name: createLocalizedCopy(form.name, form.name), description: form.description ? createLocalizedCopy(form.description, form.description) : null, imageUrl: form.image || null, parentId: form.parentId || null, isActive: form.active }); setEditingCategory(null); onNavigate("admin-categories", { preserveStatusMessage: true }); }} />;
+      const ar = language === "ar";
+      return <GenericEntityForm isEditing={Boolean(current)} language={language} title={current ? (ar ? "تعديل الفئة" : "Edit Category") : (ar ? "فئة جديدة" : "New Category")} initial={{ active: current?.isActive !== false, descriptionAr: current?.description?.ar || "", descriptionEn: current?.description?.en || "", image: current?.imageUrl || "", nameAr: current?.name?.ar || "", nameEn: current?.name?.en || "", parentId: current?.parentId || "", slug: current?.slug || "" }} fields={[
+        { name: "nameEn", label: ar ? "اسم الفئة بالإنجليزية *" : "Category name — English *", required: true, dir: "ltr" },
+        { name: "nameAr", label: ar ? "اسم الفئة بالعربية *" : "Category name — Arabic *", required: true, dir: "rtl" },
+        { name: "slug", label: ar ? "الرابط المختصر" : "Slug", dir: "ltr" },
+        { name: "descriptionEn", label: ar ? "الوصف بالإنجليزية" : "Description — English", type: "textarea", dir: "ltr" },
+        { name: "descriptionAr", label: ar ? "الوصف بالعربية" : "Description — Arabic", type: "textarea", dir: "rtl" },
+        { name: "image", label: ar ? "صورة الفئة" : "Category Image", type: "media" },
+        { name: "parentId", label: ar ? "الفئة الرئيسية" : "Parent Category", type: "select", options: [{ value: "", label: ar ? "بدون (فئة رئيسية)" : "None (top-level)" }, ...adminCategories.map((category) => ({ value: category.id, label: getText(category.name, language) }))] },
+        { name: "active", label: ar ? "نشطة" : "Active", type: "checkbox" },
+      ]} onCancel={() => { setEditingCategory(null); onNavigate("admin-categories"); }} onSave={async (form) => { await onSaveCategory({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.nameEn || form.nameAr), name: createLocalizedCopy(form.nameEn, form.nameAr), description: form.descriptionEn || form.descriptionAr ? createLocalizedCopy(form.descriptionEn, form.descriptionAr) : null, imageUrl: form.image || null, parentId: form.parentId || null, isActive: form.active }); setEditingCategory(null); onNavigate("admin-categories", { preserveStatusMessage: true }); }} />;
     }
     if (kind === "brand") {
       const current = editingBrand;

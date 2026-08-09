@@ -3,7 +3,7 @@ import AdminLayout from "../components/AdminLayout.jsx";
 import { apiRequest } from "../utils/api.js";
 
 const features = {
-  "admin-website-texts": { title: "Website texts", endpoint: "/admin/website-texts" },
+  "admin-website-texts": { title: "Website Content", endpoint: "/admin/website-texts" },
   "admin-invoices": { title: "Invoices", endpoint: "/admin/invoices" },
   "admin-delivery": { title: "Delivery zones", endpoint: "/admin/delivery-zones" },
   "admin-product-settings": { title: "Product settings", endpoint: "/admin/product-schema" },
@@ -13,6 +13,15 @@ const features = {
 };
 
 const textValue = (value) => value == null ? "" : String(value);
+
+function websiteTextLocation(row) {
+  const parts = textValue(row.key).split(".").filter(Boolean);
+  return {
+    page: parts[0] || textValue(row.group) || "—",
+    section: parts.length > 2 ? parts.slice(1, -1).join(" · ") : textValue(row.group) || parts[1] || "—",
+    field: textValue(row.label) || parts.at(-1) || "—",
+  };
+}
 
 function WebsiteTextsPanel({ language = "en", rows, onReload }) {
   const ar = language === "ar";
@@ -60,14 +69,17 @@ function WebsiteTextsPanel({ language = "en", rows, onReload }) {
     {message && <div className="message-panel success" role="status">{message}</div>}
     {error && <div className="message-panel error" role="alert">{error}</div>}
     {!visibleRows.length ? <div className="admin-empty-state"><strong>{ar ? "لا توجد نصوص مطابقة" : "No matching website texts"}</strong><span>{ar ? "غيّر البحث أو عامل تصفية المجموعة." : "Change the search or group filter."}</span></div> :
-      <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>{ar ? "المفتاح" : "Key"}</th><th>{ar ? "المجموعة" : "Group"}</th><th>{ar ? "العنوان" : "Label"}</th><th>{ar ? "الإنجليزية" : "English"}</th><th>{ar ? "العربية" : "Arabic"}</th><th>{ar ? "الحالة" : "Status"}</th><th>{ar ? "الإجراءات" : "Actions"}</th></tr></thead><tbody>
-        {visibleRows.map((row) => <tr key={row.id}>
-          <td><code>{textValue(row.key)}</code></td><td>{textValue(row.group) || "—"}</td><td>{textValue(row.label) || "—"}</td>
+      <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>{ar ? "الصفحة" : "Page"}</th><th>{ar ? "القسم" : "Section"}</th><th>{ar ? "الحقل" : "Field"}</th><th>{ar ? "الإنجليزية" : "English"}</th><th>{ar ? "العربية" : "Arabic"}</th><th>{ar ? "الحالة" : "Status"}</th><th>{ar ? "الإجراءات" : "Actions"}</th></tr></thead><tbody>
+        {visibleRows.map((row) => {
+          const location = websiteTextLocation(row);
+          return <tr key={row.id}>
+          <td><span>{location.page}</span><code className="website-text-key">{textValue(row.key)}</code></td><td>{location.section}</td><td>{location.field}</td>
           <td>{editingId === row.id ? <textarea aria-label={`English value for ${row.key}`} value={draft.valueEn} onChange={(event) => setDraft((current) => ({ ...current, valueEn: event.target.value }))} /> : textValue(row.valueEn) || "—"}</td>
           <td dir="rtl">{editingId === row.id ? <textarea aria-label={`Arabic value for ${row.key}`} value={draft.valueAr} onChange={(event) => setDraft((current) => ({ ...current, valueAr: event.target.value }))} /> : textValue(row.valueAr) || "—"}</td>
           <td>{editingId === row.id ? <label className="checkbox-line"><input type="checkbox" checked={draft.isActive} onChange={(event) => setDraft((current) => ({ ...current, isActive: event.target.checked }))} />{ar ? "نشط" : "Active"}</label> : row.isActive === false ? (ar ? "غير نشط" : "Inactive") : (ar ? "نشط" : "Active")}</td>
           <td>{editingId === row.id ? <div className="row-actions"><button className="text-action" type="button" onClick={save}>{ar ? "حفظ التغييرات" : "Save changes"}</button><button className="text-action" type="button" onClick={() => { setEditingId(""); setDraft(null); }}>{ar ? "إلغاء" : "Cancel"}</button></div> : <button className="text-action" type="button" onClick={() => beginEdit(row)}>{ar ? "تعديل" : "Edit"}</button>}</td>
-        </tr>)}
+        </tr>;
+        })}
       </tbody></table></div>}
   </section>;
 }
