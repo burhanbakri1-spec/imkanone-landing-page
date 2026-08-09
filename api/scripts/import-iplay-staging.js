@@ -18,6 +18,8 @@ const parsedSeedUrl = new URL(seedUrl);
 if (parsedSeedUrl.protocol !== "https:" || !parsedSeedUrl.hostname.endsWith(".vercel.app") || ["i-play.vercel.app", "iplay-web.vercel.app"].includes(parsedSeedUrl.hostname)) {
   fail("IPLAY_SEED_URL must use an isolated Vercel preview deployment.");
 }
+const previewOrigin = parsedSeedUrl.origin;
+const previewManifestUrl = new URL("/api/site-manifest", previewOrigin).toString();
 if (!token && process.env.IPLAY_MINT_SCOPED_TOKEN === "true") {
   const databaseUrl = String(process.env.DATABASE_URL || process.env.POSTGRES_URL || "");
   let databaseName = "";
@@ -58,6 +60,7 @@ const current = {
   texts: await request(`${apiUrl}/api/admin/website-texts`),
   media: (await request(`${apiUrl}/api/website-media/all`)).items || [],
 };
+const currentConnection = await request(`${apiUrl}/api/site-editor/connection`);
 
 const assertNoUnrelated = (label, existing, incoming, key) => {
   const allowed = new Set(incoming.map((item) => item[key]));
@@ -80,7 +83,7 @@ if (!apply) process.exit(0);
 const backupFile = path.resolve(String(process.env.IPLAY_BACKUP_FILE || ""));
 if (!process.env.IPLAY_BACKUP_FILE || backupFile.includes(`${path.sep}src${path.sep}data-store${path.sep}`)) fail("IPLAY_BACKUP_FILE must be an explicit path outside the repository data store.");
 await mkdir(path.dirname(backupFile), { recursive: true });
-await writeFile(backupFile, `${JSON.stringify({ exportedAt: new Date().toISOString(), companyId, ...current }, null, 2)}\n`, { flag: "wx" });
+await writeFile(backupFile, `${JSON.stringify({ exportedAt: new Date().toISOString(), companyId, ...current, connection: currentConnection }, null, 2)}\n`, { flag: "wx" });
 
 for (const category of seed.categories) {
   const existing = current.categories.find((item) => item.slug === category.slug);
@@ -115,4 +118,28 @@ for (const item of seed.media) {
   });
 }
 
-console.log(JSON.stringify({ applied: true, companyId, siteId, backupFile }, null, 2));
+if (process.env.IPLAY_CONNECT_PREVIEW === "true") {
+  await request(`${apiUrl}/api/site-editor/connection`, {
+    method: "PUT",
+    body: JSON.stringify({
+      storefrontBaseUrl: previewOrigin,
+      siteManifestUrl: previewManifestUrl,
+      siteId,
+      routePrefix: "/",
+      defaultLocale: "ar",
+      supportedLocales: ["ar", "en"],
+    }),
+  });
+  await request(`${apiUrl}/api/site-editor/manifest/sync`, {
+    method: "POST",
+    body: JSON.stringify({ siteManifestUrl: previewManifestUrl }),
+  });
+}
+
+console.log(JSON.stringify({
+  applied: true,
+  companyId,
+  siteId,
+  backupFile,
+  previewConnected: process.env.IPLAY_CONNECT_PREVIEW === "true",
+}, null, 2));
