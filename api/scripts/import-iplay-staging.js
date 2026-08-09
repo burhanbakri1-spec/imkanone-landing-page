@@ -5,7 +5,7 @@ const companyId = "kids-velvet";
 const siteId = "kids-velvet-storefront";
 const apiUrl = String(process.env.PLATFORM_API_URL || "").replace(/\/$/, "");
 const seedUrl = String(process.env.IPLAY_SEED_URL || "");
-const token = String(process.env.SCOPED_ADMIN_TOKEN || "");
+let token = String(process.env.SCOPED_ADMIN_TOKEN || "");
 const apply = process.argv.includes("--apply");
 
 function fail(message) { throw new Error(message); }
@@ -17,6 +17,21 @@ if (apiUrl !== "https://api-staging.igroup.website") fail("PLATFORM_API_URL must
 const parsedSeedUrl = new URL(seedUrl);
 if (parsedSeedUrl.protocol !== "https:" || !parsedSeedUrl.hostname.endsWith(".vercel.app") || ["i-play.vercel.app", "iplay-web.vercel.app"].includes(parsedSeedUrl.hostname)) {
   fail("IPLAY_SEED_URL must use an isolated Vercel preview deployment.");
+}
+if (!token && process.env.IPLAY_MINT_SCOPED_TOKEN === "true") {
+  const databaseUrl = String(process.env.DATABASE_URL || process.env.POSTGRES_URL || "");
+  let databaseName = "";
+  try { databaseName = decodeURIComponent(new URL(databaseUrl).pathname.replace(/^\/+/, "")); } catch {}
+  if (databaseName !== "eb_catalog_test") fail("Automatic token minting is restricted to the eb_catalog_test staging database.");
+  const [{ companyRepository, platformUserRepository }, { signCompanyScopeToken }] = await Promise.all([
+    import("../src/data/store.js"),
+    import("../src/middleware/auth.js"),
+  ]);
+  const users = await platformUserRepository.listUsers();
+  const user = users.find((entry) => entry.role === "super_admin" && entry.isActive !== false);
+  const company = companyRepository.getCompanyById(companyId);
+  if (!user || !company) fail("A staging Super Admin and the kids-velvet company are required for the import.");
+  token = signCompanyScopeToken(user, company);
 }
 if (!token) fail("SCOPED_ADMIN_TOKEN is required.");
 const claims = decodeJwt(token);
