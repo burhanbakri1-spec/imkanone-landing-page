@@ -7,7 +7,7 @@ import { hasPermission } from "../src/data/permissions.js";
 import { resolvePage } from "../src/utils/cpanelAccess.js";
 import { canAccessAdminPage } from "../src/utils/roles.js";
 import {
-  createSiteEditorState, currentSiteEditorDocument, normalizeSiteEditorPage,
+  createSiteEditorState, currentSiteEditorDocument, normalizeSiteEditorPage, resolveSiteEditorLocale,
   siteEditorCapabilities, siteEditorDirection, siteEditorReducer, siteEditorText, siteEditorTools,
   trustedPagePreview, trustedSitePreview,
 } from "../src/utils/siteEditor.js";
@@ -81,9 +81,16 @@ test("1 Home appears in Pages & Menu", () => {
 });
 test("2 dropdown and Pages panel share currentPageId", () => {
   assert.match(pageSource, /currentPage = state\.pages\.find\(\(page\) => page\.id === state\.currentPageId\)/);
-  assert.match(pageSource, /<SiteEditorToolbar currentPage=\{currentPage\}/);
+  assert.match(pageSource, /<SiteEditorToolbar connection=\{connection\} currentPage=\{currentPage\}/);
   assert.match(treeSource, /onSelectPage\(page\.id\)/);
   assert.match(pagesSource, /currentPageId=\{state\.currentPageId\}/);
+});
+test("2a editor locale prefers explicit, persisted, then manifest default without hardcoded locale choices", () => {
+  assert.equal(resolveSiteEditorLocale({ activeLocale: "ar", persistedLocale: "en", defaultLocale: "en", supportedLocales: ["ar", "en"], activeIsExplicit: true }), "ar");
+  assert.equal(resolveSiteEditorLocale({ persistedLocale: "ar", defaultLocale: "en", supportedLocales: ["ar", "en"] }), "ar");
+  assert.equal(resolveSiteEditorLocale({ defaultLocale: "fr", supportedLocales: ["fr", "en"] }), "fr");
+  assert.match(toolbarSource, /connection\?\.supportedLocales/);
+  assert.doesNotMatch(toolbarSource, /<option value="en">/);
 });
 test("3 selecting Home loads its document without route reload", () => {
   assert.match(pageSource, /loadDocument\(pageId, activeLanguage\)/);

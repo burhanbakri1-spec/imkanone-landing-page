@@ -159,12 +159,31 @@ export function normalizeSiteEditorPage(page, companyId) {
   return { ...page, tenantId: companyId, isEditable: page.isEditable === true };
 }
 
+export function normalizeSiteEditorLocale(locale) {
+  const value = String(locale || "").trim().toLowerCase();
+  return /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/.test(value) ? value : "";
+}
+
+export function resolveSiteEditorLocale({ activeLocale, persistedLocale, defaultLocale, supportedLocales = [], activeIsExplicit = false } = {}) {
+  const supported = [...new Set(supportedLocales.map(normalizeSiteEditorLocale).filter(Boolean))];
+  const valid = (locale) => {
+    const normalized = normalizeSiteEditorLocale(locale);
+    return normalized && (!supported.length || supported.includes(normalized)) ? normalized : "";
+  };
+  return (activeIsExplicit && valid(activeLocale))
+    || valid(persistedLocale)
+    || valid(defaultLocale)
+    || valid(activeLocale)
+    || supported[0]
+    || "en";
+}
+
 export function createSiteEditorState(language = "en") {
   return {
     pages: [], pagesStatus: "idle", pagesError: "", currentPageId: null,
     pageDocuments: {}, documentStatus: "idle", documentError: "",
     selectedNodeId: null, selectedSectionId: null, editingNodeId: null,
-    viewportMode: "desktop", activeLocale: language === "ar" ? "ar" : "en", zoom: "fit",
+    viewportMode: "desktop", activeLocale: normalizeSiteEditorLocale(language) || "en", zoom: "fit",
     isDirty: false, saveStatus: "idle", saveError: "", currentRevision: 0,
     history: { past: [], future: [] }, savedFingerprints: {},
     activePanel: null, activeInspector: null,
@@ -581,7 +600,10 @@ export function siteEditorReducer(state, action) {
       };
     }
     case "save-failure": return { ...state, saveStatus: action.conflict ? "conflict" : "error", saveError: action.error || "Save failed.", isDirty: true };
-    case "set-locale": return { ...state, activeLocale: action.locale === "ar" ? "ar" : "en" };
+    case "set-locale": {
+      const locale = normalizeSiteEditorLocale(action.locale);
+      return locale ? { ...state, activeLocale: locale } : state;
+    }
     case "set-viewport": return { ...state, viewportMode: action.viewport === "mobile" ? "mobile" : "desktop" };
     case "set-zoom": return { ...state, zoom: ["50", "75", "100", "fit"].includes(action.zoom) ? action.zoom : state.zoom };
     case "open-section-library": return { ...state, activePanel: "add-section", activeInspector: null, quickEdit: null };

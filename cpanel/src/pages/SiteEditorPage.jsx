@@ -12,7 +12,7 @@ import { fetchSiteEditorConnection, fetchSiteEditorDocument, fetchSiteEditorPage
 import { sectionTemplatesForCategory } from "../utils/siteEditorSectionLibrary.js";
 import {
   currentSiteEditorDocument, createSiteEditorState, normalizeSiteEditorPage, siteEditorCapabilities,
-  siteEditorDirection, siteEditorReducer, siteEditorText, trustedPagePreview, trustedSiteLabel,
+  resolveSiteEditorLocale, siteEditorDirection, siteEditorReducer, siteEditorText, trustedPagePreview, trustedSiteLabel,
 } from "../utils/siteEditor.js";
 import {
   findEditorNode, moveEditorSection, replaceEditorImage, updateEditorContentList,
@@ -46,6 +46,8 @@ export default function SiteEditorPage({ company, currentUser, isContextResolvin
   const [sectionLibraryRetry, setSectionLibraryRetry] = React.useState(0);
   const sectionLibraryRequestRef = React.useRef(null);
   const sectionLibraryKeyRef = React.useRef(null);
+  const localeExplicitRef = React.useRef(false);
+  const activeLocaleRef = React.useRef(state.activeLocale);
   const capabilities = siteEditorCapabilities(currentUser, company);
   const activeLanguage = state.activeLocale;
   const direction = siteEditorDirection(activeLanguage);
@@ -58,6 +60,8 @@ export default function SiteEditorPage({ company, currentUser, isContextResolvin
   const siteKey = `${company?.id || "none"}:${connection?.siteId || ""}`;
   const previewUrl = trustedPagePreview(company, currentPage);
   const previewLabel = trustedSiteLabel(company);
+
+  React.useEffect(() => { activeLocaleRef.current = state.activeLocale; }, [state.activeLocale]);
 
   const loadDocument = React.useCallback(async (pageId, locale) => {
     dispatch({ type: "document-loading" });
@@ -81,6 +85,16 @@ export default function SiteEditorPage({ company, currentUser, isContextResolvin
     setConnectionStatus("loading");
     fetchSiteEditorConnection().then((result) => {
       if (cancelled) return;
+      const storageKey = `site-editor:locale:${company.id}:${result.siteId || "default"}`;
+      const locale = resolveSiteEditorLocale({
+        activeLocale: activeLocaleRef.current,
+        persistedLocale: window.localStorage.getItem(storageKey),
+        defaultLocale: result.defaultLocale,
+        supportedLocales: result.supportedLocales,
+        activeIsExplicit: localeExplicitRef.current,
+      });
+      activeLocaleRef.current = locale;
+      dispatch({ type: "set-locale", locale });
       setConnection(result);
       setConnectionStatus("ready");
     }).catch((error) => {
@@ -90,7 +104,7 @@ export default function SiteEditorPage({ company, currentUser, isContextResolvin
       setNotice(error.message || (activeLanguage === "ar" ? "تعذر تحميل اتصال الموقع." : "The website connection could not be loaded."));
     });
     return () => { cancelled = true; };
-  }, [capabilities.canAccess, company, connectionReload, isContextResolving, activeLanguage]);
+  }, [capabilities.canAccess, company, connectionReload, isContextResolving, language]);
 
   const connected = connection?.hasManifest === true;
 
@@ -98,17 +112,18 @@ export default function SiteEditorPage({ company, currentUser, isContextResolvin
     if (isContextResolving || !company || !capabilities.canAccess || connectionStatus !== "ready" || !connected) return undefined;
     let cancelled = false;
     dispatch({ type: "pages-loading" });
-    fetchSiteEditorPages(language).then(async (items) => {
+    const locale = activeLocaleRef.current;
+    fetchSiteEditorPages(locale).then(async (items) => {
       if (cancelled) return;
       const pages = items.map((page) => normalizeSiteEditorPage(page, company.id)).filter(Boolean);
       if (!pages.length) throw new Error("No trusted editable pages were returned by the local editor API.");
       dispatch({ type: "pages-success", pages, currentPageId: pages[0].id });
-      await loadDocument(pages[0].id, language);
+      await loadDocument(pages[0].id, locale);
     }).catch((error) => {
       if (!cancelled) dispatch({ type: "pages-failure", error: error.message });
     });
     return () => { cancelled = true; };
-  }, [capabilities.canAccess, company, connectionStatus, connected, isContextResolving, language, loadDocument]);
+  }, [capabilities.canAccess, company, connectionStatus, connected, isContextResolving, loadDocument]);
 
   React.useEffect(() => {
     dispatch({ type: "section-library-reset" });
@@ -211,8 +226,12 @@ export default function SiteEditorPage({ company, currentUser, isContextResolvin
   async function handleLocaleChange(locale) {
     if (locale === activeLanguage) return;
     if (state.isDirty && !window.confirm(activeLanguage === "ar" ? "توجد تغييرات غير محفوظة. هل تريد تجاهلها وتغيير اللغة؟" : "You have unsaved changes. Discard them and change locale?")) return;
-    dispatch({ type: "set-locale", locale });
-    if (state.currentPageId) await loadDocument(state.currentPageId, locale);
+    const resolvedLocale = resolveSiteEditorLocale({ activeLocale: locale, supportedLocales: connection?.supportedLocales, activeIsExplicit: true });
+    localeExplicitRef.current = true;
+    activeLocaleRef.current = resolvedLocale;
+    window.localStorage.setItem(`site-editor:locale:${company.id}:${connection?.siteId || "default"}`, resolvedLocale);
+    dispatch({ type: "set-locale", locale: resolvedLocale });
+    if (state.currentPageId) await loadDocument(state.currentPageId, resolvedLocale);
   }
 
   async function handleSave() {
@@ -257,7 +276,7 @@ export default function SiteEditorPage({ company, currentUser, isContextResolvin
 
   return <div className="site-editor-root site-editor-enter" data-editor-direction={direction} dir={direction}>
     <SiteEditorTopBar canSave={capabilities.canSave && Boolean(currentDocument)} company={company} direction={direction} language={activeLanguage} onBack={handleBack} onSave={handleSave} previewUrl={previewUrl} state={state} />
-    <SiteEditorToolbar currentPage={currentPage} dispatch={dispatch} language={activeLanguage} onLocaleChange={handleLocaleChange} previewLabel={previewLabel} state={state} />
+    <SiteEditorToolbar connection={connection} currentPage={currentPage} dispatch={dispatch} language={activeLanguage} onLocaleChange={handleLocaleChange} previewLabel={previewLabel} state={state} />
     <div className={`site-editor-workspace ${state.activePanel ? "panel-open" : ""} ${quickEditSection ? "quick-edit-open" : ""} ${selectedRecord && state.activeInspector ? "inspector-open" : ""}`}>
       <SiteEditorRail company={company} dispatch={dispatch} language={activeLanguage} onSelectPage={handleSelectPage} pages={state.pages} state={state} />
       {sectionLibraryOpen && <SectionLibraryPanel dispatch={dispatch} language={activeLanguage} onClose={() => dispatch({ type: "close-section-library" })} onRequireConnection={() => { dispatch({ type: "close-section-library" }); setConnectionReload((reload) => reload + 1); }} onRetry={handleSectionLibraryRetry} readOnly={!capabilities.canEdit} state={state} templates={sectionTemplates} />}
