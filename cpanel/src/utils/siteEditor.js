@@ -657,7 +657,7 @@ export function siteEditorReducer(state, action) {
 }
 
 export function siteEditorCapabilities(user, company) {
-  if (!user || !company) return { canAccess: false, canEdit: false, canSave: false };
+  if (!user || !company) return { canAccess: false, canEdit: false, canSave: false, canManageConnection: false, canSyncManifest: false };
   const role = user?.role;
   const admin = ["admin", "company_admin"].includes(role) || role === "super_admin";
   const permissions = new Set(user?.permissions || []);
@@ -665,6 +665,8 @@ export function siteEditorCapabilities(user, company) {
     canAccess: admin || permissions.has("site_editor.access"),
     canEdit: admin || permissions.has("site_editor.edit"),
     canSave: admin || permissions.has("site_editor.save"),
+    canManageConnection: admin || permissions.has("site_editor.connection.manage"),
+    canSyncManifest: admin || permissions.has("site_editor.manifest.sync"),
   };
 }
 

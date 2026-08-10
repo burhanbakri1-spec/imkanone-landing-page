@@ -59,10 +59,7 @@ export async function listCompanyModules(companyId, { query = dropshippingQuery 
   return CPANEL_MODULE_DEFINITIONS.map((row) => normalize(row, companyId));
 }
 
-const inheritedModulePermissions = {
-  "catalog.categories": ["products.view", "products.create", "products.update", "products.delete", "products.manage"],
-  "catalog.brands": ["products.view", "products.create", "products.update", "products.delete", "products.manage"],
-};
+const inheritedModulePermissions = {};
 
 export function modulesVisibleToUser(modules, user) {
   const role = user?.globalRole === "super_admin" ? "super_admin" : user?.role;

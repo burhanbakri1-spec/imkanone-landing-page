@@ -25,7 +25,7 @@ function formatSyncTime(value, ar) {
   return date.toLocaleString(ar ? "ar" : "en", { dateStyle: "medium", timeStyle: "short" });
 }
 
-export default function WebsiteConnectionScreen({ company, connection, language, canEdit, canSave, onBack, onConnected }) {
+export default function WebsiteConnectionScreen({ company, connection, language, canManageConnection, canSyncManifest, onBack, onConnected }) {
   const ar = language === "ar";
   const BackIcon = language === "ar" ? ArrowRight : ArrowLeft;
   const summary = connection || {};
@@ -102,7 +102,7 @@ export default function WebsiteConnectionScreen({ company, connection, language,
   }
 
   const connected = summary.connectionStatus === "connected" || summary.hasManifest === true;
-  const canAct = canEdit && canSave;
+  const canAct = canManageConnection && canSyncManifest;
 
   return <section className="site-editor-root site-editor-connection-root site-editor-enter" dir={ar ? "rtl" : "ltr"}>
     <header className="site-editor-topbar">
@@ -163,7 +163,7 @@ export default function WebsiteConnectionScreen({ company, connection, language,
           {summary.connectionError ? <div className="site-editor-connection-alert error"><XCircle size={15} /><span>{summary.connectionError}</span></div> : null}
 
           <footer className="site-editor-connection-actions">
-            <button disabled={!canEdit || busy} onClick={handleValidate} type="button"><RefreshCw size={15} />{busy === "validate" ? siteEditorText("connection.pending", language) : siteEditorText("connection.validate", language)}</button>
+            <button disabled={!canManageConnection || busy} onClick={handleValidate} type="button"><RefreshCw size={15} />{busy === "validate" ? siteEditorText("connection.pending", language) : siteEditorText("connection.validate", language)}</button>
             {connected ? (
               <button className="primary" disabled={!canAct || busy} onClick={handleResync} type="button"><RefreshCw size={15} />{busy === "resync" ? siteEditorText("connection.pending", language) : siteEditorText("connection.resync", language)}</button>
             ) : (

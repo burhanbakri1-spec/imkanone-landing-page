@@ -2224,12 +2224,12 @@ function AdminDashboardPage({
   const canCreateProducts = isCompanyAdmin(role) || ["products.create", "products.manage"].some((permission) => hasPermission(currentUser, permission));
   const canUpdateProducts = isCompanyAdmin(role) || ["products.update", "products.manage"].some((permission) => hasPermission(currentUser, permission));
   const canDeleteProducts = isCompanyAdmin(role) || ["products.delete", "products.manage"].some((permission) => hasPermission(currentUser, permission));
-  const canCreateCategories = isCompanyAdmin(role) || ["categories.create", "categories.manage", "products.create", "products.manage"].some((permission) => hasPermission(currentUser, permission));
-  const canUpdateCategories = isCompanyAdmin(role) || ["categories.update", "categories.manage", "products.update", "products.manage"].some((permission) => hasPermission(currentUser, permission));
-  const canDeleteCategories = isCompanyAdmin(role) || ["categories.delete", "categories.manage", "products.delete", "products.manage"].some((permission) => hasPermission(currentUser, permission));
-  const canCreateBrands = isCompanyAdmin(role) || ["brands.create", "brands.manage", "products.create", "products.manage"].some((permission) => hasPermission(currentUser, permission));
-  const canUpdateBrands = isCompanyAdmin(role) || ["brands.update", "brands.manage", "products.update", "products.manage"].some((permission) => hasPermission(currentUser, permission));
-  const canDeleteBrands = isCompanyAdmin(role) || ["brands.delete", "brands.manage", "products.delete", "products.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canCreateCategories = isCompanyAdmin(role) || ["categories.create", "categories.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canUpdateCategories = isCompanyAdmin(role) || ["categories.update", "categories.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canDeleteCategories = isCompanyAdmin(role) || ["categories.delete", "categories.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canCreateBrands = isCompanyAdmin(role) || ["brands.create", "brands.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canUpdateBrands = isCompanyAdmin(role) || ["brands.update", "brands.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canDeleteBrands = isCompanyAdmin(role) || ["brands.delete", "brands.manage"].some((permission) => hasPermission(currentUser, permission));
   const readOnly = !canEdit;
   const customers = uniqueCustomersFromOrders(orders);
   const [title, subtitle] = pageMeta[activePage] || pageMeta.admin;

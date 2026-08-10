@@ -280,6 +280,7 @@ export const translations = {
       customersView: "View Customers",
       employeesView: "View Employees",
       websiteMediaManage: "Manage Website Media",
+      websiteTextsManage: "Manage Website Texts",
     },
     employee: {
       myTasks: "My Tasks",
@@ -673,6 +674,7 @@ export const translations = {
       customersView: "عرض العملاء",
       employeesView: "عرض الموظفين",
       websiteMediaManage: "إدارة صور الموقع",
+      websiteTextsManage: "إدارة نصوص الموقع",
     },
     employee: {
       myTasks: "مهامي",

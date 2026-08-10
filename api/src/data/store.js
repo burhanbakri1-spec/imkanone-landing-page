@@ -173,6 +173,8 @@ export const allPermissions = [
   "site_editor.access",
   "site_editor.edit",
   "site_editor.save",
+  "site_editor.connection.manage",
+  "site_editor.manifest.sync",
   "invoices.view",
   "delivery.view",
   "activity_log.view",

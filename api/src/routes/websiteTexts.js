@@ -5,7 +5,7 @@ import { effectiveTenantRole, optionalAuth, requireAuth } from "../middleware/au
 export const publicWebsiteTextsRouter = Router();
 export const adminWebsiteTextsRouter = Router();
 const allowedRoles = new Set(["admin", "company_admin", "super_admin", "manager", "employee", "staff"]);
-const textsPermissions = ["website_media.manage", "website_texts.manage"];
+const textsPermissions = ["website_texts.manage"];
 
 function noStore(_req, res, next) {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");

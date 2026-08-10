@@ -33,6 +33,9 @@ const users = [
   ["icare-view-employee", "view@icare.test", "employee", "icare"],
   ["icare-create-employee", "create@icare.test", "employee", "icare"],
   ["icare-update-employee", "update@icare.test", "employee", "icare"],
+  ["icare-catalog-employee", "catalog@icare.test", "employee", "icare"],
+  ["icare-category-create-employee", "category-create@icare.test", "employee", "icare"],
+  ["icare-category-update-employee", "category-update@icare.test", "employee", "icare"],
   ["icare-media-employee", "media@icare.test", "employee", "icare"],
   ["icare-manager-user", "manager@icare.test", "manager", "icare"],
 ].map(([id, email, role, companyId]) => ({
@@ -62,6 +65,9 @@ const memberships = [
   ["icare:icare-view-employee", "icare", "icare-view-employee", "employee", "active"],
   ["icare:icare-create-employee", "icare", "icare-create-employee", "employee", "active"],
   ["icare:icare-update-employee", "icare", "icare-update-employee", "employee", "active"],
+  ["icare:icare-catalog-employee", "icare", "icare-catalog-employee", "employee", "active"],
+  ["icare:icare-category-create-employee", "icare", "icare-category-create-employee", "employee", "active"],
+  ["icare:icare-category-update-employee", "icare", "icare-category-update-employee", "employee", "active"],
   ["icare:icare-media-employee", "icare", "icare-media-employee", "employee", "active"],
   ["icare:icare-manager-user", "icare", "icare-manager-user", "manager", "active"],
 ].map(([id, companyId, userId, role, status]) => ({
@@ -75,6 +81,9 @@ const memberships = [
     "icare-view-employee": ["products.view"],
     "icare-create-employee": ["products.create"],
     "icare-update-employee": ["products.update"],
+    "icare-catalog-employee": ["categories.view", "categories.create", "categories.update", "categories.delete", "brands.view", "brands.create", "brands.update", "brands.delete"],
+    "icare-category-create-employee": ["categories.create"],
+    "icare-category-update-employee": ["categories.update"],
     "icare-media-employee": ["products.view", "product_media.manage"],
   })[userId] || [],
   createdAt: now,
@@ -271,7 +280,7 @@ test("membership-aware authentication and authenticated tenant context", async (
     assert.equal(employeesResult.response.status, 200);
     assert.deepEqual(
       employeesResult.body.map((employee) => employee.id).sort(),
-      ["icare-create-employee", "icare-employee", "icare-media-employee", "icare-product-employee", "icare-update-employee", "icare-view-employee"],
+      ["icare-catalog-employee", "icare-category-create-employee", "icare-category-update-employee", "icare-create-employee", "icare-employee", "icare-media-employee", "icare-product-employee", "icare-update-employee", "icare-view-employee"],
     );
     assert.equal(employeesResult.body.some((employee) => employee.id === "eb-employee"), false);
 
@@ -730,6 +739,9 @@ test("employee product permission enforcement", async (t) => {
   const viewEmp = await login("view@icare.test");
   const createEmp = await login("create@icare.test");
   const updateEmp = await login("update@icare.test");
+  const catalogEmp = await login("catalog@icare.test");
+  const categoryCreateEmp = await login("category-create@icare.test");
+  const categoryUpdateEmp = await login("category-update@icare.test");
   const mediaEmp = await login("media@icare.test");
   const managerEmp = await login("manager@icare.test");
   const noPermEmp = await login("employee@icare.test");
@@ -738,6 +750,9 @@ test("employee product permission enforcement", async (t) => {
   assert.equal(viewEmp.response.status, 200, "view employee login ok");
   assert.equal(createEmp.response.status, 200, "create employee login ok");
   assert.equal(updateEmp.response.status, 200, "update employee login ok");
+  assert.equal(catalogEmp.response.status, 200, "catalog employee login ok");
+  assert.equal(categoryCreateEmp.response.status, 200, "category create employee login ok");
+  assert.equal(categoryUpdateEmp.response.status, 200, "category update employee login ok");
   assert.equal(mediaEmp.response.status, 200, "media employee login ok");
   assert.equal(managerEmp.response.status, 200, "manager login ok");
   assert.equal(noPermEmp.response.status, 200, "no-permission employee login ok");
@@ -1080,49 +1095,43 @@ test("employee product permission enforcement", async (t) => {
     assert.ok(result.body.some((b) => b.id === icareBrandId), "iCare brand is visible to iCare employee");
   });
 
-  await t.test("iCare product employee with products.create can POST a category", async () => {
+  await t.test("product employee without category permissions cannot POST a category", async () => {
     const result = await request("/categories", {
       token: productEmp.body.token,
       method: "POST",
       body: { slug: "emp-created-category", name: { en: "Employee Created Category" }, isActive: true },
     });
-    assert.equal(result.response.status, 201, "employee with products.create can create a category");
-    assert.ok(result.body.id, "category has an id");
-    await request(`/categories/${result.body.id}`, { token: icareCompanyAdmin.body.token, method: "DELETE" });
+    assert.equal(result.response.status, 403, "products.create does not grant categories.create");
   });
 
-  await t.test("iCare product employee with products.create can POST a brand", async () => {
+  await t.test("product employee without brand permissions cannot POST a brand", async () => {
     const result = await request("/brands", {
       token: productEmp.body.token,
       method: "POST",
       body: { slug: "emp-created-brand", name: "Employee Created Brand", country: "PS", isActive: true },
     });
-    assert.equal(result.response.status, 201, "employee with products.create can create a brand");
-    assert.ok(result.body.id, "brand has an id");
-    await request(`/brands/${result.body.id}`, { token: icareCompanyAdmin.body.token, method: "DELETE" });
+    assert.equal(result.response.status, 403, "products.create does not grant brands.create");
   });
 
-  await t.test("iCare product employee with products.update can PATCH a category", async () => {
+  await t.test("product employee without category permissions cannot PATCH a category", async () => {
     const result = await request(`/categories/${icareCategoryId}`, {
       token: productEmp.body.token,
       method: "PATCH",
       body: { name: { en: "Updated By Employee" } },
     });
-    assert.equal(result.response.status, 200, "employee with products.update can update a category");
-    assert.equal(result.body.name?.en, "Updated By Employee");
+    assert.equal(result.response.status, 403, "products.update does not grant categories.update");
   });
 
-  await t.test("iCare product employee with products.update can PATCH a brand", async () => {
+  await t.test("product employee without brand permissions cannot PATCH a brand", async () => {
     const result = await request(`/brands/${icareBrandId}`, {
       token: productEmp.body.token,
       method: "PATCH",
       body: { name: "Updated By Employee" },
     });
-    assert.equal(result.response.status, 200, "employee with products.update can update a brand");
-    assert.equal(result.body.name, "Updated By Employee");
+    assert.equal(result.response.status, 403, "products.update does not grant brands.update");
   });
 
-  await t.test("iCare product employee with products.delete can DELETE a category", async () => {
+  await t.test("product employee without category permissions cannot DELETE a category", async () => {
     const cat = await request("/categories", {
       token: icareCompanyAdmin.body.token,
       method: "POST",
@@ -1133,10 +1142,10 @@ test("employee product permission enforcement", async (t) => {
       token: productEmp.body.token,
       method: "DELETE",
     });
-    assert.equal(result.response.status, 204, "employee with products.delete can delete a category");
+    assert.equal(result.response.status, 403, "products.delete does not grant categories.delete");
   });
 
-  await t.test("iCare product employee with products.delete can DELETE a brand", async () => {
+  await t.test("product employee without brand permissions cannot DELETE a brand", async () => {
     const br = await request("/brands", {
       token: icareCompanyAdmin.body.token,
       method: "POST",
@@ -1147,7 +1156,47 @@ test("employee product permission enforcement", async (t) => {
       token: productEmp.body.token,
       method: "DELETE",
     });
-    assert.equal(result.response.status, 204, "employee with products.delete can delete a brand");
+    assert.equal(result.response.status, 403, "products.delete does not grant brands.delete");
+  });
+
+  await t.test("catalog employee with category permissions can POST, PATCH, and DELETE categories", async () => {
+    const cat = await request("/categories", {
+      token: catalogEmp.body.token,
+      method: "POST",
+      body: { slug: "catalog-emp-category", name: { en: "Catalog Employee Category" }, isActive: true },
+    });
+    assert.equal(cat.response.status, 201, "categories.create allows catalog employee to create a category");
+    const patch = await request(`/categories/${cat.body.id}`, {
+      token: catalogEmp.body.token,
+      method: "PATCH",
+      body: { name: { en: "Catalog Employee Updated" } },
+    });
+    assert.equal(patch.response.status, 200, "categories.update allows catalog employee to update a category");
+    const del = await request(`/categories/${cat.body.id}`, {
+      token: catalogEmp.body.token,
+      method: "DELETE",
+    });
+    assert.equal(del.response.status, 204, "categories.delete allows catalog employee to delete a category");
+  });
+
+  await t.test("catalog employee with brand permissions can POST, PATCH, and DELETE brands", async () => {
+    const br = await request("/brands", {
+      token: catalogEmp.body.token,
+      method: "POST",
+      body: { slug: "catalog-emp-brand", name: "Catalog Employee Brand", country: "PS", isActive: true },
+    });
+    assert.equal(br.response.status, 201, "brands.create allows catalog employee to create a brand");
+    const patch = await request(`/brands/${br.body.id}`, {
+      token: catalogEmp.body.token,
+      method: "PATCH",
+      body: { name: "Catalog Employee Updated" },
+    });
+    assert.equal(patch.response.status, 200, "brands.update allows catalog employee to update a brand");
+    const del = await request(`/brands/${br.body.id}`, {
+      token: catalogEmp.body.token,
+      method: "DELETE",
+    });
+    assert.equal(del.response.status, 204, "brands.delete allows catalog employee to delete a brand");
   });
 
   await t.test("view-only employee GET categories returns 200", async () => {
@@ -1207,40 +1256,55 @@ test("employee product permission enforcement", async (t) => {
     assert.equal(result.response.status, 403);
   });
 
-  await t.test("create-only employee can POST but not update or delete categories", async () => {
+  await t.test("category-create-only employee can POST but not update or delete categories", async () => {
     const cat = await request("/categories", {
-      token: createEmp.body.token,
+      token: categoryCreateEmp.body.token,
       method: "POST",
       body: { slug: "create-only-category", name: { en: "Create Only" }, isActive: true },
     });
-    assert.equal(cat.response.status, 201, "create-only employee can create a category");
+    assert.equal(cat.response.status, 201, "categories.create employee can create a category");
     const patchResult = await request(`/categories/${cat.body.id}`, {
-      token: createEmp.body.token,
+      token: categoryCreateEmp.body.token,
       method: "PATCH",
       body: { name: { en: "Updated" } },
     });
-    assert.equal(patchResult.response.status, 403, "create-only employee cannot update");
+    assert.equal(patchResult.response.status, 403, "categories.create-only employee cannot update");
     const deleteResult = await request(`/categories/${cat.body.id}`, {
-      token: createEmp.body.token,
+      token: categoryCreateEmp.body.token,
       method: "DELETE",
     });
-    assert.equal(deleteResult.response.status, 403, "create-only employee cannot delete");
+    assert.equal(deleteResult.response.status, 403, "categories.create-only employee cannot delete");
     await request(`/categories/${cat.body.id}`, { token: icareCompanyAdmin.body.token, method: "DELETE" });
   });
 
-  await t.test("update-only employee can PATCH but not create or delete categories", async () => {
+  await t.test("category-update-only employee can PATCH but not create or delete categories", async () => {
     const cat = await request("/categories", {
-      token: updateEmp.body.token,
+      token: categoryUpdateEmp.body.token,
       method: "POST",
       body: { slug: "update-only-category", name: { en: "Update Only" }, isActive: true },
     });
-    assert.equal(cat.response.status, 403, "update-only employee cannot create a category");
+    assert.equal(cat.response.status, 403, "categories.update-only employee cannot create a category");
     const patchResult = await request(`/categories/${icareCategoryId}`, {
-      token: updateEmp.body.token,
+      token: categoryUpdateEmp.body.token,
       method: "PATCH",
       body: { name: { en: "Updated By Update-Only" } },
     });
-    assert.equal(patchResult.response.status, 200, "update-only employee can update a category");
+    assert.equal(patchResult.response.status, 200, "categories.update-only employee can update a category");
+  });
+
+  await t.test("product-only employee cannot create or update categories", async () => {
+    const cat = await request("/categories", {
+      token: createEmp.body.token,
+      method: "POST",
+      body: { slug: "product-only-category", name: { en: "Product Only" }, isActive: true },
+    });
+    assert.equal(cat.response.status, 403, "products.create does not grant categories.create");
+    const patchResult = await request(`/categories/${icareCategoryId}`, {
+      token: updateEmp.body.token,
+      method: "PATCH",
+      body: { name: { en: "Hacked" } },
+    });
+    assert.equal(patchResult.response.status, 403, "products.update does not grant categories.update");
   });
 
   await t.test("EB Chemical employee cannot retrieve iCare category options", async () => {

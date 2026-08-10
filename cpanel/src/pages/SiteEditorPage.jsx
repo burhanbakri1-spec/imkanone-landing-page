@@ -262,8 +262,8 @@ export default function SiteEditorPage({ company, currentUser, isContextResolvin
 
   if (connectionStatus === "ready" && !connected) return (
     <WebsiteConnectionScreen
-      canEdit={capabilities.canEdit}
-      canSave={capabilities.canSave}
+      canManageConnection={capabilities.canManageConnection}
+      canSyncManifest={capabilities.canSyncManifest}
       company={company}
       connection={connection || undefined}
       language={activeLanguage}

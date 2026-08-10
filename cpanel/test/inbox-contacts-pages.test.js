@@ -251,7 +251,7 @@ const companyAdmin = {
 };
 const customerEmployee = {
   role: "employee",
-  permissions: ["customers.view"],
+  permissions: ["customers.view", "inbox.view"],
   activeCompany: { id: "icare", modules: customersModule },
 };
 
@@ -318,6 +318,17 @@ test("customer employees retain restricted access through customers.view", () =>
     assert.equal(canAccessAdminPage(customerEmployee, page), true, page);
   }
   assert.equal(resolvePage("/admin/inbox", customerEmployee, customersModule), "admin-inbox");
+});
+
+test("inbox access requires inbox.view, not customers.view", () => {
+  const customersOnlyEmployee = {
+    role: "employee",
+    permissions: ["customers.view"],
+    activeCompany: { id: "icare", modules: customersModule },
+  };
+  assert.equal(canAccessAdminPage(customersOnlyEmployee, "admin-inbox"), false);
+  assert.equal(resolvePage("/admin/inbox", customersOnlyEmployee, customersModule), "admin-no-access");
+  assert.equal(canAccessAdminPage(customersOnlyEmployee, "admin-customers"), true);
 });
 
 test("scoped Super Admin tenant sessions use the company-admin access model", () => {

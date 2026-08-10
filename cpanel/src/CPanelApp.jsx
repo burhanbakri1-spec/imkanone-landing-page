@@ -636,9 +636,7 @@ function CPanelApp() {
       isCatUpdate &&
       !isCompanyAdmin(currentUser?.role) &&
       !hasPermission(currentUser, "categories.update") &&
-      !hasPermission(currentUser, "categories.manage") &&
-      !hasPermission(currentUser, "products.update") &&
-      !hasPermission(currentUser, "products.manage")
+      !hasPermission(currentUser, "categories.manage")
     ) {
       setAdminMessageType("error");
       setAdminMessage("You do not have permission to update categories.");
@@ -648,9 +646,7 @@ function CPanelApp() {
       !isCatUpdate &&
       !isCompanyAdmin(currentUser?.role) &&
       !hasPermission(currentUser, "categories.create") &&
-      !hasPermission(currentUser, "categories.manage") &&
-      !hasPermission(currentUser, "products.create") &&
-      !hasPermission(currentUser, "products.manage")
+      !hasPermission(currentUser, "categories.manage")
     ) {
       setAdminMessageType("error");
       setAdminMessage("You do not have permission to create categories.");
@@ -672,9 +668,7 @@ function CPanelApp() {
     if (
       !isCompanyAdmin(currentUser?.role) &&
       !hasPermission(currentUser, "categories.delete") &&
-      !hasPermission(currentUser, "categories.manage") &&
-      !hasPermission(currentUser, "products.delete") &&
-      !hasPermission(currentUser, "products.manage")
+      !hasPermission(currentUser, "categories.manage")
     ) {
       setAdminMessageType("error");
       setAdminMessage("You do not have permission to delete categories.");
@@ -697,9 +691,7 @@ function CPanelApp() {
       isBrandUpdate &&
       !isCompanyAdmin(currentUser?.role) &&
       !hasPermission(currentUser, "brands.update") &&
-      !hasPermission(currentUser, "brands.manage") &&
-      !hasPermission(currentUser, "products.update") &&
-      !hasPermission(currentUser, "products.manage")
+      !hasPermission(currentUser, "brands.manage")
     ) {
       setAdminMessageType("error");
       setAdminMessage("You do not have permission to update brands.");
@@ -709,9 +701,7 @@ function CPanelApp() {
       !isBrandUpdate &&
       !isCompanyAdmin(currentUser?.role) &&
       !hasPermission(currentUser, "brands.create") &&
-      !hasPermission(currentUser, "brands.manage") &&
-      !hasPermission(currentUser, "products.create") &&
-      !hasPermission(currentUser, "products.manage")
+      !hasPermission(currentUser, "brands.manage")
     ) {
       setAdminMessageType("error");
       setAdminMessage("You do not have permission to create brands.");
@@ -733,9 +723,7 @@ function CPanelApp() {
     if (
       !isCompanyAdmin(currentUser?.role) &&
       !hasPermission(currentUser, "brands.delete") &&
-      !hasPermission(currentUser, "brands.manage") &&
-      !hasPermission(currentUser, "products.delete") &&
-      !hasPermission(currentUser, "products.manage")
+      !hasPermission(currentUser, "brands.manage")
     ) {
       setAdminMessageType("error");
       setAdminMessage("You do not have permission to delete brands.");

@@ -223,7 +223,7 @@ test("33 any connected tenant can edit without iCare hardcoding", () => {
   assert.equal(normalizeSiteEditorPage(brandPage, "another-brand")?.id, "catalog");
   assert.equal(normalizeSiteEditorPage({ ...brandPage, tenantId: "icare" }, "another-brand"), null);
   const brandAdmin = { role: "company_admin", permissions: [] };
-  assert.deepEqual(siteEditorCapabilities(brandAdmin, brandCompany), { canAccess: true, canEdit: true, canSave: true });
+  assert.deepEqual(siteEditorCapabilities(brandAdmin, brandCompany), { canAccess: true, canEdit: true, canSave: true, canManageConnection: true, canSyncManifest: true });
   assert.equal(trustedSitePreview(brandCompany), "https://another-brand.example/");
   assert.equal(trustedPagePreview(brandCompany, brandPage), "https://another-brand.example/");
   assert.equal(trustedSitePreview({ ...brandCompany, id: "icare" }), "https://another-brand.example/");

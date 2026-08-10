@@ -227,7 +227,7 @@ router.get("/connection", requirePermission("site_editor.access"), (req, res) =>
   });
 });
 
-router.post("/connection/validate", requirePermission("site_editor.access"), requirePermission("site_editor.edit"), async (req, res) => {
+router.post("/connection/validate", requirePermission("site_editor.connection.manage"), async (req, res) => {
   try {
     const report = await validateManifestForCompany(req.company, { url: req.body?.siteManifestUrl });
     return res.json(report);
@@ -236,7 +236,7 @@ router.post("/connection/validate", requirePermission("site_editor.access"), req
   }
 });
 
-router.post("/manifest/sync", requirePermission("site_editor.access"), requirePermission("site_editor.save"), async (req, res) => {
+router.post("/manifest/sync", requirePermission("site_editor.manifest.sync"), async (req, res) => {
   try {
     const result = await syncManifestForCompany(req.company, { url: req.body?.siteManifestUrl });
     assertManifestMatchesCompany(result.manifest, req.company);
@@ -275,7 +275,7 @@ router.post("/manifest/sync", requirePermission("site_editor.access"), requirePe
   }
 });
 
-router.put("/connection", requirePermission("site_editor.access"), requirePermission("site_editor.edit"), async (req, res) => {
+router.put("/connection", requirePermission("site_editor.connection.manage"), async (req, res) => {
   try {
     const patch = normalizeWebsiteConnectionPatch(req.body);
     for (const key of ["siteManifestUrl", "storefrontBaseUrl"]) {
