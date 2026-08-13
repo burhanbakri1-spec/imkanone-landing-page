@@ -4,20 +4,20 @@ import { uploadImage } from "../utils/api.js";
 import { withWebsiteMediaVersion } from "../data/websiteMedia.js";
 import { MediaEditor } from "./WebsiteMediaManager.jsx";
 import {
+  PARENT_BRAND,
   SITE_LOGO_SLOT,
   SITE_MEDIA_SLOTS,
+  VELVET_BRANCHES,
   aboutImageSlots,
   brandMediaSlots,
   categoryHeroMediaSlots,
   newsImageSlots,
   productMediaSlots,
-  resolveMediaSlot,
 } from "../data/mediaSlots.js";
 
 const groupLabels = {
-  identity: { en: "Site Identity", ar: "هوية الموقع" },
-  home: { en: "Home", ar: "الرئيسية" },
-  brands: { en: "Brands", ar: "العلامات" },
+  identity: { en: "VELVET", ar: "VELVET" },
+  brands: { en: "VELVET Branches", ar: "فروع VELVET" },
   categories: { en: "Categories", ar: "الأقسام" },
   products: { en: "Products", ar: "المنتجات" },
   about: { en: "About", ar: "من نحن" },
@@ -84,7 +84,7 @@ function Accordion({ summary, count, defaultOpen = false, children }) {
   );
 }
 
-function LogoEditor({ item, language, onSave }) {
+function LogoEditor({ item, language, onSave, label }) {
   const [draft, setDraft] = React.useState(item);
   const [uploading, setUploading] = React.useState(false);
   const [message, setMessage] = React.useState("");
@@ -142,13 +142,13 @@ function LogoEditor({ item, language, onSave }) {
       <div className="website-media-preview website-media-logo-preview">
         {draft.imageUrl ? (
           <img
-            alt={draft.sectionLabel || (isArabic ? "شعار الموقع" : "Website logo")}
+            alt={label || draft.sectionLabel || (isArabic ? "الشعار" : "Logo")}
             src={withWebsiteMediaVersion(draft.imageUrl, draft.updatedAt || draft.id)}
           />
         ) : (
           <ImagePlus aria-hidden="true" size={30} />
         )}
-        <span>{isArabic ? "شعار الموقع" : "Website logo"}</span>
+        <span>{label || (isArabic ? "الشعار" : "Logo")}</span>
       </div>
       <div className="website-media-fields">
         <label className="full-field">
@@ -182,16 +182,85 @@ function LogoEditor({ item, language, onSave }) {
   );
 }
 
-function SiteIdentityGroup({ logoItem, language, onSave }) {
+function ParentBrandGroup({ logoItem, homeSlots, entries, language, onDelete, onSave }) {
   return (
     <div className="website-media-group-inner">
       <p className="website-media-group-hint">
         {language === "ar"
-          ? "الشعار المعروض في ترويسة الموقع. عند عدم رفعه يظهر شعار الموقع الافتراضي."
-          : "The logo shown in the storefront header. When empty the storefront falls back to its own logo."}
+          ? `الشعار المعروض في ترويسة الموقع (${PARENT_BRAND.name.ar}). عند عدم رفعه يظهر شعار الموقع الافتراضي.`
+          : `The logo shown in the storefront header (${PARENT_BRAND.name.en}). When empty the storefront falls back to its own logo.`}
       </p>
-      <LogoEditor item={logoItem} language={language} onSave={onSave} />
+      <LogoEditor item={logoItem} language={language} onSave={onSave} label={PARENT_BRAND.name[language]} />
+      <SlotCards slots={homeSlots} entries={entries} language={language} onDelete={onDelete} onSave={onSave} />
     </div>
+  );
+}
+
+function CategoryImageEditor({ category, language, onSaveCategory }) {
+  const [draft, setDraft] = React.useState(category);
+  const [uploading, setUploading] = React.useState(false);
+  const [message, setMessage] = React.useState("");
+  const isArabic = language === "ar";
+
+  React.useEffect(() => setDraft(category), [category]);
+
+  async function handleUpload(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      setUploading(true);
+      setMessage("");
+      const result = await uploadImage(file);
+      setDraft((current) => ({ ...current, imageUrl: result.url || result.path || "" }));
+      setMessage(isArabic ? "تم رفع الصورة. اضغط حفظ لتطبيق التغيير." : "Image uploaded. Press Save to apply.");
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleSave() {
+    try {
+      setMessage("");
+      const saved = await onSaveCategory(draft);
+      if (saved) setDraft(saved);
+      setMessage(isArabic ? "تم حفظ صورة القسم." : "Category image saved.");
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+
+  const previewUrl = draft?.imageUrl
+    ? withWebsiteMediaVersion(draft.imageUrl, draft?.updatedAt || draft?.id)
+    : "";
+
+  return (
+    <article className="website-media-card website-media-logo-card">
+      <div className="website-media-preview website-media-logo-preview">
+        {previewUrl ? <img alt={entityName(category, language)} src={previewUrl} /> : <ImagePlus aria-hidden="true" size={30} />}
+        <span>{isArabic ? "صورة القسم" : "Category image"}</span>
+      </div>
+      <div className="website-media-fields">
+        <label className="full-field">
+          {isArabic ? "رابط الصورة" : "Image URL"}
+          <input value={draft?.imageUrl || ""} onChange={(event) => setDraft((current) => ({ ...current, imageUrl: event.target.value }))} />
+        </label>
+      </div>
+      <div className="website-media-actions">
+        <label className="admin-upload-button">
+          <Upload size={15} />
+          {uploading ? (isArabic ? "جاري الرفع..." : "Uploading...") : (isArabic ? "رفع / استبدال" : "Upload / Replace")}
+          <input accept="image/*" disabled={uploading} hidden onChange={handleUpload} type="file" />
+        </label>
+        <button className="admin-primary-button" onClick={handleSave} type="button">
+          <Save size={15} />
+          {isArabic ? "حفظ" : "Save"}
+        </button>
+      </div>
+      {message && <p className="website-media-message">{message}</p>}
+    </article>
   );
 }
 
@@ -212,7 +281,7 @@ function SlotCards({ slots, entries, language, onDelete, onSave }) {
   return <div className="website-media-grid">{rendered}</div>;
 }
 
-function MediaSlotsManager({ brands = [], categories = [], error = "", items = [], language = "en", onDelete, onSave, products = [] }) {
+function MediaSlotsManager({ brands = [], categories = [], error = "", items = [], language = "en", onDelete, onSave, onSaveCategory, products = [] }) {
   const isArabic = language === "ar";
   const [productQuery, setProductQuery] = React.useState("");
 
@@ -241,14 +310,28 @@ function MediaSlotsManager({ brands = [], categories = [], error = "", items = [
   const aboutSlots = [...aboutHeroSlots, ...aboutImageSlots()];
   const newsSlots = newsImageSlots();
 
-  const brandGroups = brands.map((brand) => ({
-    key: brand.id || brand.slug || brand.name,
-    label: entityName(brand, language),
-    slots: brandMediaSlots(brand.slug || brand.id),
+  // Render EVERY actual VELVET branch from the canonical i-play catalog, plus
+  // any extra brand rows the CPanel knows about that are not in the catalog.
+  const branchGroups = VELVET_BRANCHES.map((branch) => ({
+    key: branch.slug,
+    label: branch.name[language] || branch.name.en || branch.slug,
+    slots: brandMediaSlots(branch.slug),
   }));
+  for (const brand of brands) {
+    const slug = String(brand.slug || brand.id || "").trim();
+    if (!slug) continue;
+    if (branchGroups.some((group) => group.key === slug)) continue;
+    branchGroups.push({
+      key: slug,
+      label: entityName(brand, language),
+      slots: brandMediaSlots(slug),
+    });
+  }
+
   const categoryGroups = categories.map((category) => ({
     key: category.id || category.slug || category.name,
     label: entityName(category, language),
+    category,
     slots: categoryHeroMediaSlots(category.slug || category.id),
   }));
   const productGroups = products.map((product) => ({
@@ -270,8 +353,8 @@ function MediaSlotsManager({ brands = [], categories = [], error = "", items = [
           <h2>{isArabic ? "وسائط المتجر" : "Storefront Media"}</h2>
           <p>
             {isArabic
-              ? "أدر شعار الموقع، الواجهات، صور الأقسام والأخبار، وفيديوهات استخدام المنتجات."
-              : "Manage the site logo, storefront heroes, brand and category visuals, about/news images, and product usage videos."}
+              ? "أدر شعار الموقع، فروع VELVET، صور الأقسام، فيديوهات استخدام المنتجات، وصور من نحن والأخبار."
+              : "Manage the VELVET site logo, branches, category visuals, product usage videos, and about/news images."}
           </p>
         </div>
       </header>
@@ -282,19 +365,30 @@ function MediaSlotsManager({ brands = [], categories = [], error = "", items = [
         </p>
       )}
 
-      <Accordion summary={groupLabel("identity", language)} count={1}>
-        <SiteIdentityGroup logoItem={entryFor(SITE_LOGO_SLOT)} language={language} onSave={onSave} />
+      <Accordion summary={groupLabel("identity", language)} count={1 + homeSlots.length}>
+        <ParentBrandGroup
+          entries={entries}
+          homeSlots={homeSlots}
+          language={language}
+          logoItem={entryFor(SITE_LOGO_SLOT)}
+          onDelete={onDelete}
+          onSave={onSave}
+        />
       </Accordion>
 
-      <Accordion summary={groupLabel("home", language)} count={homeSlots.length}>
-        <SlotCards slots={homeSlots} entries={entries} language={language} onDelete={onDelete} onSave={onSave} />
-      </Accordion>
-
-      <Accordion summary={groupLabel("brands", language)} count={brandGroups.length}>
+      <Accordion summary={groupLabel("brands", language)} count={branchGroups.length}>
         <div className="website-media-accordion-nested">
-          {brandGroups.map((group) => (
+          {branchGroups.map((group) => (
             <Accordion key={group.key} summary={group.label} count={group.slots.length}>
-              <SlotCards slots={group.slots} entries={entries} language={language} onDelete={onDelete} onSave={onSave} />
+              <div className="website-media-accordion-nested">
+                <LogoEditor
+                  item={entryFor({ key: `brand.${group.key}.logo`, kind: "image", groupKey: "brands" })}
+                  language={language}
+                  onSave={onSave}
+                  label={group.label}
+                />
+              </div>
+              <SlotCards slots={group.slots.slice(1)} entries={entries} language={language} onDelete={onDelete} onSave={onSave} />
             </Accordion>
           ))}
         </div>
@@ -303,8 +397,15 @@ function MediaSlotsManager({ brands = [], categories = [], error = "", items = [
       <Accordion summary={groupLabel("categories", language)} count={categoryGroups.length}>
         <div className="website-media-accordion-nested">
           {categoryGroups.map((group) => (
-            <Accordion key={group.key} summary={group.label} count={group.slots.length}>
-              <SlotCards slots={group.slots} entries={entries} language={language} onDelete={onDelete} onSave={onSave} />
+            <Accordion key={group.key} summary={group.label} count={group.slots.length + 1}>
+              <div className="website-media-accordion-nested">
+                <CategoryImageEditor
+                  category={group.category}
+                  language={language}
+                  onSaveCategory={onSaveCategory}
+                />
+                <SlotCards slots={group.slots} entries={entries} language={language} onDelete={onDelete} onSave={onSave} />
+              </div>
             </Accordion>
           ))}
         </div>
@@ -323,11 +424,7 @@ function MediaSlotsManager({ brands = [], categories = [], error = "", items = [
         </div>
         <div className="website-media-accordion-nested">
           {filteredProducts.map((group) => (
-            <Accordion
-              key={group.key}
-              summary={group.label}
-              count={group.slots.length}
-            >
+            <Accordion key={group.key} summary={group.label} count={group.slots.length}>
               <SlotCards slots={group.slots} entries={entries} language={language} onDelete={onDelete} onSave={onSave} />
             </Accordion>
           ))}
@@ -351,7 +448,7 @@ function MediaSlotsManager({ brands = [], categories = [], error = "", items = [
         <SlotCards slots={contactSlots} entries={entries} language={language} onDelete={onDelete} onSave={onSave} />
       </Accordion>
 
-      {!error && SITE_MEDIA_SLOTS.length + brands.length + categories.length + products.length === 0 && (
+      {!error && SITE_MEDIA_SLOTS.length + VELVET_BRANCHES.length + categories.length + products.length === 0 && (
         <p className="website-media-message">
           {isArabic ? "لا توجد وسائط متجر محددة بعد." : "No storefront media slots have been configured yet."}
         </p>

@@ -36,6 +36,7 @@ fs.writeFileSync(path.join(dataStoreDir, "store.json"), `${JSON.stringify({
   websiteMedia: [
     { id: "slot-hero-video", company_id: "kids-velvet", sectionKey: "home.hero.video", sectionLabel: "Home hero video", groupKey: "home", videoUrl: "/uploads/kids-velvet/website-media/home.mp4", mediaType: "video", isActive: true, createdAt: now, updatedAt: now },
     { id: "slot-hero-poster", company_id: "kids-velvet", sectionKey: "home.hero.poster", sectionLabel: "Home hero poster", groupKey: "home", imageUrl: "/uploads/kids-velvet/website-media/home-poster.jpg", isActive: true, createdAt: now, updatedAt: now },
+    { id: "slot-brand-logo", company_id: "kids-velvet", sectionKey: "brand.baby.logo", sectionLabel: "Branch logo", groupKey: "brands", imageUrl: "/uploads/kids-velvet/website-media/baby-logo.png", isActive: true, createdAt: now, updatedAt: now },
     { id: "slot-brand-video", company_id: "kids-velvet", sectionKey: "brand.baby.video", sectionLabel: "Brand baby hero video", groupKey: "brands", videoUrl: "/uploads/kids-velvet/website-media/baby.mp4", mediaType: "video", isActive: true, createdAt: now, updatedAt: now },
     { id: "slot-brand-poster", company_id: "kids-velvet", sectionKey: "brand.baby.poster", sectionLabel: "Brand baby hero poster", groupKey: "brands", imageUrl: "/uploads/kids-velvet/website-media/baby-poster.jpg", isActive: true, createdAt: now, updatedAt: now },
     { id: "slot-category-video", company_id: "kids-velvet", sectionKey: "category.toys.heroVideo", sectionLabel: "Category toys hero video", groupKey: "categories", videoUrl: "/uploads/kids-velvet/website-media/toys.mp4", mediaType: "video", isActive: true, createdAt: now, updatedAt: now },
@@ -95,6 +96,9 @@ test("storefront content returns the exact media slot keys i-play consumes", asy
   assert.equal(brandVideo.video, "/uploads/kids-velvet/website-media/baby.mp4");
   const brandPoster = slot("brand.baby.poster");
   assert.equal(brandPoster.image, "/uploads/kids-velvet/website-media/baby-poster.jpg");
+  const brandLogo = slot("brand.baby.logo");
+  assert.ok(brandLogo, "brand.baby.logo slot must be exposed");
+  assert.equal(brandLogo.image, "/uploads/kids-velvet/website-media/baby-logo.png");
 
   const categoryVideo = slot("category.toys.heroVideo");
   assert.ok(categoryVideo, "category.toys.heroVideo slot must be exposed");

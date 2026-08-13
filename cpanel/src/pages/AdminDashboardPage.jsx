@@ -2511,6 +2511,7 @@ function AdminDashboardPage({
             language={language}
             onDelete={onDeleteWebsiteMedia}
             onSave={onSaveWebsiteMedia}
+            onSaveCategory={onSaveCategory}
             products={products}
           />
         );
