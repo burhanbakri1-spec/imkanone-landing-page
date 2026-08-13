@@ -229,6 +229,26 @@ test("33 any connected tenant can edit without iCare hardcoding", () => {
   assert.equal(trustedSitePreview({ ...brandCompany, id: "icare" }), "https://another-brand.example/");
 });
 
+test("33b employee site editor capabilities honor granular permissions", () => {
+  const employeeEditor = { id: "u2", role: "employee", activeCompany: company, permissions: ["site_editor.access", "site_editor.edit", "site_editor.save"] };
+  assert.deepEqual(siteEditorCapabilities(employeeEditor, company), {
+    canAccess: true, canEdit: true, canSave: true, canManageConnection: false, canSyncManifest: false,
+  });
+  assert.equal(canAccessAdminPage(employeeEditor, "admin-site-editor"), true);
+  const employeeConnection = { id: "u3", role: "employee", activeCompany: company, permissions: ["site_editor.connection.manage", "site_editor.manifest.sync"] };
+  assert.deepEqual(siteEditorCapabilities(employeeConnection, company), {
+    canAccess: false, canEdit: false, canSave: false, canManageConnection: true, canSyncManifest: true,
+  });
+  assert.equal(canAccessAdminPage(employeeConnection, "admin-site-editor"), false);
+  const noPerms = { id: "u4", role: "employee", activeCompany: company, permissions: [] };
+  assert.deepEqual(siteEditorCapabilities(noPerms, company), {
+    canAccess: false, canEdit: false, canSave: false, canManageConnection: false, canSyncManifest: false,
+  });
+  assert.deepEqual(siteEditorCapabilities(null, company), {
+    canAccess: false, canEdit: false, canSave: false, canManageConnection: false, canSyncManifest: false,
+  });
+});
+
 test("34 editor copy no longer names a specific tenant", () => {
   assert.equal(siteEditorText("pages.description", "en"), "Choose a page to edit in the canvas.");
   assert.doesNotMatch(pageSource, /iCare|icare/);
