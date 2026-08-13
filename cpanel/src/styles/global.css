@@ -18619,6 +18619,133 @@ html[dir="rtl"] .eb-points-how h2 {
   }
 }
 
+/* Storefront media accordion groups. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.website-media-accordion {
+  overflow: hidden;
+  border: 1px solid var(--admin-border, #e3e7eb);
+  border-radius: 10px;
+  background: var(--admin-card, #fff);
+}
+
+.website-media-accordion-toggle {
+  display: flex;
+  width: 100%;
+  min-height: 52px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 0 18px;
+  border: 0;
+  background: var(--admin-card, #fff);
+  color: var(--admin-text, #111827);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: start;
+  cursor: pointer;
+}
+
+.website-media-accordion-toggle:hover {
+  background: #f6f9fb;
+}
+
+.website-media-accordion-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-transform: capitalize;
+}
+
+.website-media-accordion-count {
+  flex: 0 0 auto;
+  min-width: 22px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eef3f6;
+  color: var(--admin-muted, #6b7280);
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.website-media-accordion-body {
+  padding: 16px;
+  border-top: 1px solid var(--admin-border, #e3e7eb);
+}
+
+.website-media-accordion-nested {
+  display: grid;
+  gap: 12px;
+}
+
+.website-media-accordion-nested .website-media-accordion {
+  background: #fbfcfd;
+}
+
+.website-media-accordion-nested .website-media-accordion-body {
+  background: var(--admin-card, #fff);
+}
+
+.website-media-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 0 12px;
+  border: 1px solid var(--admin-border, #e3e7eb);
+  border-radius: 8px;
+  background: var(--admin-card, #fff);
+  color: var(--admin-muted, #6b7280);
+}
+
+.website-media-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--admin-text, #111827);
+  font: inherit;
+}
+
+.website-media-group-inner {
+  display: grid;
+  gap: 12px;
+}
+
+.website-media-group-hint {
+  margin: 0;
+  color: var(--admin-muted, #6b7280);
+  font-size: 12px;
+}
+
+.website-media-logo-card {
+  max-width: 460px;
+}
+
+.website-media-logo-preview {
+  min-height: 150px;
+}
+
+.website-media-logo-preview img {
+  height: 150px;
+  object-fit: contain;
+  padding: 12px;
+  background: #fff;
+}
+
 /* Homepage polish: header tone, clearer category cards, and community gallery. */
 .site-header .header-left-block,
 .site-header .header-right-block,

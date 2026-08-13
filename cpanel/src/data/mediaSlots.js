@@ -6,6 +6,40 @@
 // media under those exact keys and the storefront override wins over its local
 // fallback. Do not invent new keys here: match the storefront exactly.
 //
+// Per-site logo slot. The storefront header renders the platform-managed logo
+// (`site.logo`) when present and falls back to its own local logo otherwise.
+export const SITE_LOGO_SLOT = {
+  key: "site.logo",
+  kind: "image",
+  groupKey: "identity",
+  labelEn: "Website logo",
+  labelAr: "شعار الموقع",
+};
+
+// About section image slots (`about.{index}.image`) - matches i-play aboutSections.
+export const ABOUT_IMAGE_COUNT = 4;
+export function aboutImageSlots() {
+  return Array.from({ length: ABOUT_IMAGE_COUNT }, (_, index) => ({
+    key: `about.${index}.image`,
+    kind: "image",
+    groupKey: "about",
+    labelEn: `About section ${index + 1} image`,
+    labelAr: `صورة القسم ${index + 1} - من نحن`,
+  }));
+}
+
+// News item image slots (`news.{index}.image`) - matches i-play newsItems.
+export const NEWS_IMAGE_COUNT = 5;
+export function newsImageSlots() {
+  return Array.from({ length: NEWS_IMAGE_COUNT }, (_, index) => ({
+    key: `news.${index}.image`,
+    kind: "image",
+    groupKey: "news",
+    labelEn: `News item ${index + 1} image`,
+    labelAr: `صورة الخبر ${index + 1}`,
+  }));
+}
+
 // Site-level hero slots (consumed by the home, about and contact pages).
 export const SITE_MEDIA_SLOTS = [
   {
@@ -103,6 +137,18 @@ export function productMediaSlots(slug) {
 
 export function siteMediaSlotKeys() {
   return SITE_MEDIA_SLOTS.map((slot) => slot.key);
+}
+
+export function siteLogoSlotKey() {
+  return SITE_LOGO_SLOT.key;
+}
+
+export function aboutImageSlotKeys() {
+  return aboutImageSlots().map((slot) => slot.key);
+}
+
+export function newsImageSlotKeys() {
+  return newsImageSlots().map((slot) => slot.key);
 }
 
 export function brandMediaSlotKeys(slug) {

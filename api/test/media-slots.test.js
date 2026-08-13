@@ -41,6 +41,9 @@ fs.writeFileSync(path.join(dataStoreDir, "store.json"), `${JSON.stringify({
     { id: "slot-category-video", company_id: "kids-velvet", sectionKey: "category.toys.heroVideo", sectionLabel: "Category toys hero video", groupKey: "categories", videoUrl: "/uploads/kids-velvet/website-media/toys.mp4", mediaType: "video", isActive: true, createdAt: now, updatedAt: now },
     { id: "slot-product-video", company_id: "kids-velvet", sectionKey: "product.play-one.usageVideo", sectionLabel: "Product usage video", groupKey: "products", videoUrl: "/uploads/kids-velvet/website-media/play-one.mp4", mediaType: "video", isActive: true, createdAt: now, updatedAt: now },
     { id: "slot-product-poster", company_id: "kids-velvet", sectionKey: "product.play-one.usageVideoPoster", sectionLabel: "Product usage poster", groupKey: "products", imageUrl: "/uploads/kids-velvet/website-media/play-one-poster.jpg", isActive: true, createdAt: now, updatedAt: now },
+    { id: "slot-site-logo", company_id: "kids-velvet", sectionKey: "site.logo", sectionLabel: "Website logo", groupKey: "identity", imageUrl: "/uploads/kids-velvet/website-media/logo.png", isActive: true, createdAt: now, updatedAt: now },
+    { id: "slot-about-0-image", company_id: "kids-velvet", sectionKey: "about.0.image", sectionLabel: "About section 1 image", groupKey: "about", imageUrl: "/uploads/kids-velvet/website-media/about-0.jpg", isActive: true, createdAt: now, updatedAt: now },
+    { id: "slot-news-0-image", company_id: "kids-velvet", sectionKey: "news.0.image", sectionLabel: "News item 1 image", groupKey: "news", imageUrl: "/uploads/kids-velvet/website-media/news-0.jpg", isActive: true, createdAt: now, updatedAt: now },
     { id: "slot-hidden", company_id: "kids-velvet", sectionKey: "home.hero.video", sectionLabel: "Hidden video slot", groupKey: "home", videoUrl: "/uploads/kids-velvet/website-media/old.mp4", mediaType: "video", isActive: false, createdAt: now, updatedAt: now },
   ],
   websiteMediaHiddenKeys: [],
@@ -103,6 +106,18 @@ test("storefront content returns the exact media slot keys i-play consumes", asy
   assert.equal(productVideo.video, "/uploads/kids-velvet/website-media/play-one.mp4");
   const productPoster = slot("product.play-one.usageVideoPoster");
   assert.equal(productPoster.image, "/uploads/kids-velvet/website-media/play-one-poster.jpg");
+
+  const siteLogo = slot("site.logo");
+  assert.ok(siteLogo, "site.logo slot must be exposed");
+  assert.equal(siteLogo.image, "/uploads/kids-velvet/website-media/logo.png");
+
+  const aboutImage = slot("about.0.image");
+  assert.ok(aboutImage, "about.0.image slot must be exposed");
+  assert.equal(aboutImage.image, "/uploads/kids-velvet/website-media/about-0.jpg");
+
+  const newsImage = slot("news.0.image");
+  assert.ok(newsImage, "news.0.image slot must be exposed");
+  assert.equal(newsImage.image, "/uploads/kids-velvet/website-media/news-0.jpg");
 });
 
 test("storefront content resolves the newest active media for each slot key", async () => {
