@@ -78,6 +78,16 @@ export function serializePublicProduct(product = {}) {
     categoryId: String(product.categoryId || ""),
     brandId: String(product.brandId || ""),
     brand: String(product.brand || ""),
+    // Catalog hierarchy + manufacturer (backward-compatible additions).
+    mainCategoryId: product.mainCategoryId ? String(product.mainCategoryId) : null,
+    subcategoryId: product.subcategoryId ? String(product.subcategoryId) : (product.categoryId ? String(product.categoryId) : null),
+    manufacturer: String(product.manufacturer || ""),
+    // Kids Velvet product filters.
+    age: String(product.age || ""),
+    gender: String(product.gender || ""),
+    skill: String(product.skill || ""),
+    occasion: String(product.occasion || ""),
+    quickShop: product.quickShop === true,
     image: safeUrl(product.image || product.primaryImage),
     hoverImage: safeUrl(product.hoverImage || product.secondaryImage),
     gallery,

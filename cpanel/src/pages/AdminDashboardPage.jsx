@@ -31,7 +31,10 @@ import TenantProductFields from "../components/TenantProductFields.jsx";
 import { deleteProductMedia, uploadImage, uploadImages, uploadProductMedia, validateProductMediaFile } from "../utils/api.js";
 import { fieldStateToValues, productFieldApi, valuesToFieldState } from "../utils/productFields.js";
 import {
+  getMainCategories,
   getSelectableAdminCategories,
+  getSubcategoriesForMain,
+  resolveMainCategoryFor,
 } from "../utils/adminCategories.js";
 import { tenantStorageKey } from "../utils/companyContext.js";
 import { parseRequiredStock, preserveLegacySingleVariantStock } from "../utils/productStock.js";
@@ -335,9 +338,18 @@ function createProductFromForm(form) {
     slug,
     sku: form.sku || slug.toUpperCase(),
     name: createLocalizedCopy(form.nameEn, form.nameAr || form.nameEn),
-    categoryId: form.categoryId,
-    brandId: form.brandId || null,
     shortDescription: createLocalizedCopy(form.shortDescription, form.shortDescriptionAr || form.shortDescription),
+    categoryId: form.subcategoryId || form.categoryId,
+    brandId: form.brandId || null,
+    mainCategoryId: form.mainCategoryId || null,
+    subcategoryId: form.subcategoryId || null,
+    manufacturer: form.manufacturer || "",
+    age: form.age || "",
+    gender: form.gender || "",
+    skill: form.skill || "",
+    occasion: form.occasion || "",
+    quickShop: Boolean(form.quickShop),
+
     longDescription: createLocalizedCopy(form.fullDescription, form.fullDescriptionAr || form.fullDescription || form.shortDescription),
     howToUse: form.howToUse,
     ingredients: form.ingredients,
@@ -1329,6 +1341,15 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
     sku: editingProduct?.sku || "",
     categoryId: editingProduct?.categoryId || initialCategoryOptions[0]?.id || "",
     brandId: editingProduct?.brandId || "",
+    subcategoryId: editingProduct?.subcategoryId || editingProduct?.categoryId || "",
+    mainCategoryId: editingProduct?.mainCategoryId || resolveMainCategoryFor(categories, editingProduct?.mainCategoryId, editingProduct?.subcategoryId || editingProduct?.categoryId),
+    manufacturer: editingProduct?.manufacturer || "",
+    age: editingProduct?.age || "",
+    gender: editingProduct?.gender || "",
+    skill: editingProduct?.skill || "",
+    occasion: editingProduct?.occasion || "",
+    quickShop: Boolean(editingProduct?.quickShop),
+
     size: editingProduct?.sizes?.[0]?.size || "500ml",
     price: editingProduct?.sizes?.[0]?.price || "",
     stockQty: getStockQty(editingProduct || {}),
@@ -1401,6 +1422,11 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
   const tabName = { basic: t("productForm.tabs.basic"), pricing: t("productForm.tabs.pricing"), variants: t("productForm.tabs.variants"), media: t("productForm.tabs.media"), details: t("productForm.tabs.details"), marketing: t("productForm.tabs.marketing"), preview: t("productForm.tabs.preview") };
   const tabs = allTabs.filter((tab) => (tab !== "media" || canManageMedia) && (!["details", "marketing"].includes(tab) || canManageContent));
   const selectableCategories = getSelectableAdminCategories(categories, form.categoryId);
+  const mainCategoryOptions = getMainCategories(categories)
+    .filter((category) => category.isActive !== false && category.active !== false || category.id === form.mainCategoryId);
+  const subcategoryOptions = getSubcategoriesForMain(categories, form.mainCategoryId)
+    .filter((category) => category.isActive !== false && category.active !== false || category.id === form.subcategoryId);
+
   const trackChildUpload = React.useCallback((active) => {
     setActiveChildUploads((count) => Math.max(0, count + (active ? 1 : -1)));
   }, []);
@@ -1413,6 +1439,21 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
       else if (value) removed.delete(name);
       return { ...current, [name]: type === "checkbox" ? checked : value, removedImageFields: [...removed] };
     });
+  }
+  function changeMainCategory(event) {
+    const mainCategoryId = event.target.value;
+    setForm((current) => {
+      const subcategoryId = getSubcategoriesForMain(categories, mainCategoryId)
+        .some((category) => category.id === current.subcategoryId)
+        ? current.subcategoryId
+        : "";
+      return { ...current, mainCategoryId, subcategoryId, categoryId: subcategoryId || "" };
+    });
+  }
+
+  function changeSubcategory(event) {
+    const subcategoryId = event.target.value;
+    setForm((current) => ({ ...current, subcategoryId, categoryId: subcategoryId }));
   }
 
   function addVariant() {
@@ -1742,6 +1783,17 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
                 ))}
               </select>
             </label>
+            <label>Main Category<select name="mainCategoryId" value={form.mainCategoryId || ""} onChange={changeMainCategory}><option value="">—</option>{mainCategoryOptions.map((category) => <option key={category.id} value={category.id}>{getText(category.name, language)}</option>)}</select></label>
+            <label>Subcategory *<select name="subcategoryId" required value={form.subcategoryId || ""} onChange={changeSubcategory} disabled={!form.mainCategoryId}><option value="">Select a subcategory</option>{subcategoryOptions.map((category) => <option key={category.id} value={category.id}>{getText(category.name, language)}</option>)}</select></label>
+            <label>Manufacturer<input name="manufacturer" value={form.manufacturer || ""} onChange={change} /></label>
+            <label>Age<select name="age" value={form.age || ""} onChange={change}><option value="">Any</option>{["0-12 months", "1-3 years", "3-6 years", "6-9 years", "9-12 years", "12+ years"].map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+            <label>Gender<select name="gender" value={form.gender || ""} onChange={change}><option value="">Any</option>{["Boys", "Girls", "Unisex"].map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+            <label>Skill<select name="skill" value={form.skill || ""} onChange={change}><option value="">Any</option>{["Beginner", "Intermediate", "Advanced"].map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+            <label>Occasion<select name="occasion" value={form.occasion || ""} onChange={change}><option value="">Any</option>{["Birthday", "Everyday", "Gift", "School", "Festive"].map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+            <div className="admin-checkbox-grid full-field">
+              <label className="checkbox-line"><input name="quickShop" type="checkbox" checked={Boolean(form.quickShop)} onChange={change} />Quick Shop</label>
+            </div>
+
             <label>{t("productForm.shortDescriptionEn")}<textarea dir="ltr" name="shortDescription" value={form.shortDescription} onChange={change} /></label>
             <label>{t("productForm.shortDescriptionAr")}<textarea dir="rtl" name="shortDescriptionAr" value={form.shortDescriptionAr} onChange={change} /></label>
             <label>{t("productForm.longDescriptionEn")}<textarea dir="ltr" name="fullDescription" value={form.fullDescription} onChange={change} /></label>

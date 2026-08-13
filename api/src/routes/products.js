@@ -4,6 +4,8 @@ import {
   deleteProductWithTenantCatalogLock,
   productRepository,
   saveProductWithTenantCatalogLock,
+  tenantBrandRepository,
+  tenantCategoryRepository,
 } from "../data/store.js";
 import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
 import { normalizeStockValue, preserveOmittedVariantStock } from "../products/productStock.js";
@@ -11,6 +13,7 @@ import { recordActivityLog } from "../activityLog/logger.js";
 import { defaultProductSchema, sanitizeProductSchemaData } from "../productSchema/schema.js";
 import { effectiveTenantRole, optionalAuth, requireAuth, requirePermission } from "../middleware/auth.js";
 import { listTenantProductFieldValues } from "../productSchema/fieldValues.js";
+import { normalizeCatalogHierarchyInput, validateCatalogHierarchy } from "./catalogHierarchy.js";
 
 const router = Router();
 const placeholderImage = "/images/products/product-placeholder.svg";
@@ -248,15 +251,30 @@ function canonicalNormalizedCatalogReferences(incoming) {
     throw error;
   }
   const references = {};
-  const hasCategory = hasOwn(incoming, "categoryId");
-  const hasBrand = hasOwn(incoming, "brandId");
-  if (hasCategory) {
-    references.categoryId = normalizedReferenceValue(incoming.categoryId, "categoryId");
+  for (const field of ["categoryId", "brandId", "mainCategoryId", "subcategoryId"]) {
+    if (hasOwn(incoming, field)) {
+      references[field] = normalizedReferenceValue(incoming[field], field) ?? null;
+    }
   }
-  if (hasBrand) {
-    references.brandId = normalizedReferenceValue(incoming.brandId, "brandId");
+  // The concrete product category (the FK consumed by the rest of the catalog)
+  // mirrors the Subcategory whenever one is supplied. This keeps the legacy
+  // `categoryId` path intact while adding the Main/Subcategory hierarchy.
+  if (hasOwn(references, "subcategoryId") && !hasOwn(references, "categoryId")) {
+    references.categoryId = references.subcategoryId;
   }
   return references;
+}
+
+// Validates the product's Brand -> Main Category -> Subcategory hierarchy and
+// its filter attributes against the company's real catalog records. Also merges
+// the normalized hierarchy/filter values into the product for persistence.
+async function applyCatalogHierarchyAndFilters(companyId, product) {
+  const [brands, categories] = await Promise.all([
+    tenantBrandRepository.listByCompany(companyId),
+    tenantCategoryRepository.listByCompany(companyId),
+  ]);
+  const validated = validateCatalogHierarchy({ brands, categories, product });
+  return { ...product, ...validated };
 }
 
 function requireProductListPermission(req, res, next) {
@@ -298,13 +316,19 @@ router.post("/", requireAuth, requirePermission("products.create"), async (req, 
   let product;
   try {
     const normalizedReferences = canonicalNormalizedCatalogReferences(req.body);
+    const hierarchyInput = normalizeCatalogHierarchyInput(req.body);
+
     const { removedImageFields, clearGalleryImages, ...productBody } = req.body;
     product = normalizeProduct(sanitizeProductSchemaData({
       ...productBody,
       ...normalizedReferences,
+      ...hierarchyInput,
+
       id: req.body.id || `product-${Date.now()}`,
       slug: req.body.slug || `product-${Date.now()}`,
     }, productSchemaForCompany(req.companyId)));
+    product = await applyCatalogHierarchyAndFilters(req.companyId, product);
+
     product = await saveProductWithTenantCatalogLock(req.companyId, product, { isCreate: true });
   } catch (error) {
     return sendProductPersistenceError(req, res, error, "creation");
@@ -330,11 +354,17 @@ router.put("/:id", requireAuth, requirePermission("products.update"), async (req
   let normalizedUpdate;
   try {
     const normalizedReferences = canonicalNormalizedCatalogReferences(req.body);
+    const hierarchyInput = normalizeCatalogHierarchyInput(req.body);
+
     normalizedUpdate = normalizeProduct(sanitizeProductSchemaData(mergeProductUpdate(existing, {
       ...req.body,
       ...normalizedReferences,
+      ...hierarchyInput,
+
       id: req.params.id,
     }), productSchemaForCompany(req.companyId)));
+    normalizedUpdate = await applyCatalogHierarchyAndFilters(req.companyId, normalizedUpdate);
+
     normalizedUpdate = await saveProductWithTenantCatalogLock(req.companyId, normalizedUpdate);
   } catch (error) {
     return sendProductPersistenceError(req, res, error, "update");
