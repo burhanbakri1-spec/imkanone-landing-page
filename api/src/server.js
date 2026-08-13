@@ -191,6 +191,7 @@ app.use("/api/admin/invoices", invoiceRoutes);
 app.use("/api/admin/delivery-zones", deliveryAdminRouter);
 app.use("/api/admin/dropshipping", adminDropshippingRoutes);
 app.use("/api/admin/inbox", inboxRoutes);
+app.use("/api/admin/website-texts", adminWebsiteTextsRouter);
 app.use("/api/admin", adminRoutes);
 app.use("/api/delivery-zones", deliveryPublicRouter);
 app.use("/api/admin/activity-log", activityLogRoutes);
@@ -201,7 +202,6 @@ app.use("/api/work-sessions", workSessionRoutes);
 app.use("/api/website-media", websiteMediaRoutes);
 app.use("/api/site-editor", siteEditorRoutes);
 app.use("/api/website-texts", publicWebsiteTextsRouter);
-app.use("/api/admin/website-texts", adminWebsiteTextsRouter);
 
 app.use((_req, res) => {
   res.status(404).json({ message: "API route not found." });
