@@ -1,7 +1,7 @@
 import React from "react";
-import { ImageOff, ImagePlus, Save, Trash2, Upload } from "lucide-react";
+import { ImageOff, ImagePlus, Save, Trash2, Upload, Video, VideoOff } from "lucide-react";
 import { withWebsiteMediaVersion } from "../data/websiteMedia.js";
-import { uploadImage } from "../utils/api.js";
+import { uploadImage, uploadWebsiteVideo, websiteVideoUploadLimitMb } from "../utils/api.js";
 
 const emptyItem = {
   id: "",
@@ -9,6 +9,8 @@ const emptyItem = {
   sectionLabel: "",
   groupKey: "sections",
   imageUrl: "",
+  videoUrl: "",
+  mediaType: "image",
   title: "",
   subtitle: "",
   linkUrl: "",
@@ -46,10 +48,13 @@ function groupItems(items) {
   }, {});
 }
 
-function MediaEditor({ item, language, onDelete, onSave }) {
+export function MediaEditor({ item, language, onDelete, onSave, lockSectionKey = false }) {
   const [draft, setDraft] = React.useState(item);
   const [message, setMessage] = React.useState("");
   const [uploading, setUploading] = React.useState(false);
+  const [uploadingVideo, setUploadingVideo] = React.useState(false);
+  const [videoProgress, setVideoProgress] = React.useState(0);
+  const maxVideoMb = websiteVideoUploadLimitMb();
   const isArabic = language === "ar";
 
   React.useEffect(() => setDraft(item), [item]);
@@ -113,10 +118,51 @@ function MediaEditor({ item, language, onDelete, onSave }) {
     }
   }
 
+  async function handleVideoUpload(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      setUploadingVideo(true);
+      setVideoProgress(0);
+      setMessage("");
+      const result = await uploadWebsiteVideo(file, setVideoProgress);
+      const url = result.url || result.path || "";
+      setDraft((current) => ({ ...current, videoUrl: url, mediaType: url ? "video" : current.mediaType }));
+      setMessage(isArabic ? "تم رفع الفيديو. اضغط حفظ لتطبيق التغيير." : "Video uploaded. Press Save to apply.");
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setUploadingVideo(false);
+      setVideoProgress(0);
+    }
+  }
+
+  async function handleClearVideo() {
+    setDraft((current) => ({ ...current, videoUrl: "", mediaType: "image" }));
+    try {
+      setMessage("");
+      const saved = await onSave({ ...draft, videoUrl: "", mediaType: "image" });
+      if (saved) setDraft(saved);
+      setMessage(isArabic ? "تم مسح الفيديو." : "Video cleared.");
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+
   return (
     <article className="website-media-card">
       <div className="website-media-preview">
-        {draft.imageUrl ? (
+        {draft.videoUrl ? (
+          <video
+            controls
+            muted={false}
+            playsInline
+            preload="metadata"
+            poster={draft.imageUrl ? withWebsiteMediaVersion(draft.imageUrl, draft.updatedAt || draft.id) : undefined}
+            src={withWebsiteMediaVersion(draft.videoUrl, draft.updatedAt || draft.id)}
+          />
+        ) : draft.imageUrl ? (
           <img
             alt={draft.sectionLabel || draft.sectionKey}
             src={withWebsiteMediaVersion(draft.imageUrl, draft.updatedAt || draft.id)}
@@ -134,12 +180,23 @@ function MediaEditor({ item, language, onDelete, onSave }) {
         </label>
         <label>
           {isArabic ? "مفتاح القسم" : "Section key"}
-          <input value={draft.sectionKey} onChange={(event) => update("sectionKey", event.target.value)} />
+          <input readOnly={lockSectionKey} value={draft.sectionKey} onChange={(event) => update("sectionKey", event.target.value)} />
         </label>
         <label className="full-field">
           {isArabic ? "رابط الصورة" : "Image URL"}
           <input value={draft.imageUrl} onChange={(event) => update("imageUrl", event.target.value)} />
         </label>
+        <label className="full-field">
+          {isArabic ? "نوع الوسائط" : "Media type"}
+          <input readOnly value={draft.videoUrl ? "video" : (draft.mediaType || "image")} />
+        </label>
+        <label className="full-field">
+          {isArabic ? "رابط الفيديو" : "Video URL"}
+          <input value={draft.videoUrl} onChange={(event) => update("videoUrl", event.target.value)} />
+        </label>
+        <p className="website-media-video-hint">
+          {isArabic ? `MP4 أو WebM - الحد الأقصى ${maxVideoMb} م.ب` : `MP4 or WEBM - max ${maxVideoMb} MB`}
+        </p>
         <label>
           {isArabic ? "المجموعة" : "Group"}
           <input value={draft.groupKey} onChange={(event) => update("groupKey", event.target.value)} />
@@ -176,6 +233,22 @@ function MediaEditor({ item, language, onDelete, onSave }) {
           {uploading ? (isArabic ? "جاري الرفع..." : "Uploading...") : (isArabic ? "رفع صورة" : "Upload image")}
           <input accept="image/*" disabled={uploading} hidden onChange={handleUpload} type="file" />
         </label>
+        <label className="admin-upload-button website-media-video-upload">
+          <Video size={15} />
+          {uploadingVideo ? `${isArabic ? "جاري رفع الفيديو..." : "Uploading video..."} ${videoProgress}%` : (isArabic ? "رفع فيديو" : "Upload video")}
+          <input accept="video/mp4,video/webm" disabled={uploadingVideo} hidden onChange={handleVideoUpload} type="file" />
+        </label>
+        {uploadingVideo && (
+          <div className="website-media-upload-progress" role="progressbar" aria-valuenow={videoProgress} aria-valuemin={0} aria-valuemax={100}>
+            <span style={{ width: `${videoProgress}%` }} />
+          </div>
+        )}
+        {draft.videoUrl && (
+          <button className="website-media-clear" disabled={uploadingVideo} onClick={handleClearVideo} type="button">
+            <VideoOff size={15} />
+            {isArabic ? "إزالة الفيديو" : "Remove video"}
+          </button>
+        )}
         <button
           className="website-media-clear"
           disabled={!draft.imageUrl}

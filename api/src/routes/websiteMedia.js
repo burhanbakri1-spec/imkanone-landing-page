@@ -38,6 +38,7 @@ function sortMedia(items) {
 }
 
 function normalizeMedia(input, existing = {}) {
+  const videoUrl = input.videoUrl ?? input.video_url ?? existing.videoUrl ?? existing.video_url ?? "";
   return {
     ...existing,
     ...input,
@@ -47,6 +48,8 @@ function normalizeMedia(input, existing = {}) {
     groupKey: input.groupKey || existing.groupKey || "sections",
     fallbackImageUrl: input.fallbackImageUrl ?? input.fallback_image_url ?? existing.fallbackImageUrl ?? "",
     imageUrl: input.imageUrl ?? input.image_url ?? existing.imageUrl ?? "",
+    videoUrl,
+    mediaType: input.mediaType ?? input.media_type ?? existing.mediaType ?? (videoUrl ? "video" : "image"),
     title: input.title ?? existing.title ?? "",
     subtitle: input.subtitle ?? existing.subtitle ?? "",
     linkUrl: input.linkUrl ?? input.link_url ?? existing.linkUrl ?? "",

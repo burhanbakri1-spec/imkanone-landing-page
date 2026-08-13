@@ -7,6 +7,7 @@ import { deleteSupabaseStorageObject, isSupabaseStorageConfigured, uploadImageTo
 import { companyStoragePath, companyStorageSegment } from "../tenancy/company.js";
 import { persistCompanyStore, productRepository, userRepository } from "../data/store.js";
 import { productMediaRelativeDirectory, validateProductMediaUpload } from "../productSchema/productMedia.js";
+import { assertVideoContainer, ffmpegAvailable, MAX_VIDEO_UPLOAD_MB, validateVideoUpload } from "../uploads/videoUpload.js";
 
 const router = express.Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -29,6 +30,13 @@ function requireProductUploader(req, res, next) {
   if (["admin", "company_admin", "super_admin", "manager"].includes(role)) return next();
   if (["employee", "staff"].includes(role) && req.user?.permissions?.some((p) => ["product_media.manage", "products.manage"].includes(p))) return next();
   return res.status(403).json({ message: "Product media permission required." });
+}
+
+function requireWebsiteMediaUploader(req, res, next) {
+  const role = effectiveTenantRole(req);
+  if (["admin", "company_admin", "super_admin", "manager"].includes(role)) return next();
+  if (["employee", "staff"].includes(role) && req.user?.permissions?.some((p) => ["website_media.manage"].includes(p))) return next();
+  return res.status(403).json({ message: "Website media permission required." });
 }
 
 function getBoundary(contentType = "") {
@@ -281,6 +289,79 @@ router.delete("/products/:productId", requireAuth, requireProductMediaPermission
     return res.status(204).end();
   } catch (error) { return next(error); }
 });
+
+router.post(
+  "/website-media",
+  requireAuth,
+  requireWebsiteMediaUploader,
+  express.raw({
+    limit: `${MAX_VIDEO_UPLOAD_MB}mb`,
+    type: (req) => req.headers["content-type"]?.startsWith("multipart/form-data"),
+  }),
+  async (req, res, next) => {
+    try {
+      const boundary = getBoundary(req.headers["content-type"]);
+      const uploads = boundary ? parseMultipartImages(req.body, boundary) : [];
+      if (!uploads.length) return res.status(400).json({ message: "No video file was uploaded." });
+
+      const validatedUploads = [];
+      for (const upload of uploads) {
+        try {
+          const validation = validateVideoUpload({ contentType: upload.contentType, size: upload.data.length });
+          const signature = assertVideoContainer(upload.data);
+          if ((signature === "webm") !== (validation.mimeType === "video/webm")) {
+            return res.status(400).json({ message: "The video container does not match the declared file type." });
+          }
+          validatedUploads.push({ upload, validation });
+        } catch (error) {
+          return res.status(error.statusCode || 400).json({ message: error.message });
+        }
+      }
+
+      const useSupabaseStorage = isSupabaseStorageConfigured();
+      if (!useSupabaseStorage && requiresPersistentStorage() && !hasLocalPersistentStorage()) {
+        return storageUnavailableResponse(req, res, "video");
+      }
+
+      const savedFiles = [];
+      for (const { upload, validation } of validatedUploads) {
+        const filename = safeFilename(upload.filename, upload.contentType, videoTypes);
+        if (!filename) return res.status(400).json({ message: "Unsupported video file type." });
+        if (useSupabaseStorage) {
+          savedFiles.push(await uploadImageToSupabaseStorage({
+            companyId: req.companyId,
+            filename,
+            contentType: upload.contentType,
+            data: upload.data,
+            pathParts: ["website-media"],
+          }));
+        } else {
+          const relativePath = companyStoragePath(req.companyId, "website-media", filename);
+          const localDirectory = path.join(uploadsDir, ...relativePath.split("/").slice(0, -1));
+          fs.mkdirSync(localDirectory, { recursive: true });
+          fs.writeFileSync(path.join(localDirectory, filename), upload.data);
+          savedFiles.push({
+            path: `/uploads/${relativePath}`,
+            url: buildPublicUrl(req, relativePath),
+          });
+        }
+      }
+
+      const first = savedFiles[0];
+      return res.status(201).json({
+        ...first,
+        files: savedFiles,
+        mediaType: "video",
+        contentType: validatedUploads[0].validation.mimeType,
+        size: validatedUploads[0].validation.size,
+        maxBytes: validatedUploads[0].validation.maxBytes,
+        ffmpegAvailable: ffmpegAvailable(),
+      });
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
 
 router.post(
   "/avatar",

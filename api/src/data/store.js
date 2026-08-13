@@ -456,6 +456,8 @@ function normalizeReview(review, index = 0) {
 }
 
 function normalizeWebsiteMedia(item, index = 0) {
+  const videoUrl = item.videoUrl ?? item.video_url ?? "";
+  const mediaType = item.mediaType || item.media_type || (videoUrl ? "video" : "image");
   return {
     ...item,
     id: item.id || `website-media-${index}`,
@@ -464,6 +466,8 @@ function normalizeWebsiteMedia(item, index = 0) {
     groupKey: item.groupKey || item.group_key || "sections",
     fallbackImageUrl: item.fallbackImageUrl || item.fallback_image_url || "",
     imageUrl: item.imageUrl ?? item.image_url ?? "",
+    videoUrl,
+    mediaType,
     title: item.title || "",
     subtitle: item.subtitle || "",
     linkUrl: item.linkUrl || item.link_url || "",
@@ -488,17 +492,19 @@ function mediaTimestamp(item) {
 function preferWebsiteMediaItem(current, next) {
   if (!current) return next;
 
-  const currentHasImage = Boolean(current.imageUrl || current.image_url);
-  const nextHasImage = Boolean(next.imageUrl || next.image_url);
+  const currentHasMedia = Boolean(current.imageUrl || current.image_url || current.videoUrl || current.video_url);
+  const nextHasMedia = Boolean(next.imageUrl || next.image_url || next.videoUrl || next.video_url);
 
   const preferred =
-    nextHasImage && !currentHasImage
+    nextHasMedia && !currentHasMedia
       ? next
-      : !nextHasImage && currentHasImage
+      : !nextHasMedia && currentHasMedia
         ? current
         : mediaTimestamp(next) >= mediaTimestamp(current)
           ? next
           : current;
+
+  const videoUrl = preferred.videoUrl ?? preferred.video_url ?? current.videoUrl ?? current.video_url ?? "";
 
   return {
     ...current,
@@ -509,6 +515,8 @@ function preferWebsiteMediaItem(current, next) {
     groupKey: preferred.groupKey || preferred.group_key || current.groupKey || current.group_key,
     fallbackImageUrl: current.fallbackImageUrl || current.fallback_image_url || preferred.fallbackImageUrl || "",
     imageUrl: preferred.imageUrl ?? preferred.image_url ?? "",
+    videoUrl,
+    mediaType: preferred.mediaType ?? preferred.media_type ?? current.mediaType ?? (videoUrl ? "video" : "image"),
   };
 }
 

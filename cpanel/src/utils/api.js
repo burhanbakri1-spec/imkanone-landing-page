@@ -235,3 +235,53 @@ export async function deleteProductMedia(productId, value) {
     body: JSON.stringify({ url: value }),
   });
 }
+
+const websiteVideoTypes = new Set(["video/mp4", "video/webm"]);
+const MAX_WEBSITE_VIDEO_MB = Number(import.meta.env?.VITE_MAX_WEBSITE_VIDEO_MB || 150);
+const MAX_WEBSITE_VIDEO_BYTES = MAX_WEBSITE_VIDEO_MB * 1024 * 1024;
+
+export function validateWebsiteVideoFile(file) {
+  if (!file) throw createUploadError("No video file selected.", 400);
+  if (!websiteVideoTypes.has(String(file.type || "").toLowerCase())) {
+    throw createUploadError("Use MP4 or WEBM video files.", 400, "UNSUPPORTED_VIDEO_TYPE");
+  }
+  if (Number(file.size || 0) > MAX_WEBSITE_VIDEO_BYTES) {
+    throw createUploadError(`Video exceeds the ${MAX_WEBSITE_VIDEO_MB} MB limit.`, 413, "VIDEO_TOO_LARGE");
+  }
+  return { maxBytes: MAX_WEBSITE_VIDEO_BYTES, maxMb: MAX_WEBSITE_VIDEO_MB };
+}
+
+export function websiteVideoUploadLimitMb() {
+  return MAX_WEBSITE_VIDEO_MB;
+}
+
+export function uploadWebsiteVideo(file, onProgress = () => {}) {
+  try { validateWebsiteVideoFile(file); }
+  catch (error) { return Promise.reject(error); }
+  const token = getToken();
+  if (!token) return Promise.reject(createUploadError("Authentication required.", 401));
+
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", `${apiBaseUrl}/uploads/website-media`);
+    request.setRequestHeader("Authorization", `Bearer ${token}`);
+    request.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable && event.total) {
+        onProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)));
+      }
+    });
+    request.addEventListener("load", () => {
+      const data = (() => { try { return JSON.parse(request.responseText || "{}"); } catch { return {}; } })();
+      if (request.status < 200 || request.status >= 300) {
+        return reject(createUploadError(data.message || "Video upload failed.", request.status, data.code));
+      }
+      onProgress(100);
+      return resolve({ ...data, url: data.url || data.path || "", path: data.path || data.url || "" });
+    });
+    request.addEventListener("error", () => reject(createUploadError("Video upload failed.", 0)));
+    request.addEventListener("abort", () => reject(createUploadError("Video upload aborted.", 0)));
+    const formData = new FormData();
+    formData.append("file", file);
+    request.send(formData);
+  });
+}

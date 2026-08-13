@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import AdminLayout from "../components/AdminLayout.jsx";
 import AdminOrdersTable from "../components/AdminOrdersTable.jsx";
+import MediaSlotsManager from "../components/MediaSlotsManager.jsx";
 import WebsiteMediaManager from "../components/WebsiteMediaManager.jsx";
 import TenantProductFields from "../components/TenantProductFields.jsx";
 import { deleteProductMedia, uploadImage, uploadImages, uploadProductMedia, validateProductMediaFile } from "../utils/api.js";
@@ -2502,7 +2503,21 @@ function AdminDashboardPage({
       case "admin-store-locator-new":
         return renderEntityForm("store");
       case "admin-website-media":
-        return <WebsiteMediaManager error={websiteMediaError} items={websiteMedia} language={language} onDelete={onDeleteWebsiteMedia} onSave={onSaveWebsiteMedia} />;
+        return (
+          <>
+            <MediaSlotsManager
+              brands={brands}
+              categories={categories}
+              error={websiteMediaError}
+              items={websiteMedia}
+              language={language}
+              onDelete={onDeleteWebsiteMedia}
+              onSave={onSaveWebsiteMedia}
+              products={products}
+            />
+            <WebsiteMediaManager error={websiteMediaError} items={websiteMedia} language={language} onDelete={onDeleteWebsiteMedia} onSave={onSaveWebsiteMedia} />
+          </>
+        );
       case "admin-orders":
         return <section className="admin-panel-card"><Toolbar><SearchField placeholder="Search order #, customer..." value="" onChange={() => {}} /><select><option>Status</option></select><select><option>Payment</option></select></Toolbar>{orders.length ? <AdminOrdersTable employees={employees} canDelete={canManageSensitive} language={language} onAssignEmployee={onAssignEmployee} onDeleteOrder={onDeleteOrder} onStatusChange={onStatusChange} orders={orders} products={products} t={t} /> : <EmptyState title="No orders found" description="No orders have been placed yet. Orders will appear here once customers complete their purchases." />}</section>;
       case "admin-reviews":
