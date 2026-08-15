@@ -66,7 +66,22 @@ begin
 
   -- brand.{slug}.logo | .video | .poster -> company_brands
   for item in
-    select section_key, image_url, video_url, fallback_image_url, is_active
+    select
+      section_key,
+      coalesce(
+        nullif(image_url, ''),
+        nullif(data ->> 'imageUrl', ''),
+        nullif(data ->> 'image_url', '')
+      ) as image_url,
+      coalesce(
+        nullif(data ->> 'videoUrl', ''),
+        nullif(data ->> 'video_url', '')
+      ) as video_url,
+      coalesce(
+        nullif(data ->> 'fallbackImageUrl', ''),
+        nullif(data ->> 'fallback_image_url', '')
+      ) as fallback_image_url,
+      is_active
     from public.website_media
     where company_id = 'kids-velvet' and section_key like 'brand.%.%'
   loop
@@ -98,7 +113,18 @@ begin
 
   -- category.{slug}.heroVideo -> company_categories (Main Category only)
   for item in
-    select section_key, image_url, video_url, is_active
+    select
+      section_key,
+      coalesce(
+        nullif(image_url, ''),
+        nullif(data ->> 'imageUrl', ''),
+        nullif(data ->> 'image_url', '')
+      ) as image_url,
+      coalesce(
+        nullif(data ->> 'videoUrl', ''),
+        nullif(data ->> 'video_url', '')
+      ) as video_url,
+      is_active
     from public.website_media
     where company_id = 'kids-velvet' and section_key like 'category.%.heroVideo'
   loop
@@ -115,7 +141,22 @@ begin
 
   -- product.{slug}.usageVideo / usageVideoPoster -> products
   for item in
-    select section_key, image_url, video_url, fallback_image_url, is_active
+    select
+      section_key,
+      coalesce(
+        nullif(image_url, ''),
+        nullif(data ->> 'imageUrl', ''),
+        nullif(data ->> 'image_url', '')
+      ) as image_url,
+      coalesce(
+        nullif(data ->> 'videoUrl', ''),
+        nullif(data ->> 'video_url', '')
+      ) as video_url,
+      coalesce(
+        nullif(data ->> 'fallbackImageUrl', ''),
+        nullif(data ->> 'fallback_image_url', '')
+      ) as fallback_image_url,
+      is_active
     from public.website_media
     where company_id = 'kids-velvet'
       and (section_key like 'product.%.usageVideo' or section_key like 'product.%.usageVideoPoster')
