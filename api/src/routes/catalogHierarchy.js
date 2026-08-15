@@ -103,6 +103,11 @@ export function validateCatalogHierarchy({ brands = [], categories = [], product
     if (main.parentId) {
       throw catalogHierarchyError("Selected category is a Subcategory, not a Main Category.");
     }
+    // Kids Velvet: a Main Category belongs directly to a Brand. When the Main
+    // Category carries a brandId, the product's Brand must match it.
+    if (main.brandId && brandId && main.brandId !== brandId) {
+      throw catalogHierarchyError("Main Category does not belong to the selected Brand.");
+    }
   }
 
   if (subcategoryId) {

@@ -112,6 +112,8 @@ function normalizeProduct(product) {
     gallery_images: galleryImages,
     galleryImages: galleryImages.map((entry) => entry.image_url),
     fallbackImage: product.fallbackImage || placeholderImage,
+    usageVideo: product.usageVideo || product.usage_video || null,
+    usageVideoPoster: product.usageVideoPoster || product.usage_video_poster || null,
   };
 }
 

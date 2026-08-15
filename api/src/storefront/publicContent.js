@@ -90,6 +90,8 @@ export function serializePublicProduct(product = {}) {
     quickShop: product.quickShop === true,
     image: safeUrl(product.image || product.primaryImage),
     hoverImage: safeUrl(product.hoverImage || product.secondaryImage),
+    usageVideo: safeUrl(product.usageVideo),
+    usageVideoPoster: safeUrl(product.usageVideoPoster),
     gallery,
     variants,
     options: (Array.isArray(product.options) ? product.options : []).map(safeOption),
@@ -107,8 +109,22 @@ export function serializePublicCategory(category = {}) {
     name: localized(category.name),
     description: localized(category.description),
     image: safeUrl(category.imageUrl),
+    heroVideo: safeUrl(category.heroVideo),
     parentId: category.parentId ? String(category.parentId) : null,
+    brandId: category.brandId ? String(category.brandId) : null,
     sortOrder: finiteNumber(category.sortOrder, 0),
+  };
+}
+
+export function serializePublicBrand(brand = {}) {
+  return {
+    id: String(brand.id || ""),
+    slug: String(brand.slug || ""),
+    name: localized(brand.name),
+    logoUrl: safeUrl(brand.logoUrl),
+    heroVideo: safeUrl(brand.heroVideo),
+    heroPoster: safeUrl(brand.heroPoster),
+    sortOrder: finiteNumber(brand.sortOrder, 0),
   };
 }
 

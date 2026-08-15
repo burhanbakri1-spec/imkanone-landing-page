@@ -1,5 +1,5 @@
 import React from "react";
-import { ChevronDown, ChevronUp, ImageOff, ImagePlus, Save, Search, Trash2, Upload } from "lucide-react";
+import { ChevronDown, ChevronUp, ImageOff, ImagePlus, Save, Trash2, Upload } from "lucide-react";
 import { uploadImage } from "../utils/api.js";
 import { withWebsiteMediaVersion } from "../data/websiteMedia.js";
 import { MediaEditor } from "./WebsiteMediaManager.jsx";
@@ -7,19 +7,12 @@ import {
   PARENT_BRAND,
   SITE_LOGO_SLOT,
   SITE_MEDIA_SLOTS,
-  VELVET_BRANCHES,
   aboutImageSlots,
-  brandMediaSlots,
-  categoryHeroMediaSlots,
   newsImageSlots,
-  productMediaSlots,
 } from "../data/mediaSlots.js";
 
 const groupLabels = {
   identity: { en: "VELVET", ar: "VELVET" },
-  brands: { en: "VELVET Branches", ar: "فروع VELVET" },
-  categories: { en: "Categories", ar: "الأقسام" },
-  products: { en: "Products", ar: "المنتجات" },
   about: { en: "About", ar: "من نحن" },
   news: { en: "News", ar: "الأخبار" },
   contact: { en: "Contact", ar: "الاتصال" },
@@ -27,13 +20,6 @@ const groupLabels = {
 
 function groupLabel(groupKey, language) {
   return groupLabels[groupKey]?.[language] || groupKey.replaceAll("_", " ");
-}
-
-function entityName(entity, language) {
-  const name = entity?.name;
-  if (!name) return entity?.slug || entity?.id || "";
-  if (typeof name === "string") return name;
-  return name[language] || name.en || name.ar || entity.slug || entity.id || "";
 }
 
 function slotDraft(slot) {
@@ -51,16 +37,6 @@ function slotDraft(slot) {
     sortOrder: 0,
     isActive: true,
   };
-}
-
-function matchText(value) {
-  return String(value || "").toLowerCase();
-}
-
-function productSearchable(product) {
-  const name = product?.name || {};
-  const nameText = typeof name === "string" ? name : `${name.en || ""} ${name.ar || ""}`;
-  return matchText(`${nameText} ${product?.slug || ""} ${product?.sku || ""} ${product?.id || ""}`);
 }
 
 function Accordion({ summary, count, defaultOpen = false, children }) {
@@ -196,74 +172,6 @@ function ParentBrandGroup({ logoItem, homeSlots, entries, language, onDelete, on
   );
 }
 
-function CategoryImageEditor({ category, language, onSaveCategory }) {
-  const [draft, setDraft] = React.useState(category);
-  const [uploading, setUploading] = React.useState(false);
-  const [message, setMessage] = React.useState("");
-  const isArabic = language === "ar";
-
-  React.useEffect(() => setDraft(category), [category]);
-
-  async function handleUpload(event) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    try {
-      setUploading(true);
-      setMessage("");
-      const result = await uploadImage(file);
-      setDraft((current) => ({ ...current, imageUrl: result.url || result.path || "" }));
-      setMessage(isArabic ? "تم رفع الصورة. اضغط حفظ لتطبيق التغيير." : "Image uploaded. Press Save to apply.");
-    } catch (error) {
-      setMessage(error.message);
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  async function handleSave() {
-    try {
-      setMessage("");
-      const saved = await onSaveCategory(draft);
-      if (saved) setDraft(saved);
-      setMessage(isArabic ? "تم حفظ صورة القسم." : "Category image saved.");
-    } catch (error) {
-      setMessage(error.message);
-    }
-  }
-
-  const previewUrl = draft?.imageUrl
-    ? withWebsiteMediaVersion(draft.imageUrl, draft?.updatedAt || draft?.id)
-    : "";
-
-  return (
-    <article className="website-media-card website-media-logo-card">
-      <div className="website-media-preview website-media-logo-preview">
-        {previewUrl ? <img alt={entityName(category, language)} src={previewUrl} /> : <ImagePlus aria-hidden="true" size={30} />}
-        <span>{isArabic ? "صورة القسم" : "Category image"}</span>
-      </div>
-      <div className="website-media-fields">
-        <label className="full-field">
-          {isArabic ? "رابط الصورة" : "Image URL"}
-          <input value={draft?.imageUrl || ""} onChange={(event) => setDraft((current) => ({ ...current, imageUrl: event.target.value }))} />
-        </label>
-      </div>
-      <div className="website-media-actions">
-        <label className="admin-upload-button">
-          <Upload size={15} />
-          {uploading ? (isArabic ? "جاري الرفع..." : "Uploading...") : (isArabic ? "رفع / استبدال" : "Upload / Replace")}
-          <input accept="image/*" disabled={uploading} hidden onChange={handleUpload} type="file" />
-        </label>
-        <button className="admin-primary-button" onClick={handleSave} type="button">
-          <Save size={15} />
-          {isArabic ? "حفظ" : "Save"}
-        </button>
-      </div>
-      {message && <p className="website-media-message">{message}</p>}
-    </article>
-  );
-}
-
 function SlotCards({ slots, entries, language, onDelete, onSave }) {
   const rendered = slots.map((slot) => {
     const entry = entries[slot.key] || slotDraft(slot);
@@ -281,9 +189,8 @@ function SlotCards({ slots, entries, language, onDelete, onSave }) {
   return <div className="website-media-grid">{rendered}</div>;
 }
 
-function MediaSlotsManager({ brands = [], categories = [], error = "", items = [], language = "en", onDelete, onSave, onSaveCategory, products = [] }) {
+function MediaSlotsManager({ error = "", items = [], language = "en", onDelete, onSave }) {
   const isArabic = language === "ar";
-  const [productQuery, setProductQuery] = React.useState("");
 
   const registeredItems = React.useMemo(() => (Array.isArray(items) ? items : []), [items]);
 
@@ -310,42 +217,6 @@ function MediaSlotsManager({ brands = [], categories = [], error = "", items = [
   const aboutSlots = [...aboutHeroSlots, ...aboutImageSlots()];
   const newsSlots = newsImageSlots();
 
-  // Render EVERY actual VELVET branch from the canonical i-play catalog, plus
-  // any extra brand rows the CPanel knows about that are not in the catalog.
-  const branchGroups = VELVET_BRANCHES.map((branch) => ({
-    key: branch.slug,
-    label: branch.name[language] || branch.name.en || branch.slug,
-    slots: brandMediaSlots(branch.slug),
-  }));
-  for (const brand of brands) {
-    const slug = String(brand.slug || brand.id || "").trim();
-    if (!slug) continue;
-    if (branchGroups.some((group) => group.key === slug)) continue;
-    branchGroups.push({
-      key: slug,
-      label: entityName(brand, language),
-      slots: brandMediaSlots(slug),
-    });
-  }
-
-  const categoryGroups = categories.map((category) => ({
-    key: category.id || category.slug || category.name,
-    label: entityName(category, language),
-    category,
-    slots: categoryHeroMediaSlots(category.slug || category.id),
-  }));
-  const productGroups = products.map((product) => ({
-    key: product.id || product.slug || product.name,
-    label: entityName(product, language),
-    slots: productMediaSlots(product.slug || product.id),
-    searchable: productSearchable(product),
-  }));
-
-  const trimmedQuery = productQuery.trim().toLowerCase();
-  const filteredProducts = trimmedQuery
-    ? productGroups.filter((group) => group.searchable.includes(trimmedQuery))
-    : productGroups;
-
   return (
     <section className="website-media-manager">
       <header className="website-media-head">
@@ -353,8 +224,8 @@ function MediaSlotsManager({ brands = [], categories = [], error = "", items = [
           <h2>{isArabic ? "وسائط المتجر" : "Storefront Media"}</h2>
           <p>
             {isArabic
-              ? "أدر شعار الموقع، فروع VELVET، صور الأقسام، فيديوهات استخدام المنتجات، وصور من نحن والأخبار."
-              : "Manage the VELVET site logo, branches, category visuals, product usage videos, and about/news images."}
+              ? "أدر شعار الموقع وصور من نحن والأخبار والاتصال. تُدار وسائط العلامات والأقسام والمنتجات من نماذجها الخاصة."
+              : "Manage the VELVET site logo and the about/news/contact visuals. Brand, category and product media is managed from their own forms."}
           </p>
         </div>
       </header>
@@ -376,66 +247,6 @@ function MediaSlotsManager({ brands = [], categories = [], error = "", items = [
         />
       </Accordion>
 
-      <Accordion summary={groupLabel("brands", language)} count={branchGroups.length}>
-        <div className="website-media-accordion-nested">
-          {branchGroups.map((group) => (
-            <Accordion key={group.key} summary={group.label} count={group.slots.length}>
-              <div className="website-media-accordion-nested">
-                <LogoEditor
-                  item={entryFor({ key: `brand.${group.key}.logo`, kind: "image", groupKey: "brands" })}
-                  language={language}
-                  onSave={onSave}
-                  label={group.label}
-                />
-              </div>
-              <SlotCards slots={group.slots.slice(1)} entries={entries} language={language} onDelete={onDelete} onSave={onSave} />
-            </Accordion>
-          ))}
-        </div>
-      </Accordion>
-
-      <Accordion summary={groupLabel("categories", language)} count={categoryGroups.length}>
-        <div className="website-media-accordion-nested">
-          {categoryGroups.map((group) => (
-            <Accordion key={group.key} summary={group.label} count={group.slots.length + 1}>
-              <div className="website-media-accordion-nested">
-                <CategoryImageEditor
-                  category={group.category}
-                  language={language}
-                  onSaveCategory={onSaveCategory}
-                />
-                <SlotCards slots={group.slots} entries={entries} language={language} onDelete={onDelete} onSave={onSave} />
-              </div>
-            </Accordion>
-          ))}
-        </div>
-      </Accordion>
-
-      <Accordion summary={groupLabel("products", language)} count={filteredProducts.length}>
-        <div className="website-media-search">
-          <Search size={16} aria-hidden="true" />
-          <input
-            aria-label={isArabic ? "ابحث عن منتج" : "Search products"}
-            onChange={(event) => setProductQuery(event.target.value)}
-            placeholder={isArabic ? "ابحث عن منتج..." : "Search products..."}
-            type="search"
-            value={productQuery}
-          />
-        </div>
-        <div className="website-media-accordion-nested">
-          {filteredProducts.map((group) => (
-            <Accordion key={group.key} summary={group.label} count={group.slots.length}>
-              <SlotCards slots={group.slots} entries={entries} language={language} onDelete={onDelete} onSave={onSave} />
-            </Accordion>
-          ))}
-          {filteredProducts.length === 0 && (
-            <p className="website-media-message">
-              {isArabic ? "لا توجد منتجات مطابقة." : "No products match your search."}
-            </p>
-          )}
-        </div>
-      </Accordion>
-
       <Accordion summary={groupLabel("about", language)} count={aboutSlots.length}>
         <SlotCards slots={aboutSlots} entries={entries} language={language} onDelete={onDelete} onSave={onSave} />
       </Accordion>
@@ -448,7 +259,7 @@ function MediaSlotsManager({ brands = [], categories = [], error = "", items = [
         <SlotCards slots={contactSlots} entries={entries} language={language} onDelete={onDelete} onSave={onSave} />
       </Accordion>
 
-      {!error && SITE_MEDIA_SLOTS.length + VELVET_BRANCHES.length + categories.length + products.length === 0 && (
+      {!error && SITE_MEDIA_SLOTS.length === 0 && (
         <p className="website-media-message">
           {isArabic ? "لا توجد وسائط متجر محددة بعد." : "No storefront media slots have been configured yet."}
         </p>

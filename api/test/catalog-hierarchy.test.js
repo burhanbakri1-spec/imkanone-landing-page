@@ -12,7 +12,7 @@ const storefrontSource = fs.readFileSync(new URL("../src/storefront/publicConten
 
 const brands = [{ id: "velvet", slug: "velvet", isActive: true, name: "VELVET" }];
 const categories = [
-  { id: "main-clothing", slug: "clothing", parentId: null, isActive: true, name: { en: "Clothing" } },
+  { id: "main-clothing", slug: "clothing", parentId: null, brandId: "velvet", isActive: true, name: { en: "Clothing" } },
   { id: "sub-dresses", slug: "dresses", parentId: "main-clothing", isActive: true, name: { en: "Dresses" } },
   { id: "flat-category", slug: "flat", parentId: null, isActive: true, name: { en: "Flat" } },
   { id: "inactive", slug: "inactive", parentId: null, isActive: false, name: { en: "Inactive" } },
@@ -65,6 +65,16 @@ test("validateCatalogHierarchy rejects a Subcategory that does not belong to the
     () => validateCatalogHierarchy({ brands, categories, product: { mainCategoryId: "main-clothing", subcategoryId: "flat-category" } }),
     /does not belong/,
   );
+});
+
+test("validateCatalogHierarchy rejects a Main Category that does not belong to the selected Brand", () => {
+  const foreignBrands = [{ id: "other-brand", slug: "other", isActive: true, name: "Other" }];
+  assert.throws(
+    () => validateCatalogHierarchy({ brands: foreignBrands, categories, product: { brandId: "other-brand", mainCategoryId: "main-clothing" } }),
+    /does not belong to the selected Brand/,
+  );
+  const result = validateCatalogHierarchy({ brands, categories, product: { brandId: "velvet", mainCategoryId: "main-clothing", subcategoryId: "sub-dresses" } });
+  assert.equal(result.brandId, "velvet");
 });
 
 test("validateCatalogHierarchy rejects unknown/inactive brand and category references", () => {

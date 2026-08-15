@@ -18,16 +18,20 @@ fs.writeFileSync(path.join(dataStoreDir, "store.json"), JSON.stringify({
   ],
   users: [], memberships: [], orders: [],
   products: [
-    { id: "play-1", company_id: "kids-velvet", slug: "play-one", sku: "PLAY-1", name: { en: "Play One", ar: "اللعبة الأولى" }, shortDescription: { en: "Short", ar: "قصير" }, fullDescription: "Full", fullDescriptionAr: "كامل", price: 25, categoryId: "toys", image: "https://cdn.example/play-one.png", visible: true, isActive: true, variants: [{ id: "v1", size: "Standard", price: 25, stock: 3, wholesalePrice: 4, visible: true }] },
+    { id: "play-1", company_id: "kids-velvet", slug: "play-one", sku: "PLAY-1", name: { en: "Play One", ar: "اللعبة الأولى" }, shortDescription: { en: "Short", ar: "قصير" }, fullDescription: "Full", fullDescriptionAr: "كامل", price: 25, categoryId: "toys", brandId: "velvet", image: "https://cdn.example/play-one.png", visible: true, isActive: true, usageVideo: "https://cdn.example/play-one-usage.mp4", usageVideoPoster: "https://cdn.example/play-one-usage-poster.jpg", variants: [{ id: "v1", size: "Standard", price: 25, stock: 3, wholesalePrice: 4, visible: true }] },
     { id: "play-hidden", company_id: "kids-velvet", slug: "hidden", name: { en: "Hidden", ar: "مخفي" }, isActive: false },
     { id: "other-1", company_id: "other-shop", slug: "other-product", name: { en: "Other product", ar: "منتج آخر" }, isActive: true, visible: true },
   ],
   categories: [
-    { id: "toys", company_id: "kids-velvet", slug: "toys", name: { en: "Toys", ar: "ألعاب" }, description: { en: "Play", ar: "لعب" }, imageUrl: "https://cdn.example/toys.jpg", isActive: true, sortOrder: 1 },
+    { id: "toys", company_id: "kids-velvet", slug: "toys", name: { en: "Toys", ar: "ألعاب" }, description: { en: "Play", ar: "لعب" }, imageUrl: "https://cdn.example/toys.jpg", brandId: "velvet", heroVideo: "https://cdn.example/toys-hero.mp4", isActive: true, sortOrder: 1 },
     { id: "hidden-category", company_id: "kids-velvet", slug: "hidden-category", name: { en: "Hidden", ar: "مخفي" }, isActive: false },
     { id: "other-category", company_id: "other-shop", slug: "other-category", name: { en: "Other", ar: "آخر" }, isActive: true },
   ],
-  brands: [],
+  brands: [
+    { id: "velvet", company_id: "kids-velvet", slug: "velvet", name: "VELVET", logoUrl: "https://cdn.example/velvet-logo.png", heroVideo: "https://cdn.example/velvet-hero.mp4", heroPoster: "https://cdn.example/velvet-poster.jpg", isActive: true, sortOrder: 1 },
+    { id: "hidden-brand", company_id: "kids-velvet", slug: "hidden-brand", name: "Hidden", isActive: false },
+    { id: "other-brand", company_id: "other-shop", slug: "other-brand", name: "Other", isActive: true },
+  ],
   websiteTexts: [
     { id: "hero-title", company_id: "kids-velvet", key: "home.hero.title", group: "home.hero", label: "Hero title", valueEn: "Play more", valueAr: "العب أكثر", isActive: true },
     { id: "hidden-text", company_id: "kids-velvet", key: "hidden", valueEn: "Hidden", isActive: false },
@@ -77,6 +81,25 @@ test("tenant-scoped storefront content returns safe active records", async () =>
   assert.equal(body.media[0].sectionKey, "home.hero");
   assert.equal("company_id" in body.products[0], false);
   assert.equal("wholesalePrice" in body.products[0].variants[0], false);
+});
+
+test("storefront content exposes entity-owned media directly on the entity", async () => {
+  const { response, body } = await request("/content?locale=en");
+  assert.equal(response.status, 200);
+
+  assert.deepEqual(body.brands.map((item) => item.slug), ["velvet"]);
+  assert.deepEqual(body.brands[0].name, { en: "VELVET", ar: "VELVET" });
+  assert.equal(body.brands[0].logoUrl, "https://cdn.example/velvet-logo.png");
+  assert.equal(body.brands[0].heroVideo, "https://cdn.example/velvet-hero.mp4");
+  assert.equal(body.brands[0].heroPoster, "https://cdn.example/velvet-poster.jpg");
+  assert.equal("company_id" in body.brands[0], false);
+
+  assert.equal(body.categories[0].brandId, "velvet");
+  assert.equal(body.categories[0].heroVideo, "https://cdn.example/toys-hero.mp4");
+  assert.equal(body.categories[0].image, "https://cdn.example/toys.jpg");
+
+  assert.equal(body.products[0].usageVideo, "https://cdn.example/play-one-usage.mp4");
+  assert.equal(body.products[0].usageVideoPoster, "https://cdn.example/play-one-usage-poster.jpg");
 });
 
 test("product detail is slug-compatible and tenant scoped", async () => {

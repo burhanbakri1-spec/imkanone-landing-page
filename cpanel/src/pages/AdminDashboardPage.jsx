@@ -365,6 +365,8 @@ function createProductFromForm(form) {
     gallery_images: galleryImages,
     galleryImages: galleryImages.map((image) => image.image_url),
     videoUrl: form.videoUrl || "",
+    usageVideo: form.usageVideo || null,
+    usageVideoPoster: form.usageVideoPoster || null,
     sizes: parsedSizes,
     badge: createLocalizedCopy(form.label || "Featured", form.labelAr || "مميز"),
     status: form.active ? "Active" : "Inactive",
@@ -1369,6 +1371,8 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
     galleryImages: normalizeGalleryImagesForForm(editingProduct),
     variants: normalizeProductVariantsForForm(editingProduct),
     videoUrl: editingProduct?.videoUrl || "",
+    usageVideo: editingProduct?.usageVideo || "",
+    usageVideoPoster: editingProduct?.usageVideoPoster || "",
     metaTitle: editingProduct?.metaTitle || "",
     metaDescription: editingProduct?.metaDescription || "",
     dsiHowItWorks: (editingProduct?.detailSectionImages || editingProduct?.detail_section_images || {}).howItWorks || "",
@@ -1926,6 +1930,8 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
               {usesTenantDefinitions && <label className="admin-upload-button"><Upload size={14} />{uploadingField === "videoUrl" ? `Uploading ${videoProgress}%` : editingProduct?.id ? "Upload MP4/WebM" : "Save product first"}<input accept="video/mp4,video/webm" disabled={!editingProduct?.id} hidden type="file" onChange={uploadVideo} /></label>}
               {form.videoUrl && <div className="admin-media-preview"><video controls preload="metadata" src={form.videoUrl} /><button className="text-action danger" onClick={removeVideo} type="button">Remove video</button></div>}
             </div>
+            <MediaField label="Usage video URL (how to use)" language={language} name="usageVideo" onChange={change} onUploadingChange={trackChildUpload} productId={usesTenantDefinitions ? editingProduct?.id : undefined} tenantSpecific={usesTenantDefinitions} value={form.usageVideo} />
+            <MediaField label="Usage video poster" language={language} name="usageVideoPoster" onChange={change} onUploadingChange={trackChildUpload} productId={usesTenantDefinitions ? editingProduct?.id : undefined} tenantSpecific={usesTenantDefinitions} value={form.usageVideoPoster} />
             <div className="full-field admin-gallery-editor">
               <div className="admin-inline-heading">
                 <strong>Vertical Gallery Images</strong>
@@ -2089,11 +2095,12 @@ function GenericEntityForm({ fields, initial, isEditing = false, language = "en"
     const { checked, name, type, value } = event.target;
     setForm((current) => ({ ...current, [name]: type === "checkbox" ? checked : value }));
   }
+  const visibleFields = fields.filter((field) => (typeof field.visibleWhen === "function" ? field.visibleWhen(form) : true));
   return (
     <section className="admin-panel-card">
       <h2>{title}</h2>
       <form className="admin-form" onSubmit={(event) => { event.preventDefault(); onSave(form); }}>
-        {fields.map((field) => {
+        {visibleFields.map((field) => {
           if (field.type === "textarea") return <label key={field.name}>{field.label}<textarea dir={field.dir} name={field.name} value={form[field.name] || ""} onChange={change} /></label>;
           if (field.type === "checkbox") return <label className="checkbox-line" key={field.name}><input name={field.name} type="checkbox" checked={Boolean(form[field.name])} onChange={change} />{field.label}</label>;
           if (field.type === "media") return <MediaField key={field.name} label={field.label} name={field.name} value={form[field.name]} onChange={change} />;
@@ -2397,24 +2404,28 @@ function AdminDashboardPage({
       if (current && !canUpdateCategories) return <EmptyState title="Access denied" description="You do not have permission to edit categories." />;
       if (!current && !canCreateCategories) return <EmptyState title="Access denied" description="You do not have permission to create categories." />;
       const ar = language === "ar";
-      return <GenericEntityForm isEditing={Boolean(current)} language={language} title={current ? (ar ? "تعديل الفئة" : "Edit Category") : (ar ? "فئة جديدة" : "New Category")} initial={{ active: current?.isActive !== false, descriptionAr: current?.description?.ar || "", descriptionEn: current?.description?.en || "", image: current?.imageUrl || "", nameAr: current?.name?.ar || "", nameEn: current?.name?.en || "", parentId: current?.parentId || "", slug: current?.slug || "" }} fields={[
+      const parentIdField = { name: "parentId", label: ar ? "الفئة الرئيسية" : "Parent Category", type: "select", options: [{ value: "", label: ar ? "بدون (فئة رئيسية)" : "None (top-level)" }, ...adminCategories.map((category) => ({ value: category.id, label: getText(category.name, language) }))] };
+      const isSubcategory = (form) => Boolean(form?.parentId);
+      return <GenericEntityForm isEditing={Boolean(current)} language={language} title={current ? (ar ? "تعديل الفئة" : "Edit Category") : (ar ? "فئة جديدة" : "New Category")} initial={{ active: current?.isActive !== false, brandId: current?.brandId || "", descriptionAr: current?.description?.ar || "", descriptionEn: current?.description?.en || "", heroVideo: current?.heroVideo || "", image: current?.imageUrl || "", nameAr: current?.name?.ar || "", nameEn: current?.name?.en || "", parentId: current?.parentId || "", slug: current?.slug || "" }} fields={[
         { name: "nameEn", label: ar ? "اسم الفئة بالإنجليزية *" : "Category name — English *", required: true, dir: "ltr" },
         { name: "nameAr", label: ar ? "اسم الفئة بالعربية *" : "Category name — Arabic *", required: true, dir: "rtl" },
         { name: "slug", label: ar ? "الرابط المختصر" : "Slug", dir: "ltr" },
         { name: "descriptionEn", label: ar ? "الوصف بالإنجليزية" : "Description — English", type: "textarea", dir: "ltr" },
         { name: "descriptionAr", label: ar ? "الوصف بالعربية" : "Description — Arabic", type: "textarea", dir: "rtl" },
-        { name: "image", label: ar ? "صورة الفئة" : "Category Image", type: "media" },
-        { name: "parentId", label: ar ? "الفئة الرئيسية" : "Parent Category", type: "select", options: [{ value: "", label: ar ? "بدون (فئة رئيسية)" : "None (top-level)" }, ...adminCategories.map((category) => ({ value: category.id, label: getText(category.name, language) }))] },
+        parentIdField,
+        { name: "brandId", label: ar ? "العلامة التجارية *" : "Brand *", type: "select", visibleWhen: (form) => !form?.parentId, options: [{ value: "", label: ar ? "اختر علامة" : "Select a brand" }, ...brands.map((brand) => ({ value: brand.id, label: getText(brand.name, language) || brand.slug }))] },
+        { name: "image", label: ar ? "صورة الفئة" : "Category Image", type: "media", visibleWhen: (form) => !form?.parentId },
+        { name: "heroVideo", label: ar ? "فيديو الواجهة" : "Category hero video", type: "media", visibleWhen: (form) => !form?.parentId },
         { name: "active", label: ar ? "نشطة" : "Active", type: "checkbox" },
-      ]} onCancel={() => { setEditingCategory(null); onNavigate("admin-categories"); }} onSave={async (form) => { await onSaveCategory({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.nameEn || form.nameAr), name: createLocalizedCopy(form.nameEn, form.nameAr), description: form.descriptionEn || form.descriptionAr ? createLocalizedCopy(form.descriptionEn, form.descriptionAr) : null, imageUrl: form.image || null, parentId: form.parentId || null, isActive: form.active }); setEditingCategory(null); onNavigate("admin-categories", { preserveStatusMessage: true }); }} />;
+      ]} onCancel={() => { setEditingCategory(null); onNavigate("admin-categories"); }} onSave={async (form) => { await onSaveCategory({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.nameEn || form.nameAr), name: createLocalizedCopy(form.nameEn, form.nameAr), description: form.descriptionEn || form.descriptionAr ? createLocalizedCopy(form.descriptionEn, form.descriptionAr) : null, imageUrl: form.parentId ? null : form.image || null, brandId: form.parentId ? null : form.brandId || null, heroVideo: form.parentId ? null : form.heroVideo || null, parentId: form.parentId || null, isActive: form.active }); setEditingCategory(null); onNavigate("admin-categories", { preserveStatusMessage: true }); }} />;
     }
     if (kind === "brand") {
       const current = editingBrand;
       if (current && !canUpdateBrands) return <EmptyState title="Access denied" description="You do not have permission to edit brands." />;
       if (!current && !canCreateBrands) return <EmptyState title="Access denied" description="You do not have permission to create brands." />;
-      return <GenericEntityForm isEditing={Boolean(current)} language={language} title={current ? "Edit Brand" : "New Brand"} initial={{ active: current?.isActive !== false, country: current?.country || "", logo: current?.logoUrl || "", name: current?.name || "", slug: current?.slug || "" }} fields={[
-        { name: "name", label: "Brand Name *", required: true }, { name: "slug", label: "Slug" }, { name: "description", label: "Description", type: "textarea" }, { name: "country", label: "Country" }, { name: "website", label: "Website" }, { name: "logo", label: "Brand Logo", type: "media" }, { name: "active", label: "Active", type: "checkbox" }, { name: "metaTitle", label: "Meta Title" }, { name: "metaDescription", label: "Meta Description", type: "textarea" },
-      ]} onCancel={() => { setEditingBrand(null); onNavigate("admin-brands"); }} onSave={async (form) => { await onSaveBrand({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.name), name: form.name, country: form.country || null, logoUrl: form.logo || null, isActive: form.active }); setEditingBrand(null); onNavigate("admin-brands", { preserveStatusMessage: true }); }} />;
+      return <GenericEntityForm isEditing={Boolean(current)} language={language} title={current ? "Edit Brand" : "New Brand"} initial={{ active: current?.isActive !== false, country: current?.country || "", heroPoster: current?.heroPoster || "", heroVideo: current?.heroVideo || "", logo: current?.logoUrl || "", name: current?.name || "", slug: current?.slug || "" }} fields={[
+        { name: "name", label: "Brand Name *", required: true }, { name: "slug", label: "Slug" }, { name: "description", label: "Description", type: "textarea" }, { name: "country", label: "Country" }, { name: "website", label: "Website" }, { name: "logo", label: "Brand Logo", type: "media" }, { name: "heroVideo", label: "Brand Hero Video", type: "media" }, { name: "heroPoster", label: "Brand Hero Poster", type: "media" }, { name: "active", label: "Active", type: "checkbox" }, { name: "metaTitle", label: "Meta Title" }, { name: "metaDescription", label: "Meta Description", type: "textarea" },
+      ]} onCancel={() => { setEditingBrand(null); onNavigate("admin-brands"); }} onSave={async (form) => { await onSaveBrand({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.name), name: form.name, country: form.country || null, logoUrl: form.logo || null, heroVideo: form.heroVideo || null, heroPoster: form.heroPoster || null, isActive: form.active }); setEditingBrand(null); onNavigate("admin-brands", { preserveStatusMessage: true }); }} />;
     }
     if (kind === "vlog" && !canEdit) {
       return <EmptyState title="View-only access" description="You do not have permission to create records." />;
@@ -2504,15 +2515,11 @@ function AdminDashboardPage({
       case "admin-website-media":
         return (
           <MediaSlotsManager
-            brands={brands}
-            categories={categories}
             error={websiteMediaError}
             items={websiteMedia}
             language={language}
             onDelete={onDeleteWebsiteMedia}
             onSave={onSaveWebsiteMedia}
-            onSaveCategory={onSaveCategory}
-            products={products}
           />
         );
       case "admin-orders":

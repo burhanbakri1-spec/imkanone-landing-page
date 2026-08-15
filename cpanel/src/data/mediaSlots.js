@@ -6,6 +6,13 @@
 // those exact keys and the storefront override wins over its local fallback. Do
 // not invent new keys here: match the storefront exactly.
 //
+// Website Media owns ONLY the site/home/about/news/contact global media. Brand
+// (logoUrl/heroVideo/heroPoster), Main Category (brandId/imageUrl/heroVideo) and
+// Product (image/gallery/videoUrl/usageVideo/usageVideoPoster) media is owned by
+// the entities themselves and edited in the Add/Edit Brand, Category and Product
+// forms. Legacy `brand.*` / `category.*.heroVideo` / `product.*.usageVideo`
+// website_media rows are migration-compatibility only and are NOT edited here.
+//
 // Canonical VELVET identity. VELVET is the parent group; the storefront renders
 // the platform-managed parent logo (`site.logo`) when present and falls back to
 // its own local logo otherwise.
@@ -21,29 +28,6 @@ export const SITE_LOGO_SLOT = {
   labelEn: "Main Website / Parent Logo",
   labelAr: "الشعار الرئيسي للموقع",
 };
-
-// Canonical VELVET branches, detected from the i-play storefront catalog
-// (`src/data/velvetCatalog.js` RAW_BRANDS). These are the real VELVET families;
-// the CPanel must render every one of them regardless of what brand rows happen
-// to exist in the CPanel brands array.
-export const VELVET_BRANCHES = [
-  { slug: "baby", name: { en: "VELVET BABY", ar: "VELVET BABY" } },
-  { slug: "kids", name: { en: "VELVET KIDS", ar: "VELVET KIDS" } },
-  { slug: "play", name: { en: "VELVET PLAY", ar: "VELVET PLAY" } },
-  { slug: "build", name: { en: "VELVET BUILD", ar: "VELVET BUILD" } },
-  { slug: "learn", name: { en: "VELVET LEARN", ar: "VELVET LEARN" } },
-  { slug: "create", name: { en: "VELVET CREATE", ar: "VELVET CREATE" } },
-  { slug: "games", name: { en: "VELVET GAMES", ar: "VELVET GAMES" } },
-  { slug: "move", name: { en: "VELVET MOVE", ar: "VELVET MOVE" } },
-  { slug: "collect", name: { en: "VELVET COLLECT", ar: "VELVET COLLECT" } },
-  { slug: "plush", name: { en: "VELVET PLUSH", ar: "VELVET PLUSH" } },
-  { slug: "books", name: { en: "VELVET BOOKS", ar: "VELVET BOOKS" } },
-  { slug: "muslim", name: { en: "VELVET MUSLIM", ar: "VELVET MUSLIM" } },
-];
-
-export function velvetBranchSlugs() {
-  return VELVET_BRANCHES.map((branch) => branch.slug);
-}
 
 // About section image slots (`about.{index}.image`) - matches i-play aboutSections
 // and uses the real section titles as labels.
@@ -67,11 +51,26 @@ export function aboutImageSlots() {
 // News item image slots (`news.{index}.image`) - matches i-play newsItems and
 // uses the real news titles as labels.
 export const NEWS_ITEMS = [
-  { titleEn: "A first look inside our new Pocket Worlds studio", titleAr: "نظرة أولى داخل استوديو Pocket Worlds الجديد" },
-  { titleEn: "Odd Pals wins a place in the summer play edit", titleAr: "Odd Pals ضمن اختيارات ألعاب الصيف" },
-  { titleEn: "How our designers turn tiny ideas into big stories", titleAr: "كيف يحوّل مصممونا الأفكار الصغيرة إلى قصص كبيرة" },
-  { titleEn: "VELVET opens a new community maker space", titleAr: "VELVET تفتتح مساحة مجتمعية جديدة للصنّاع" },
-  { titleEn: "Meet the color team behind Cloud Dough", titleAr: "تعرّف إلى فريق الألوان وراء Cloud Dough" },
+  {
+    titleEn: "A first look inside our new Pocket Worlds studio",
+    titleAr: "نظرة أولى داخل استوديو Pocket Worlds الجديد",
+  },
+  {
+    titleEn: "Odd Pals wins a place in the summer play edit",
+    titleAr: "Odd Pals ضمن اختيارات ألعاب الصيف",
+  },
+  {
+    titleEn: "How our designers turn tiny ideas into big stories",
+    titleAr: "كيف يحوّل مصممونا الأفكار الصغيرة إلى قصص كبيرة",
+  },
+  {
+    titleEn: "VELVET opens a new community maker space",
+    titleAr: "VELVET تفتتح مساحة مجتمعية جديدة للصنّاع",
+  },
+  {
+    titleEn: "Meet the color team behind Cloud Dough",
+    titleAr: "تعرّف إلى فريق الألوان وراء Cloud Dough",
+  },
 ];
 export const NEWS_IMAGE_COUNT = NEWS_ITEMS.length;
 export function newsImageSlots() {
@@ -123,71 +122,6 @@ export const SITE_MEDIA_SLOTS = [
   },
 ];
 
-// Branch media (consumed via `brand.{slug}.logo` / `brand.{slug}.video` /
-// `brand.{slug}.poster`). The logo is the branch wordmark/logo shown on the
-// brand page hero; the storefront falls back to its local static branch logo.
-export function brandMediaSlots(slug) {
-  const safeSlug = String(slug || "").trim();
-  return [
-    {
-      key: `brand.${safeSlug}.logo`,
-      kind: "image",
-      groupKey: "brands",
-      labelEn: "Branch logo",
-      labelAr: "شعار الفرع",
-    },
-    {
-      key: `brand.${safeSlug}.video`,
-      kind: "video",
-      groupKey: "brands",
-      labelEn: "Branch hero video",
-      labelAr: "فيديو الواجهة",
-    },
-    {
-      key: `brand.${safeSlug}.poster`,
-      kind: "image",
-      groupKey: "brands",
-      labelEn: "Branch hero poster",
-      labelAr: "صورة الواجهة",
-    },
-  ];
-}
-
-// Category hero video (the category hero image is the category's own image).
-export function categoryHeroMediaSlots(slug) {
-  const safeSlug = String(slug || "").trim();
-  return [
-    {
-      key: `category.${safeSlug}.heroVideo`,
-      kind: "video",
-      groupKey: "categories",
-      labelEn: "Category hero video",
-      labelAr: "فيديو القسم",
-    },
-  ];
-}
-
-// Product "how to use" media.
-export function productMediaSlots(slug) {
-  const safeSlug = String(slug || "").trim();
-  return [
-    {
-      key: `product.${safeSlug}.usageVideo`,
-      kind: "video",
-      groupKey: "products",
-      labelEn: `Product ${safeSlug} usage video`,
-      labelAr: `فيديو الاستخدام - ${safeSlug}`,
-    },
-    {
-      key: `product.${safeSlug}.usageVideoPoster`,
-      kind: "image",
-      groupKey: "products",
-      labelEn: `Product ${safeSlug} usage video poster`,
-      labelAr: `صورة فيديو الاستخدام - ${safeSlug}`,
-    },
-  ];
-}
-
 export function siteMediaSlotKeys() {
   return SITE_MEDIA_SLOTS.map((slot) => slot.key);
 }
@@ -202,22 +136,6 @@ export function aboutImageSlotKeys() {
 
 export function newsImageSlotKeys() {
   return newsImageSlots().map((slot) => slot.key);
-}
-
-export function brandMediaSlotKeys(slug) {
-  return brandMediaSlots(slug).map((slot) => slot.key);
-}
-
-export function brandLogoSlotKey(slug) {
-  return `brand.${String(slug || "").trim()}.logo`;
-}
-
-export function categoryHeroMediaSlotKeys(slug) {
-  return categoryHeroMediaSlots(slug).map((slot) => slot.key);
-}
-
-export function productMediaSlotKeys(slug) {
-  return productMediaSlots(slug).map((slot) => slot.key);
 }
 
 export function resolveMediaSlot(items, sectionKey) {

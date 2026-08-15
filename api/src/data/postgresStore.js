@@ -381,7 +381,9 @@ function categoryRow(category, companyId) {
     name: category.name || {},
     description: category.description || null,
     parent_id: category.parentId || null,
+    brand_id: category.brandId || null,
     image_url: category.imageUrl || null,
+    hero_video: category.heroVideo || null,
     sort_order: Number(category.sortOrder || 0),
     is_active: category.isActive !== false,
     created_at: rowDate(category.createdAt),
@@ -396,6 +398,8 @@ function brandRow(brand, companyId) {
     slug: brand.slug,
     name: brand.name,
     logo_url: brand.logoUrl || null,
+    hero_video: brand.heroVideo || null,
+    hero_poster: brand.heroPoster || null,
     country: brand.country || null,
     sort_order: Number(brand.sortOrder || 0),
     is_active: brand.isActive !== false,
@@ -456,6 +460,8 @@ function productRow(product, companyId) {
     brand_id: product.brandId ?? null,
     image_url: product.image || "",
     hover_image_url: product.hoverImage || product.secondaryImage || "",
+    usage_video: product.usageVideo || null,
+    usage_video_poster: product.usageVideoPoster || null,
     price: Number(firstVariant?.price || product.price || product.sizes?.[0]?.price || 0),
     stock_qty: Number(firstVariant?.stock ?? product.stockQty ?? 0),
     is_active: product.isActive !== false,
@@ -786,6 +792,8 @@ function mergeProduct(row, variants, galleryImages) {
     brandId: row.brand_id || null,
     image: row.image_url || row.data?.image || "",
     hoverImage: row.hover_image_url || row.data?.hoverImage || "",
+    usageVideo: row.usage_video || row.data?.usageVideo || "",
+    usageVideoPoster: row.usage_video_poster || row.data?.usageVideoPoster || "",
     variants: productVariants,
     gallery_images: productGallery,
     galleryImages: productGallery.map((entry) => entry.image_url),
@@ -2002,7 +2010,9 @@ function mergeCategory(row) {
     name: row.name || {},
     description: row.description || null,
     parentId: row.parent_id || null,
+    brandId: row.brand_id || null,
     imageUrl: row.image_url || null,
+    heroVideo: row.hero_video || null,
     sortOrder: Number(row.sort_order || 0),
     isActive: row.is_active !== false,
     createdAt: row.created_at,
@@ -2016,6 +2026,8 @@ function mergeBrand(row) {
     slug: row.slug,
     name: row.name,
     logoUrl: row.logo_url || null,
+    heroVideo: row.hero_video || null,
+    heroPoster: row.hero_poster || null,
     country: row.country || null,
     sortOrder: Number(row.sort_order || 0),
     isActive: row.is_active !== false,
@@ -2052,7 +2064,9 @@ const categoryPatchColumns = Object.freeze({
   name: "name",
   description: "description",
   parentId: "parent_id",
+  brandId: "brand_id",
   imageUrl: "image_url",
+  heroVideo: "hero_video",
   sortOrder: "sort_order",
   isActive: "is_active",
   updatedAt: "updated_at",
@@ -2062,6 +2076,8 @@ const brandPatchColumns = Object.freeze({
   slug: "slug",
   name: "name",
   logoUrl: "logo_url",
+  heroVideo: "hero_video",
+  heroPoster: "hero_poster",
   country: "country",
   sortOrder: "sort_order",
   isActive: "is_active",
@@ -2093,10 +2109,10 @@ export async function createCategoryForCompanyInSupabase(companyId, data) {
   const row = categoryRow(data, normalizeCompanyId(companyId));
   const result = await query(
     `insert into public.company_categories
-      (id, company_id, slug, name, description, parent_id, image_url, sort_order, is_active, created_at, updated_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
-    [row.id, row.company_id, row.slug, row.name, row.description, row.parent_id, row.image_url,
-      row.sort_order, row.is_active, row.created_at, row.updated_at].map(toPgValue),
+      (id, company_id, slug, name, description, parent_id, brand_id, image_url, hero_video, sort_order, is_active, created_at, updated_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning *`,
+    [row.id, row.company_id, row.slug, row.name, row.description, row.parent_id, row.brand_id, row.image_url,
+      row.hero_video, row.sort_order, row.is_active, row.created_at, row.updated_at].map(toPgValue),
   );
   return mergeCategory(result.rows[0]);
 }
@@ -2220,10 +2236,10 @@ export function createCategoryWithTenantLockInSupabase(companyId, data) {
     const row = categoryRow(data, normalized);
     const result = await client.query(
       `insert into public.company_categories
-        (id, company_id, slug, name, description, parent_id, image_url, sort_order, is_active, created_at, updated_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
-      [row.id, row.company_id, row.slug, row.name, row.description, row.parent_id, row.image_url,
-        row.sort_order, row.is_active, row.created_at, row.updated_at].map(toPgValue),
+        (id, company_id, slug, name, description, parent_id, brand_id, image_url, hero_video, sort_order, is_active, created_at, updated_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning *`,
+      [row.id, row.company_id, row.slug, row.name, row.description, row.parent_id, row.brand_id, row.image_url,
+        row.hero_video, row.sort_order, row.is_active, row.created_at, row.updated_at].map(toPgValue),
     );
     return mergeCategory(result.rows[0]);
   });
@@ -2601,10 +2617,10 @@ export async function createBrandForCompanyInSupabase(companyId, data) {
   const row = brandRow(data, normalizeCompanyId(companyId));
   const result = await query(
     `insert into public.company_brands
-      (id, company_id, slug, name, logo_url, country, sort_order, is_active, created_at, updated_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *`,
-    [row.id, row.company_id, row.slug, row.name, row.logo_url, row.country, row.sort_order,
-      row.is_active, row.created_at, row.updated_at].map(toPgValue),
+      (id, company_id, slug, name, logo_url, hero_video, hero_poster, country, sort_order, is_active, created_at, updated_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
+    [row.id, row.company_id, row.slug, row.name, row.logo_url, row.hero_video, row.hero_poster,
+      row.country, row.sort_order, row.is_active, row.created_at, row.updated_at].map(toPgValue),
   );
   return mergeBrand(result.rows[0]);
 }

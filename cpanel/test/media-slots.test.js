@@ -8,27 +8,19 @@ import {
   PARENT_BRAND,
   SITE_MEDIA_SLOTS,
   SITE_LOGO_SLOT,
-  VELVET_BRANCHES,
   aboutImageSlotKeys,
   aboutImageSlots,
-  brandLogoSlotKey,
-  brandMediaSlotKeys,
-  brandMediaSlots,
-  categoryHeroMediaSlotKeys,
-  categoryHeroMediaSlots,
   newsImageSlotKeys,
   newsImageSlots,
-  productMediaSlotKeys,
-  productMediaSlots,
   resolveMediaSlot,
   siteLogoSlotKey,
   siteMediaSlotKeys,
-  velvetBranchSlugs,
 } from "../src/data/mediaSlots.js";
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
 const managerSource = read("../src/components/MediaSlotsManager.jsx");
 const editorSource = read("../src/components/WebsiteMediaManager.jsx");
+const slotsSource = read("../src/data/mediaSlots.js");
 
 test("site media slots use the exact dotted keys the storefront consumes", () => {
   assert.deepEqual(siteMediaSlotKeys(), [
@@ -49,39 +41,6 @@ test("parent brand identity is the real VELVET group and uses site.logo", () => 
   assert.equal(SITE_LOGO_SLOT.key, "site.logo");
   assert.equal(siteLogoSlotKey(), "site.logo");
   assert.match(managerSource, /groupLabels = \{[\s\S]*identity: \{ en: "VELVET"/);
-});
-
-test("canonical VELVET branches cover every actual i-play branch with exact names", () => {
-  assert.deepEqual(velvetBranchSlugs(), ["baby", "kids", "play", "build", "learn", "create", "games", "move", "collect", "plush", "books", "muslim"]);
-  for (const branch of VELVET_BRANCHES) {
-    assert.equal(branch.name.en, `VELVET ${branch.slug.toUpperCase()}`);
-    assert.equal(branch.name.ar, `VELVET ${branch.slug.toUpperCase()}`);
-  }
-});
-
-test("branch media slots expose logo + video + poster with exact keys", () => {
-  const slots = brandMediaSlots("baby");
-  assert.deepEqual(brandMediaSlotKeys("baby"), [
-    "brand.baby.logo",
-    "brand.baby.video",
-    "brand.baby.poster",
-  ]);
-  assert.equal(slots[0].key, "brand.baby.logo");
-  assert.equal(slots[0].kind, "image");
-  assert.equal(brandLogoSlotKey("baby"), "brand.baby.logo");
-  assert.equal(slots[1].kind, "video");
-  assert.equal(slots[2].kind, "image");
-});
-
-test("category hero slots use category.{slug}.heroVideo", () => {
-  assert.deepEqual(categoryHeroMediaSlotKeys("toys"), ["category.toys.heroVideo"]);
-  assert.equal(categoryHeroMediaSlots("toys")[0].kind, "video");
-});
-
-test("product usage slots use product.{slug}.usageVideo and usageVideoPoster", () => {
-  assert.deepEqual(productMediaSlotKeys("toy"), ["product.toy.usageVideo", "product.toy.usageVideoPoster"]);
-  assert.equal(productMediaSlots("toy")[0].kind, "video");
-  assert.equal(productMediaSlots("toy")[1].kind, "image");
 });
 
 test("about image slots use real i-play section titles as labels", () => {
@@ -119,37 +78,34 @@ test("resolveMediaSlot picks the newest matching item by sectionKey", () => {
   assert.equal(resolveMediaSlot(items, "missing"), null);
 });
 
-test("slot manager renders the final VELVET hierarchy with all groups collapsed by default", () => {
-  for (const group of ["VELVET", "VELVET Branches", "Categories", "Products", "About", "News", "Contact"]) {
+test("slot manager renders only the final site/home/about/news/contact groups collapsed by default", () => {
+  for (const group of ["VELVET", "About", "News", "Contact"]) {
     assert.match(managerSource, new RegExp(group.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
   assert.match(managerSource, /function Accordion\(\{ summary, count, defaultOpen = false/);
   assert.match(managerSource, /defaultOpen = false/);
-  assert.match(managerSource, /VELVET_BRANCHES\.map/);
   assert.match(managerSource, /website-media-accordion/);
   assert.match(managerSource, /import \{ MediaEditor \}/);
 });
 
-test("slot manager loads every VELVET branch from the canonical catalog and renders branch logo", () => {
-  assert.match(managerSource, /VELVET_BRANCHES\.map\(\(branch\) =>/);
-  assert.match(managerSource, /branch\.name\[language\]/);
-  assert.match(managerSource, /brand\.\$\{group\.key\}\.logo/);
-  assert.match(managerSource, /LogoEditor/);
+test("Website Media no longer owns Brand/Category/Product media editors", () => {
+  assert.doesNotMatch(managerSource, /VELVET_BRANCHES/);
+  assert.doesNotMatch(managerSource, /brandMediaSlots|brand\.\$\{group\.key\}\.logo/);
+  assert.doesNotMatch(managerSource, /CategoryImageEditor/);
+  assert.doesNotMatch(managerSource, /categoryHeroMediaSlots/);
+  assert.doesNotMatch(managerSource, /productMediaSlots|productQuery|filteredProducts/);
+  assert.doesNotMatch(managerSource, /groupLabels = \{[\s\S]*brands: \{ en: "VELVET Branches"/);
+  assert.doesNotMatch(managerSource, /groupLabels = \{[\s\S]*products: \{ en: "Products"/);
 });
 
-test("category image edits the existing category imageUrl through onSaveCategory without a website-media key", () => {
-  assert.match(managerSource, /CategoryImageEditor/);
-  assert.match(managerSource, /onSaveCategory=\{onSaveCategory\}/);
-  assert.match(managerSource, /imageUrl: result\.url \|\| result\.path \|\| ""/);
-  assert.match(managerSource, /setDraft\(\(current\) => \(\{ \.\.\.current, imageUrl/);
-  assert.doesNotMatch(managerSource, /category\.\$\{[^}]*\}\.image/);
-});
-
-test("products group is searchable and opens a product to show its usage media", () => {
-  assert.match(managerSource, /productQuery/);
-  assert.match(managerSource, /Search products|ابحث عن منتج/);
-  assert.match(managerSource, /filteredProducts/);
-  assert.match(managerSource, /entityName\(product, language\)/);
+test("media slot model exposes only site/home/about/news/contact keys", () => {
+  assert.doesNotMatch(slotsSource, /VELVET_BRANCHES/);
+  assert.doesNotMatch(slotsSource, /brand\.\$\{/);
+  assert.doesNotMatch(slotsSource, /category\.\$\{/);
+  assert.doesNotMatch(slotsSource, /product\.\$\{/);
+  assert.doesNotMatch(slotsSource, /export function brandMediaSlots/);
+  assert.doesNotMatch(slotsSource, /export function categoryHeroMediaSlots/);
+  assert.doesNotMatch(slotsSource, /export function productMediaSlots/);
 });
 
 test("site logo editor supports preview, upload, replace and remove", () => {
@@ -163,7 +119,6 @@ test("site logo editor supports preview, upload, replace and remove", () => {
 test("about and news image slots render in the About and News groups with real labels", () => {
   assert.match(managerSource, /aboutImageSlots\(\)/);
   assert.match(managerSource, /newsImageSlots\(\)/);
-  const slotsSource = read("../src/data/mediaSlots.js");
   assert.match(slotsSource, /ABOUT_SECTIONS/);
   assert.match(slotsSource, /NEWS_ITEMS/);
 });

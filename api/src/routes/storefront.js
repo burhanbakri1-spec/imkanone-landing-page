@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   getCompanyDomainsByCompany,
   productRepository,
+  tenantBrandRepository,
   tenantCategoryRepository,
   websiteMediaHiddenKeysRepository,
   websiteMediaRepository,
@@ -10,6 +11,7 @@ import {
 import { normalizeCompanyHost } from "../tenancy/company.js";
 import { websiteConnectionDefaults, websiteConnectionSettings } from "../siteEditor/websiteConnection.js";
 import {
+  serializePublicBrand,
   serializePublicCategory,
   serializePublicProduct,
   serializePublicWebsiteMedia,
@@ -75,7 +77,10 @@ router.use(storefrontContext);
 router.get("/content", async (req, res, next) => {
   try {
     const hiddenMedia = new Set(websiteMediaHiddenKeysRepository.getByCompany(req.companyId).map((item) => item.sectionKey));
-    const [categories] = await Promise.all([tenantCategoryRepository.listByCompany(req.companyId)]);
+    const [categories, brands] = await Promise.all([
+      tenantCategoryRepository.listByCompany(req.companyId),
+      tenantBrandRepository.listByCompany(req.companyId),
+    ]);
     const products = publicProducts(req.companyId);
     const texts = websiteTextsRepository.getByCompany(req.companyId)
       .filter((item) => item.isActive !== false && !item.deletedAt)
@@ -96,6 +101,7 @@ router.get("/content", async (req, res, next) => {
         currency: String(req.company.settings?.currency || req.company.currency || "USD"),
         logo: String(req.company.logo || req.company.logoUrl || ""),
       },
+      brands: brands.filter((brand) => brand.isActive !== false).map(serializePublicBrand),
       categories: categories.filter((category) => category.isActive !== false).map(serializePublicCategory),
       products,
       texts,

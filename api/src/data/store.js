@@ -363,6 +363,8 @@ function normalizeProduct(product, index = 0) {
     gallery_images: galleryImages,
     galleryImages: galleryImages.map((entry) => entry.image_url),
     fallbackImage: product.fallbackImage || "/images/products/product-placeholder.svg",
+    usageVideo: product.usageVideo || product.usage_video || null,
+    usageVideoPoster: product.usageVideoPoster || product.usage_video_poster || null,
   };
 }
 
@@ -1479,7 +1481,9 @@ function normalizeCategory(category, index = 0) {
       ? clone(category.description)
       : null,
     parentId: category.parentId || category.parent_id || null,
+    brandId: category.brandId || category.brand_id || null,
     imageUrl: category.imageUrl || category.image_url || null,
+    heroVideo: category.heroVideo || category.hero_video || null,
     sortOrder: Number(category.sortOrder ?? category.sort_order ?? 0),
     isActive: category.isActive !== false && category.is_active !== false,
     createdAt: category.createdAt || category.created_at || now,
@@ -1503,6 +1507,8 @@ function normalizeBrand(brand, index = 0) {
     slug: String(brand.slug || "").trim().toLowerCase(),
     name: String(brand.name || "").trim(),
     logoUrl: brand.logoUrl || brand.logo_url || null,
+    heroVideo: brand.heroVideo || brand.hero_video || null,
+    heroPoster: brand.heroPoster || brand.hero_poster || null,
     country: brand.country || null,
     sortOrder: Number(brand.sortOrder ?? brand.sort_order ?? 0),
     isActive: brand.isActive !== false && brand.is_active !== false,
