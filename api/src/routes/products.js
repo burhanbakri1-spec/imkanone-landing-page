@@ -410,6 +410,7 @@ router.delete("/:id", requireAuth, requirePermission("products.delete"), async (
     return res.status(204).end();
   } catch (error) {
     return res.status(error.statusCode || 500).json({
+      ...(error.code ? { code: error.code } : {}),
       message: error.statusCode ? error.message : "Product deletion failed.",
     });
   }

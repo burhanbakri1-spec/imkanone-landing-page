@@ -12,14 +12,46 @@ export async function getOrders(currentUser) {
     : apiRequest("/orders/my-orders");
 }
 
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableValue(value[key])]));
+}
+
+function newIdempotencyKey() {
+  return globalThis.crypto?.randomUUID?.()
+    || `order-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+export function createOrderSubmissionTracker() {
+  let current = null;
+  return {
+    keyFor(payload) {
+      const fingerprint = JSON.stringify(stableValue(payload));
+      if (!current || current.fingerprint !== fingerprint) {
+        current = { fingerprint, key: newIdempotencyKey() };
+      }
+      return current.key;
+    },
+    confirm() {
+      current = null;
+    },
+  };
+}
+
 export async function createOrder({
   cartItems = [],
   customer,
   items,
   total,
+  idempotencyKey: requestedIdempotencyKey,
   createdByEmployeeId,
   createdByEmployeeName,
 }) {
+  const idempotencyKey = String(requestedIdempotencyKey || "").trim();
+  if (!idempotencyKey) {
+    throw new Error("A stable Idempotency-Key is required for order creation.");
+  }
   const orderItems = (items || cartItems).map((item) => ({
     productId: item.productId,
     productName: item.productName || item.label || item.slug || "",
@@ -38,6 +70,7 @@ export async function createOrder({
 
   return apiRequest("/orders", {
     method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify({
       customer,
       items: orderItems,

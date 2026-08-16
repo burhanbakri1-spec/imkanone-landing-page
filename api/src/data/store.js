@@ -35,6 +35,9 @@ import {
   saveStoreToSupabase,
   saveSuperAdminUserToSupabase,
   saveProductWithTenantCatalogLockInSupabase,
+  createManagedOrderInSupabase,
+  updateManagedOrderStatusInSupabase,
+  managedOrderHasInventoryHistoryInSupabase,
   saveActivityLogEntryToSupabase,
   saveInboxStateToSupabase,
   updateBrandForCompanyInSupabase,
@@ -43,6 +46,12 @@ import {
   updateCategoryStatusForCompanyInSupabase,
   updateCompanyBrandingAndSettingsInSupabase,
 } from "./postgresStore.js";
+import {
+  canonicalOrderLines,
+  orderLifecycleError,
+  serverOrderItem,
+  validateOrderTransition,
+} from "../orders/inventoryLifecycle.js";
 import {
   COMPANY_STATUSES,
   DEFAULT_COMPANY_DOMAIN,
@@ -403,6 +412,11 @@ function normalizeOrder(order) {
     pointsRedeemed: Math.max(0, Number(order.pointsRedeemed || 0)),
     discountFromPoints: Math.max(0, Number(order.discountFromPoints || 0)),
     status: order.status || "Pending",
+    inventoryManaged: order.inventoryManaged === true,
+    inventoryState: order.inventoryState || "unmanaged",
+    idempotencyKey: order.idempotencyKey || null,
+    requestFingerprint: order.requestFingerprint || null,
+    cancelledAt: order.cancelledAt || null,
     handledByEmployeeId,
     assignedToEmployeeId: order.assignedToEmployeeId || handledByEmployeeId,
     createdByEmployeeId,
@@ -1419,6 +1433,13 @@ export async function saveProductWithTenantCatalogLock(companyId, product, { isC
     if (reference.isActive === false) throw companyRepositoryError(`${label} is inactive.`);
   }
   const previous = productRepository.findByCompany(normalized, product.id);
+  if (previous && !isCreate) {
+    const nextVariantIds = new Set((product.variants || []).map((variant) => String(variant.id)));
+    const removedVariantIds = (previous.variants || [])
+      .map((variant) => String(variant.id))
+      .filter((variantId) => !nextVariantIds.has(variantId));
+    assertManagedCatalogDeletionAllowed(normalized, product.id, removedVariantIds);
+  }
   const saved = isCreate
     ? productRepository.createForCompany(normalized, product, { prepend: true })
     : productRepository.updateForCompany(normalized, product.id, product);
@@ -1432,6 +1453,29 @@ export async function saveProductWithTenantCatalogLock(companyId, product, { isC
   }
 }
 
+function managedAllocationReferences(companyId, productId, variantIds = null) {
+  const variants = variantIds ? new Set(variantIds.map(String)) : null;
+  return orderRepository.getByCompany(companyId).some((order) =>
+    order.inventoryManaged === true
+    && (order.inventoryAllocations || []).some((allocation) =>
+      String(allocation.productId) === String(productId)
+      && (!variants || variants.has(String(allocation.variantId || "")))
+    )
+  );
+}
+
+export function assertManagedCatalogDeletionAllowed(companyId, productId, variantIds = null) {
+  if (!managedAllocationReferences(normalizeCompanyId(companyId), productId, variantIds)) return;
+  const error = companyRepositoryError(
+    variantIds
+      ? "A managed order references this product variant."
+      : "A managed order references this product.",
+    409,
+  );
+  error.code = "MANAGED_CATALOG_DELETE_FORBIDDEN";
+  throw error;
+}
+
 export async function deleteProductWithTenantCatalogLock(companyId, id) {
   const normalized = normalizeCompanyId(companyId);
   if (isSupabaseConfigured()) {
@@ -1439,6 +1483,7 @@ export async function deleteProductWithTenantCatalogLock(companyId, id) {
     if (removed) productRepository.deleteForCompany(normalized, id);
     return removed;
   }
+  assertManagedCatalogDeletionAllowed(normalized, id);
   const removed = productRepository.deleteForCompany(normalized, id);
   if (!removed) return null;
   try {
@@ -2598,6 +2643,137 @@ async function persistSuperAdminUser(user, previousUser = null) {
     savedAt: new Date().toISOString(),
     users: users.map((entry) => clone(withoutCompanyFields(entry))),
   });
+}
+
+const localOrderLocks = new Map();
+
+async function withLocalOrderLock(companyId, key, callback) {
+  const lockKey = `${normalizeCompanyId(companyId)}:${key}`;
+  const previous = localOrderLocks.get(lockKey) || Promise.resolve();
+  let release;
+  const current = new Promise((resolve) => { release = resolve; });
+  const tail = previous.then(() => current);
+  localOrderLocks.set(lockKey, tail);
+  await previous;
+  try { return await callback(); }
+  finally {
+    release();
+    if (localOrderLocks.get(lockKey) === tail) localOrderLocks.delete(lockKey);
+  }
+}
+
+function restoreLocalProducts(companyId, snapshots) {
+  for (const product of snapshots) productRepository.updateForCompany(companyId, product.id, clone(product));
+}
+
+export async function createInventoryManagedOrder(companyId, input) {
+  const normalized = normalizeCompanyId(companyId);
+  if (isSupabaseConfigured()) {
+    const result = await createManagedOrderInSupabase(normalized, input);
+    const current = orderRepository.findByCompany(normalized, result.order.id);
+    if (current) orderRepository.updateForCompany(normalized, result.order.id, result.order);
+    else orderRepository.createForCompany(normalized, result.order, { prepend: true });
+    return result;
+  }
+  return withLocalOrderLock(normalized, input.idempotencyKey, async () => {
+    const prior = orderRepository.getByCompany(normalized).find((order) => order.idempotencyKey === input.idempotencyKey);
+    if (prior) {
+      if (prior.requestFingerprint !== input.requestFingerprint) throw orderLifecycleError("IDEMPOTENCY_CONFLICT", "Idempotency-Key was already used for a different order.", 409);
+      return { order: prior, replayed: true };
+    }
+    const requests = canonicalOrderLines(input.items);
+    const snapshots = [...new Set(requests.map((item) => item.productId))].map((id) => {
+      const product = productRepository.findByCompany(normalized, id);
+      if (!product) throw orderLifecycleError("INVALID_PRODUCT", "Product not found.", 404);
+      return clone(product);
+    });
+    let createdOrder = null;
+    try {
+      const items = requests.map((request) => {
+        const product = productRepository.findByCompany(normalized, request.productId);
+        const variants = Array.isArray(product?.variants) ? product.variants : [];
+        const variant = request.variantId ? variants.find((entry) => String(entry.id) === request.variantId) : null;
+        const item = serverOrderItem(product, variant, request.quantity, { wholesale: input.wholesale === true });
+        const available = variant ? Number(variant.stock || 0) : Number(product.stockQty || 0);
+        if (available < request.quantity) throw orderLifecycleError("INSUFFICIENT_STOCK", "Insufficient stock.", 409);
+        return { ...item, id: crypto.randomUUID() };
+      });
+      for (const item of items) {
+        const product = productRepository.findByCompany(normalized, item.productId);
+        if (item.variantId) {
+          product.variants = product.variants.map((variant) => String(variant.id) === item.variantId ? { ...variant, stock: Number(variant.stock || 0) - item.quantity } : variant);
+          product.stockQty = product.variants.reduce((sum, variant) => sum + Number(variant.stock || 0), 0);
+        } else product.stockQty = Number(product.stockQty || 0) - item.quantity;
+        product.updatedAt = new Date().toISOString();
+      }
+      const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
+      const now = new Date().toISOString();
+      createdOrder = normalizeOrder({
+        ...input.order, id: input.orderId || `ORD-${crypto.randomUUID()}`, items, subtotal,
+        total: Math.max(0, subtotal - Number(input.discountFromPoints || 0)) + Number(input.deliveryPrice || 0),
+        status: "Pending", inventoryManaged: true, inventoryState: "deducted",
+        idempotencyKey: input.idempotencyKey, requestFingerprint: input.requestFingerprint,
+        inventoryAllocations: items.map((item) => ({ id: crypto.randomUUID(), orderItemId: item.id, productId: item.productId, variantId: item.variantId, quantity: item.quantity, deductedAt: now, restoredAt: null })),
+        createdAt: now, updatedAt: now,
+      });
+      orderRepository.createForCompany(normalized, createdOrder, { prepend: true });
+      await persistCompanyStore(normalized);
+      return { order: createdOrder, replayed: false };
+    } catch (error) {
+      restoreLocalProducts(normalized, snapshots);
+      if (createdOrder) orderRepository.deleteForCompany(normalized, createdOrder.id);
+      throw error;
+    }
+  });
+}
+
+export async function updateInventoryManagedOrderStatus(companyId, orderId, nextStatus) {
+  const normalized = normalizeCompanyId(companyId);
+  if (isSupabaseConfigured()) {
+    const order = await updateManagedOrderStatusInSupabase(normalized, orderId, nextStatus);
+    orderRepository.updateForCompany(normalized, orderId, order);
+    return order;
+  }
+  return withLocalOrderLock(normalized, `status:${orderId}`, async () => {
+    const order = orderRepository.findByCompany(normalized, orderId);
+    if (!order) throw orderLifecycleError("ORDER_NOT_FOUND", "Order not found.", 404);
+    const transition = validateOrderTransition(order.status, nextStatus);
+    if (!transition.changed && !(nextStatus === "Cancelled" && order.inventoryManaged && order.inventoryState !== "restored")) return order;
+    const snapshots = [...new Set((order.inventoryAllocations || []).map((entry) => entry.productId))]
+      .map((id) => productRepository.findByCompany(normalized, id)).filter(Boolean).map(clone);
+    const previousOrder = clone(order);
+    try {
+      if (nextStatus === "Cancelled" && order.inventoryManaged) {
+        for (const allocation of order.inventoryAllocations || []) {
+          if (allocation.restoredAt) continue;
+          const product = productRepository.findByCompany(normalized, allocation.productId);
+          if (allocation.variantId) {
+            product.variants = product.variants.map((variant) => String(variant.id) === String(allocation.variantId) ? { ...variant, stock: Number(variant.stock || 0) + allocation.quantity } : variant);
+            product.stockQty = product.variants.reduce((sum, variant) => sum + Number(variant.stock || 0), 0);
+          } else product.stockQty = Number(product.stockQty || 0) + allocation.quantity;
+          allocation.restoredAt = new Date().toISOString();
+        }
+        order.inventoryState = "restored";
+        order.cancelledAt = new Date().toISOString();
+      }
+      order.status = nextStatus;
+      order.updatedAt = new Date().toISOString();
+      await persistCompanyStore(normalized);
+      return order;
+    } catch (error) {
+      restoreLocalProducts(normalized, snapshots);
+      orderRepository.updateForCompany(normalized, orderId, previousOrder);
+      throw error;
+    }
+  });
+}
+
+export async function managedOrderHasInventoryHistory(companyId, orderId) {
+  const normalized = normalizeCompanyId(companyId);
+  if (isSupabaseConfigured()) return managedOrderHasInventoryHistoryInSupabase(normalized, orderId);
+  const order = orderRepository.findByCompany(normalized, orderId);
+  if (!order) throw orderLifecycleError("ORDER_NOT_FOUND", "Order not found.", 404);
+  return order.inventoryManaged === true;
 }
 
 export async function persistCompanyStore(companyId, options = {}) {

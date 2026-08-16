@@ -1,15 +1,22 @@
 import { Router } from "express";
 import {
   deliveryZoneRepository,
+  createInventoryManagedOrder,
+  managedOrderHasInventoryHistory,
   orderRepository,
   persistCompanyStore,
   productRepository,
   userRepository,
+  updateInventoryManagedOrderStatus,
 } from "../data/store.js";
 import { effectiveTenantRole, optionalAuth, publicUser, requireAuth } from "../middleware/auth.js";
 import { findEnabledZone } from "../delivery/schema.js";
 import { isVariantVisible } from "../products/variantVisibility.js";
 import { recordActivityLog } from "../activityLog/logger.js";
+import {
+  orderRequestFingerprint,
+  requireIdempotencyKey,
+} from "../orders/inventoryLifecycle.js";
 
 const router = Router();
 
@@ -273,7 +280,103 @@ router.get("/my-orders", requireAuth, (req, res) => {
   );
 });
 
-router.post("/", optionalAuth, async (req, res) => {
+async function createManagedOrderHandler(req, res) {
+  try {
+    const idempotencyKey = requireIdempotencyKey(req.get("Idempotency-Key"));
+    const customer = guestOrderCustomer(req.body.customer);
+    if (!customer.name || !customer.phone || !customer.city || !customer.address) {
+      return res.status(400).json({ code: "INVALID_CUSTOMER", message: "Name, phone, city, and address are required." });
+    }
+    const tenantProducts = productRepository.getByCompany(req.companyId);
+    const requestedItems = (Array.isArray(req.body.items) ? req.body.items : []).map((item) => ({
+      productId: cleanText(item?.productId, 160) || tenantProducts.find((product) => product.slug === cleanText(item?.slug, 240))?.id || "",
+      variantId: cleanText(item?.variantId, 160) || null,
+      quantity: Number(item?.quantity),
+    }));
+
+    const allZones = deliveryZoneRepository.getByCompany(req.companyId).filter((zone) => !zone.deleted_at);
+    let deliveryPrice = 0;
+    let deliveryZone = null;
+    if (allZones.length) {
+      deliveryZone = findEnabledZone(
+        allZones,
+        cleanText(req.body.delivery_zone_id || req.body.deliveryZoneId, 160),
+        cleanText(req.body.delivery_city_key || req.body.deliveryCityKey, 120),
+      );
+      if (!deliveryZone) return res.status(400).json({ message: "Selected delivery city is not available." });
+      deliveryPrice = Number(deliveryZone.delivery_price || 0);
+    }
+    const pointsUser = customer.phone
+      ? userRepository.findByCompany(req.companyId, (entry) => normalizePhone(entry.phone) === customer.phone)
+      : null;
+    const estimatedSubtotal = requestedItems.reduce((sum, request) => {
+      const product = tenantProducts.find((entry) => entry.id === request.productId);
+      const variant = product?.variants?.find?.((entry) => String(entry.id) === String(request.variantId));
+      const price = req.user?.accountType === "trader" || req.user?.accountType === "wholesale"
+        ? variant?.wholesalePrice ?? product?.wholesalePrice ?? variant?.price ?? product?.price
+        : variant?.price ?? product?.price;
+      return sum + Math.max(0, Number(price || 0)) * Math.max(0, Number(request.quantity || 0));
+    }, 0);
+    let redemption = { points: 0, discount: 0 };
+    if (pointsUser?.role === "customer") redemption = redemptionForOrder(pointsUser, req.body.pointsRedeemed, estimatedSubtotal);
+    if (estimatedSubtotal >= 500) deliveryPrice = 0;
+    const paymentMethod = cleanText(req.body.paymentMethod, 80) || "Cash on delivery";
+    const requestFingerprint = orderRequestFingerprint({
+      customer,
+      items: requestedItems,
+      paymentMethod,
+      delivery: deliveryZone ? { id: deliveryZone.id, cityKey: deliveryZone.city_key, price: deliveryPrice } : null,
+      pointsRedeemed: redemption.points,
+    });
+    const user = req.user;
+    const staff = isStaffRole(user?.role);
+    const operator = user?.role === "admin" || user?.role === "manager";
+    const result = await createInventoryManagedOrder(req.companyId, {
+      idempotencyKey,
+      requestFingerprint,
+      items: requestedItems,
+      wholesale: user?.accountType === "trader" || user?.accountType === "wholesale",
+      deliveryPrice,
+      discountFromPoints: redemption.discount,
+      order: {
+        customer,
+        customerUserId: user?.role === "customer" ? user.id : operator ? cleanText(req.body.customerUserId, 160) || null : null,
+        pointsEarned: pointsUser?.role === "customer" ? Math.floor(Math.max(0, estimatedSubtotal - redemption.discount)) : 0,
+        pointsRedeemed: redemption.points,
+        discountFromPoints: redemption.discount,
+        delivery_city_key: deliveryZone?.city_key || "",
+        delivery_city_name: deliveryZone?.city_name || "",
+        delivery_region: deliveryZone?.region || "",
+        delivery_price: deliveryPrice,
+        delivery_currency: deliveryZone?.currency || "",
+        paymentMethod,
+        handledByEmployeeId: staff ? user.id : "",
+        assignedToEmployeeId: staff ? user.id : "",
+        createdByEmployeeId: staff ? user.id : operator ? cleanText(req.body.createdByEmployeeId, 160) : "",
+        createdByEmployeeName: staff ? user.name : operator ? cleanText(req.body.createdByEmployeeName, 120) : "",
+        createdBy: publicUser(user),
+        lastUpdatedBy: publicUser(user),
+      },
+    });
+    if (!result.replayed) safeRecordActivityLog({
+      req, companyId: req.companyId, action: "order.created", entityType: "order",
+      entityId: result.order.id, entityLabel: result.order.id,
+      summary: `Order ${result.order.id} created for ${customer.name}`,
+      afterData: { customer_name: customer.name, total: result.order.total, item_count: result.order.items.length },
+    });
+    return res.status(result.replayed ? 200 : 201).json(result.order);
+  } catch (error) {
+    console.error("Managed order creation failed:", error);
+    return res.status(error.statusCode || 500).json({
+      code: error.code || "ORDER_CREATE_FAILED",
+      message: error.statusCode ? error.message : "Unable to create order. Please try again.",
+    });
+  }
+}
+
+router.post("/", optionalAuth, createManagedOrderHandler);
+
+async function legacyOrderCreation(req, res) {
   try {
     const user = req.user;
     const customer = guestOrderCustomer(req.body.customer);
@@ -420,7 +523,7 @@ router.post("/", optionalAuth, async (req, res) => {
       message: error.statusCode ? error.message : "Unable to create order. Please try again.",
     });
   }
-});
+}
 
 router.put("/:id/status", requireAuth, async (req, res) => {
   try {
@@ -428,10 +531,21 @@ router.put("/:id/status", requireAuth, async (req, res) => {
       return res.status(403).json({ message: "Order status permission required." });
     }
     const order = orderRepository.findByCompany(req.companyId, req.params.id);
-    if (!order) return res.status(404).json({ message: "Order not found." });
+    if (!order) return res.status(404).json({ code: "ORDER_NOT_FOUND", message: "Order not found." });
 
     const prevStatus = order.status;
     const nextStatus = cleanText(req.body.status, 40) || order.status;
+    if (order.inventoryManaged === true) {
+      const updated = await updateInventoryManagedOrderStatus(req.companyId, order.id, nextStatus);
+      applyLoyaltyForStatus(req.companyId, updated, nextStatus);
+      safeRecordActivityLog({
+        req, companyId: req.companyId, action: "order.status_updated", entityType: "order",
+        entityId: updated.id, entityLabel: updated.id,
+        summary: `Order ${updated.id} status changed from ${prevStatus} to ${updated.status}`,
+        beforeData: { status: prevStatus }, afterData: { status: updated.status },
+      });
+      return res.json(updated);
+    }
     applyLoyaltyForStatus(req.companyId, order, nextStatus);
     order.status = nextStatus;
     order.lastUpdatedBy = publicUser(req.user);
@@ -455,6 +569,7 @@ router.put("/:id/status", requireAuth, async (req, res) => {
   } catch (error) {
     console.error("Order status update failed:", error);
     return res.status(error.statusCode || 500).json({
+      code: error.code || "ORDER_STATUS_UPDATE_FAILED",
       message: error.statusCode ? error.message : "Unable to update order status. Please try again.",
     });
   }
@@ -504,6 +619,13 @@ router.put("/:id/assign-employee", requireAuth, requireOrderPermission("orders.u
 router.delete("/:id", requireAuth, requireOrderPermission("orders.delete"), async (req, res) => {
   try {
     const existing = orderRepository.findByCompany(req.companyId, req.params.id);
+    if (!existing) return res.status(404).json({ code: "ORDER_NOT_FOUND", message: "Order not found." });
+    if (await managedOrderHasInventoryHistory(req.companyId, req.params.id)) {
+      return res.status(409).json({
+        code: "MANAGED_ORDER_DELETE_FORBIDDEN",
+        message: "Inventory-managed orders cannot be deleted.",
+      });
+    }
     if (existing) applyLoyaltyForStatus(req.companyId, existing, "Cancelled");
     const removed = orderRepository.deleteForCompany(req.companyId, req.params.id);
     if (!removed) return res.status(404).json({ message: "Order not found." });

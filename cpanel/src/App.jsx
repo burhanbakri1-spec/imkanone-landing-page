@@ -35,6 +35,7 @@ import {
 import {
   assignOrderEmployee,
   createOrder,
+  createOrderSubmissionTracker,
   deleteOrder,
   getOrders,
   updateOrderStatus,
@@ -178,6 +179,8 @@ function mergeCatalogDetails(products) {
 }
 
 function App() {
+  const checkoutSubmission = React.useRef(createOrderSubmissionTracker());
+  const employeeOrderSubmission = React.useRef(createOrderSubmissionTracker());
   const [activePage, setActivePage] = React.useState(getInitialPageFromPath);
   const [activeCategory, setActiveCategory] = React.useState("All");
   const [activeProductSlug, setActiveProductSlug] = React.useState("");
@@ -852,11 +855,16 @@ function App() {
 
   async function handleCreateOrder(customerInfo) {
     try {
-      const order = await createOrder({
+      const requestPayload = {
         cartItems,
         customer: customerInfo,
         total: cartTotal,
+      };
+      const order = await createOrder({
+        ...requestPayload,
+        idempotencyKey: checkoutSubmission.current.keyFor(requestPayload),
       });
+      checkoutSubmission.current.confirm();
 
       setOrders((currentOrders) => [order, ...currentOrders]);
       setLastOrder(order);
@@ -874,11 +882,16 @@ function App() {
   async function handleCreateEmployeeOrder(orderPayload) {
     const isPortalOperator = isTenantOperator(currentUser?.role) || isStaffRole(currentUser?.role);
     try {
-      const order = await createOrder({
+      const requestPayload = {
         ...orderPayload,
         createdByEmployeeId: isPortalOperator ? currentUser.id : "",
         createdByEmployeeName: isPortalOperator ? currentUser.name : "",
+      };
+      const order = await createOrder({
+        ...requestPayload,
+        idempotencyKey: employeeOrderSubmission.current.keyFor(requestPayload),
       });
+      employeeOrderSubmission.current.confirm();
       setOrders((currentOrders) => [order, ...currentOrders]);
       await refreshOrders();
       return { ok: true, message: t("employee.orderCreatedSuccessfully"), order };

@@ -84,7 +84,7 @@ test("company currency formatting uses locale safely without RTL control artifac
 });
 
 test("Add Order uses the existing scoped createOrder API and refreshes real orders", () => {
-  assert.match(appSource, /import \{ assignOrderEmployee, createOrder, deleteOrder, getOrders, updateOrderStatus \}/);
+  assert.match(appSource, /import \{ assignOrderEmployee, createOrder, createOrderSubmissionTracker, deleteOrder, getOrders, updateOrderStatus \}/);
   assert.match(appSource, /async function handleCreateManualOrder\(payload\)[\s\S]*?createOrder\([\s\S]*?await refreshOrders\(\)/);
   assert.match(salesSource, /onCreateOrder\(\{[\s\S]*?customer,[\s\S]*?items:/);
 });

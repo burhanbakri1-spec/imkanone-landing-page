@@ -8,6 +8,12 @@ import {
 import { Pool } from "pg";
 import crypto from "node:crypto";
 import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
+import {
+  canonicalOrderLines,
+  orderLifecycleError,
+  serverOrderItem,
+  validateOrderTransition,
+} from "../orders/inventoryLifecycle.js";
 
 let pool;
 let siteEditorPool;
@@ -596,6 +602,11 @@ function orderRow(order, companyId) {
     discount_from_points: Number(order.discountFromPoints || 0),
     payment_method: order.paymentMethod || "",
     status: order.status || "Pending",
+    inventory_managed: order.inventoryManaged === true,
+    inventory_state: order.inventoryState || "unmanaged",
+    idempotency_key: order.idempotencyKey || null,
+    request_fingerprint: order.requestFingerprint || null,
+    cancelled_at: order.cancelledAt || null,
     handled_by_employee_id: order.handledByEmployeeId || "",
     assigned_to_employee_id: order.assignedToEmployeeId || "",
     created_by_employee_id: order.createdByEmployeeId || "",
@@ -613,7 +624,11 @@ function orderItemRows(order, companyId) {
     order_id: order.id,
     product_id: item.productId || item.id || "",
     product_name: item.productName || item.name || "",
-    variant_id: item.variantId || "",
+    variant_id: item.variantId || null,
+    product_sku: item.productSku || "",
+    variant_sku: item.variantSku || "",
+    variant_name: item.variantName || "",
+    inventory_managed: item.inventoryManaged === true,
     color_name: item.colorName || item.selectedColor || "",
     color_value: item.colorValue || "",
     size: item.selectedSize || item.size || "",
@@ -788,6 +803,10 @@ function mergeProduct(row, variants, galleryImages) {
     ...(row.data || {}),
     id: row.id,
     slug: row.slug,
+    name: row.data?.name || { en: row.name || row.id, ar: row.name_ar || "" },
+    price: Number(row.price || 0),
+    sku: row.data?.sku || "",
+    stockQty: Number(row.stock_qty || 0),
     categoryId: row.category_id || null,
     brandId: row.brand_id || null,
     image: row.image_url || row.data?.image || "",
@@ -810,6 +829,10 @@ function mergeOrder(row, orderItems) {
       id: item.id,
       productId: item.product_id,
       variantId: item.variant_id,
+      productSku: item.product_sku || "",
+      variantSku: item.variant_sku || "",
+      variantName: item.variant_name || "",
+      inventoryManaged: item.inventory_managed === true,
       colorName: item.color_name,
       colorValue: item.color_value,
       selectedSize: item.size,
@@ -831,6 +854,11 @@ function mergeOrder(row, orderItems) {
     discountFromPoints: Number(row.discount_from_points || 0),
     paymentMethod: row.payment_method,
     status: row.status,
+    inventoryManaged: row.inventory_managed === true,
+    inventoryState: row.inventory_state || "unmanaged",
+    idempotencyKey: row.idempotency_key || null,
+    requestFingerprint: row.request_fingerprint || null,
+    cancelledAt: row.cancelled_at || null,
     handledByEmployeeId: row.handled_by_employee_id,
     assignedToEmployeeId: row.assigned_to_employee_id,
     createdByEmployeeId: row.created_by_employee_id,
@@ -2567,6 +2595,187 @@ export function deleteProductWithTenantCatalogLockInSupabase(companyId, id) {
     );
     return removed.rows[0] ? mergeProduct(removed.rows[0], [], []) : null;
   });
+}
+
+async function withOrderInventoryTransaction(companyId, callback) {
+  const client = await getPool().connect();
+  const normalized = normalizeCompanyId(companyId);
+  try {
+    await client.query("begin");
+    const company = await client.query("select id from public.companies where id=$1", [normalized]);
+    if (!company.rows[0]) throw orderLifecycleError("ORDER_NOT_FOUND", "Company not found.", 404);
+    const result = await callback(client, normalized);
+    await client.query("commit");
+    return result;
+  } catch (error) {
+    try { await client.query("rollback"); } catch { /* preserve original failure */ }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function loadManagedOrderWithClient(client, companyId, orderId) {
+  const [orderResult, itemResult] = await Promise.all([
+    client.query("select * from public.orders where company_id=$1 and id=$2", [companyId, orderId]),
+    client.query("select * from public.order_items where company_id=$1 and order_id=$2 order by created_at,id", [companyId, orderId]),
+  ]);
+  return orderResult.rows[0] ? mergeOrder(orderResult.rows[0], itemResult.rows) : null;
+}
+
+export function createManagedOrderInSupabase(companyId, input) {
+  return withOrderInventoryTransaction(companyId, async (client, normalized) => {
+    await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`${normalized}:${input.idempotencyKey}`]);
+    const prior = await client.query(
+      "select id,request_fingerprint from public.orders where company_id=$1 and idempotency_key=$2",
+      [normalized, input.idempotencyKey],
+    );
+    if (prior.rows[0]) {
+      if (prior.rows[0].request_fingerprint !== input.requestFingerprint) {
+        throw orderLifecycleError("IDEMPOTENCY_CONFLICT", "Idempotency-Key was already used for a different order.", 409);
+      }
+      return { order: await loadManagedOrderWithClient(client, normalized, prior.rows[0].id), replayed: true };
+    }
+
+    const requested = canonicalOrderLines(input.items);
+    const productIds = [...new Set(requested.map((item) => item.productId))].sort();
+    const productsResult = await client.query(
+      "select * from public.products where company_id=$1 and id=any($2::text[]) order by id for update",
+      [normalized, productIds],
+    );
+    const variantsResult = await client.query(
+      "select * from public.product_variants where company_id=$1 and product_id=any($2::text[]) order by product_id,id for update",
+      [normalized, productIds],
+    );
+    const productsById = new Map(productsResult.rows.map((row) => [row.id, mergeProduct(row, variantsResult.rows, [])]));
+    const orderItems = requested.map((request) => {
+      const product = productsById.get(request.productId);
+      if (!product) throw orderLifecycleError("INVALID_PRODUCT", "Product not found.", 404);
+      const variant = request.variantId ? product.variants.find((entry) => entry.id === request.variantId) : null;
+      const item = serverOrderItem(product, variant, request.quantity, { wholesale: input.wholesale === true });
+      const available = variant ? Number(variant.stock || 0) : Number(product.stock_qty ?? product.stockQty ?? 0);
+      if (available < request.quantity) throw orderLifecycleError("INSUFFICIENT_STOCK", "Insufficient stock.", 409);
+      return { ...item, id: crypto.randomUUID() };
+    });
+
+    for (const item of orderItems) {
+      if (item.variantId) {
+        await client.query(
+          "update public.product_variants set stock=stock-$4,updated_at=now() where company_id=$1 and product_id=$2 and id=$3",
+          [normalized, item.productId, item.variantId, item.quantity],
+        );
+      } else {
+        await client.query(
+          "update public.products set stock_qty=stock_qty-$3,updated_at=now() where company_id=$1 and id=$2",
+          [normalized, item.productId, item.quantity],
+        );
+      }
+    }
+    for (const productId of [...new Set(orderItems.filter((item) => item.variantId).map((item) => item.productId))].sort()) {
+      await client.query(
+        `update public.products set stock_qty=(select coalesce(sum(stock),0) from public.product_variants
+          where company_id=$1 and product_id=$2),updated_at=now() where company_id=$1 and id=$2`,
+        [normalized, productId],
+      );
+    }
+
+    const subtotal = orderItems.reduce((sum, item) => sum + item.lineTotal, 0);
+    const total = Math.max(0, subtotal - Number(input.discountFromPoints || 0)) + Number(input.deliveryPrice || 0);
+    const now = new Date().toISOString();
+    const order = {
+      ...input.order,
+      id: input.orderId || `ORD-${crypto.randomUUID()}`,
+      items: orderItems,
+      subtotal,
+      total,
+      status: "Pending",
+      inventoryManaged: true,
+      inventoryState: "deducted",
+      idempotencyKey: input.idempotencyKey,
+      requestFingerprint: input.requestFingerprint,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const orderData = orderRow(order, normalized);
+    const orderColumns = Object.keys(orderData);
+    await client.query(
+      `insert into public.orders (${orderColumns.map(quoteIdent).join(",")}) values (${orderColumns.map((_, index) => `$${index + 1}`).join(",")})`,
+      orderColumns.map((column) => toPgColumnValue(column, orderData[column])),
+    );
+    for (const itemRow of orderItemRows(order, normalized)) {
+      const columns = Object.keys(itemRow);
+      await client.query(
+        `insert into public.order_items (${columns.map(quoteIdent).join(",")}) values (${columns.map((_, index) => `$${index + 1}`).join(",")})`,
+        columns.map((column) => toPgColumnValue(column, itemRow[column])),
+      );
+      await client.query(
+        `insert into public.order_inventory_allocations
+          (company_id,order_id,order_item_id,product_id,variant_id,quantity)
+         values ($1,$2,$3,$4,$5,$6)`,
+        [normalized, order.id, itemRow.id, itemRow.product_id, itemRow.variant_id, itemRow.quantity],
+      );
+    }
+    return { order, replayed: false };
+  });
+}
+
+export function updateManagedOrderStatusInSupabase(companyId, orderId, nextStatus) {
+  return withOrderInventoryTransaction(companyId, async (client, normalized) => {
+    const locked = await client.query(
+      "select * from public.orders where company_id=$1 and id=$2 for update",
+      [normalized, orderId],
+    );
+    if (!locked.rows[0]) throw orderLifecycleError("ORDER_NOT_FOUND", "Order not found.", 404);
+    const row = locked.rows[0];
+    const transition = validateOrderTransition(row.status, nextStatus);
+    if (!transition.changed && !(nextStatus === "Cancelled" && row.inventory_managed === true && row.inventory_state !== "restored")) {
+      return loadManagedOrderWithClient(client, normalized, orderId);
+    }
+    if (nextStatus !== "Cancelled" || row.inventory_managed !== true) {
+      await client.query("update public.orders set status=$3,updated_at=now() where company_id=$1 and id=$2", [normalized, orderId, nextStatus]);
+      return loadManagedOrderWithClient(client, normalized, orderId);
+    }
+
+    const allocations = await client.query(
+      "select * from public.order_inventory_allocations where company_id=$1 and order_id=$2 order by product_id,variant_id nulls first for update",
+      [normalized, orderId],
+    );
+    const unrestored = allocations.rows.filter((allocation) => !allocation.restored_at);
+    const productIds = [...new Set(unrestored.map((allocation) => allocation.product_id))].sort();
+    if (productIds.length) {
+      await client.query("select id from public.products where company_id=$1 and id=any($2::text[]) order by id for update", [normalized, productIds]);
+      await client.query("select id from public.product_variants where company_id=$1 and product_id=any($2::text[]) order by product_id,id for update", [normalized, productIds]);
+    }
+    for (const allocation of unrestored) {
+      if (allocation.variant_id) {
+        await client.query("update public.product_variants set stock=stock+$4,updated_at=now() where company_id=$1 and product_id=$2 and id=$3", [normalized, allocation.product_id, allocation.variant_id, allocation.quantity]);
+      } else {
+        await client.query("update public.products set stock_qty=stock_qty+$3,updated_at=now() where company_id=$1 and id=$2", [normalized, allocation.product_id, allocation.quantity]);
+      }
+    }
+    for (const productId of [...new Set(unrestored.filter((entry) => entry.variant_id).map((entry) => entry.product_id))].sort()) {
+      await client.query(
+        `update public.products set stock_qty=(select coalesce(sum(stock),0) from public.product_variants
+          where company_id=$1 and product_id=$2),updated_at=now() where company_id=$1 and id=$2`,
+        [normalized, productId],
+      );
+    }
+    await client.query(
+      "update public.order_inventory_allocations set restored_at=now(),updated_at=now() where company_id=$1 and order_id=$2 and restored_at is null",
+      [normalized, orderId],
+    );
+    await client.query(
+      "update public.orders set status='Cancelled',inventory_state='restored',cancelled_at=now(),updated_at=now() where company_id=$1 and id=$2",
+      [normalized, orderId],
+    );
+    return loadManagedOrderWithClient(client, normalized, orderId);
+  });
+}
+
+export async function managedOrderHasInventoryHistoryInSupabase(companyId, orderId) {
+  const result = await query("select inventory_managed from public.orders where company_id=$1 and id=$2", [normalizeCompanyId(companyId), orderId]);
+  if (!result.rows[0]) throw orderLifecycleError("ORDER_NOT_FOUND", "Order not found.", 404);
+  return result.rows[0].inventory_managed === true;
 }
 
 export async function saveActivityLogEntryToSupabase(companyId, log) {

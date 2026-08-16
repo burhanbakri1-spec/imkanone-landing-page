@@ -58,7 +58,7 @@ import {
 import { moduleAllowsPage } from "./utils/moduleRegistry.js";
 import { performSecureCompanySwitch } from "./utils/companySwitcher.js";
 import { protectedApiErrorEvent } from "./utils/api.js";
-import { assignOrderEmployee, createOrder, deleteOrder, getOrders, updateOrderStatus } from "./utils/orders.js";
+import { assignOrderEmployee, createOrder, createOrderSubmissionTracker, deleteOrder, getOrders, updateOrderStatus } from "./utils/orders.js";
 import { salesPageKeys } from "./utils/sales.js";
 import { catalogPlaceholderPageKeys } from "./utils/catalog.js";
 import { videoAppsPageKeys } from "./utils/videoApps.js";
@@ -199,6 +199,7 @@ const dropshippingPageKeys = Object.keys(pagePaths).filter((key) =>
 const customerPageKeys = ["admin-customers", "admin-customers-detail", "admin-inbox", "admin-forms", "admin-meetings", "admin-pipelines", "admin-community", "admin-loyalty"];
 
 function CPanelApp() {
+  const manualOrderSubmission = React.useRef(createOrderSubmissionTracker());
   const storedUser = React.useMemo(() => getCurrentUser(), []);
   const [company, setCompany] = React.useState(
     () => storedUser?.activeCompany || getStoredCompanyContext(),
@@ -831,11 +832,16 @@ function CPanelApp() {
 
   async function handleCreateManualOrder(payload) {
     try {
-      const order = await createOrder({
+      const requestPayload = {
         ...payload,
         createdByEmployeeId: currentUser?.id || "",
         createdByEmployeeName: currentUser?.name || "",
+      };
+      const order = await createOrder({
+        ...requestPayload,
+        idempotencyKey: manualOrderSubmission.current.keyFor(requestPayload),
       });
+      manualOrderSubmission.current.confirm();
       await refreshOrders();
       setAdminMessageType("success");
       setAdminMessage(language === "ar" ? "تم إنشاء الطلب بنجاح." : "Order created successfully.");
