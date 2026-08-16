@@ -14,6 +14,7 @@ function AdminOrdersTable({
   locale,
   onAssignEmployee,
   onDeleteOrder,
+  onViewOrder,
   onStatusChange,
   orders,
   products,
@@ -60,7 +61,7 @@ function AdminOrdersTable({
         <tbody>
           {orders.map((order) => (
             <tr key={order.id}>
-              <td>{order.id}</td>
+              <td>{onViewOrder ? <button className="sales-order-link" onClick={() => onViewOrder(order)} type="button">{order.id}</button> : order.id}</td>
               <td>{order.customer?.name || "-"}</td>
               <td>{order.customer?.phone || "-"}</td>
               <td>{order.customer?.city || "-"}</td>

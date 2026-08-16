@@ -36,22 +36,29 @@ test("all requested tenant Sales routes render through the centralized Sales pag
 test("Sales metrics are calculated only from real loaded orders", () => {
   assert.deepEqual(buildOrderMetrics(orders), {
     averageOrderValue: 10,
+    cancelledOrders: 0,
+    completedOrders: 1,
     customers: 2,
     orders: 3,
+    pendingOrders: 2,
     totalSales: 30,
   });
   const analytics = buildSalesAnalytics(orders, [{ id: "p1", name: { en: "Serum" } }, { id: "p2", name: { en: "Cream" } }], "en");
   assert.deepEqual(analytics.topProducts.map((item) => item.key), ["Serum", "Cream"]);
   assert.equal(analytics.customerMix.newCustomers, 2);
   assert.equal(analytics.customerMix.returningOrders, 1);
+  assert.deepEqual(analytics.ordersOverTime.map((item) => item.orders), [1, 1, 1]);
   assert.deepEqual(analytics.sources, []);
 });
 
 test("orders, payments, and receipts expose only existing records", () => {
   assert.deepEqual(filterSalesOrders(orders, { query: "nablus", status: "pending" }).map((item) => item.id), ["o2"]);
+  assert.deepEqual(filterSalesOrders(orders, { customer: "one@example.test", from: "2026-07-02", to: "2026-07-02" }).map((item) => item.id), ["o2"]);
   assert.equal(buildPaymentRows(orders).length, 3);
   assert.deepEqual(buildReceiptRows(orders).map((item) => item.id), ["r3"]);
   assert.match(salesSource, /data-sales-empty-state/);
+  assert.match(salesSource, /function OrderDetailDialog/);
+  assert.match(salesSource, /onViewOrder=\{setSelectedOrder\}/);
 });
 
 test("Sales actions respect tenant order permissions", () => {

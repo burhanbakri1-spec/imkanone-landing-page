@@ -34042,3 +34042,107 @@ main.admin-panel-main:has(.admin-studio-shell) {
 .website-media-actions {
   flex-wrap: wrap;
 }
+
+/* Tenant Sales real-order extensions */
+.sales-overview-kpis {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.sales-date-filter {
+  align-items: center;
+  color: #667085;
+  display: inline-flex;
+  font-size: 12px;
+  gap: 6px;
+}
+
+.sales-date-filter input {
+  border: 1px solid #d7dfeb;
+  border-radius: 8px;
+  min-height: 38px;
+  padding-inline: 9px;
+}
+
+.sales-order-link {
+  background: none;
+  border: 0;
+  color: #1769ff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 0;
+}
+
+.sales-order-detail {
+  max-width: 820px;
+}
+
+.sales-order-detail-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-block: 22px;
+}
+
+.sales-order-detail-grid > div,
+.sales-order-detail-grid small,
+.sales-order-lines span {
+  display: grid;
+  gap: 5px;
+}
+
+.sales-order-detail-grid span,
+.sales-order-lines small {
+  color: #7a8497;
+  font-size: 12px;
+}
+
+.sales-order-lines {
+  border-block: 1px solid #e4e9f1;
+  padding-block: 18px;
+}
+
+.sales-order-lines > div {
+  align-items: center;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  padding-block: 10px;
+}
+
+.sales-order-detail-total {
+  align-items: center;
+  display: flex;
+  font-size: 18px;
+  justify-content: space-between;
+  padding-block-start: 18px;
+}
+
+.sales-orders-over-time {
+  margin-block-start: 20px;
+}
+
+.sales-order-bars > div {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 100px minmax(0, 1fr) 36px;
+  padding-block: 8px;
+}
+
+.sales-order-bars i {
+  background: linear-gradient(90deg, #1769ff 0 min(100%, calc(var(--sales-order-count) * 12%)), #edf2f8 0);
+  border-radius: 999px;
+  height: 8px;
+}
+
+@media (max-width: 900px) {
+  .sales-overview-kpis,
+  .sales-order-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 600px) {
+  .sales-overview-kpis,
+  .sales-order-detail-grid { grid-template-columns: 1fr; }
+  .sales-order-lines > div { grid-template-columns: 1fr; }
+}

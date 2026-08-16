@@ -28,10 +28,20 @@ function customerKey(customer = {}) {
 export function buildOrderMetrics(orders = []) {
   const totalSales = orders.reduce((sum, order) => sum + amount(order.total), 0);
   const customers = new Set(orders.map((order) => customerKey(order.customer)).filter(Boolean));
+  const statusCounts = orders.reduce((counts, order) => {
+    const status = String(order.status || "pending").trim().toLocaleLowerCase();
+    if (["completed", "complete", "confirmed", "paid"].includes(status)) counts.completed += 1;
+    else if (["cancelled", "canceled", "refunded", "void", "voided"].includes(status)) counts.cancelled += 1;
+    else counts.pending += 1;
+    return counts;
+  }, { cancelled: 0, completed: 0, pending: 0 });
   return {
     averageOrderValue: orders.length ? totalSales / orders.length : 0,
+    cancelledOrders: statusCounts.cancelled,
+    completedOrders: statusCounts.completed,
     customers: customers.size,
     orders: orders.length,
+    pendingOrders: statusCounts.pending,
     totalSales,
   };
 }
@@ -39,6 +49,7 @@ export function buildOrderMetrics(orders = []) {
 export function filterSalesOrders(orders = [], filters = {}) {
   const query = String(filters.query || "").trim().toLocaleLowerCase();
   const status = String(filters.status || "all").toLocaleLowerCase();
+  const customer = String(filters.customer || "all").toLocaleLowerCase();
   const from = filters.from ? new Date(`${filters.from}T00:00:00`).getTime() : null;
   const to = filters.to ? new Date(`${filters.to}T23:59:59.999`).getTime() : null;
 
@@ -56,6 +67,7 @@ export function filterSalesOrders(orders = [], filters = {}) {
 
     return (!query || haystack.includes(query))
       && (status === "all" || orderStatus === status)
+      && (customer === "all" || customerKey(order.customer).toLocaleLowerCase() === customer)
       && (!from || (createdAt && createdAt >= from))
       && (!to || (createdAt && createdAt <= to));
   });
@@ -130,6 +142,7 @@ export function buildSalesAnalytics(orders = [], products = [], language = "en")
       returningOrders,
     },
     daily: daily.sort((a, b) => a.key.localeCompare(b.key)),
+    ordersOverTime: daily.map((entry) => ({ key: entry.key, orders: entry.orders })),
     locations: locations.slice(0, 5),
     metrics: buildOrderMetrics(orders),
     sources: sources.slice(0, 5),
