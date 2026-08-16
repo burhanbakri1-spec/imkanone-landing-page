@@ -169,7 +169,3 @@ test("local API deducts atomically, replays safely, restores once, and protects 
   assert.equal((await request(`/orders/${winner.body.id}/status`, { token, method: "PUT", body: { status: "Completed" } })).status, 200);
   assert.equal((await request(`/orders/${winner.body.id}/status`, { token, method: "PUT", body: { status: "Cancelled" } })).body.code, "INVALID_ORDER_TRANSITION");
 });
-
-test("live PostgreSQL integration is opt-in and never targets an implicit database", { skip: !process.env.ORDER_INVENTORY_TEST_DATABASE_URL }, () => {
-  assert.match(process.env.ORDER_INVENTORY_TEST_DATABASE_URL, /^postgres(?:ql)?:\/\//);
-});

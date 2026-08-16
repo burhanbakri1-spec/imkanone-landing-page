@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
+    "test:order-inventory:postgres": "node --test --test-concurrency=1 test/order-inventory-postgres.test.js",
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test:auth": "node --test test/auth-membership.test.js",
