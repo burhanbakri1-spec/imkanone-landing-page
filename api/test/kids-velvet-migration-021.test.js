@@ -29,6 +29,25 @@ test("migration 021 contains the complete static Kids Velvet hierarchy", () => {
   assert.ok(seed.subs.every((category) => brandSlugs.has(category.brandSlug) && mainIds.has(category.mainId)));
 });
 
+test("migration 021 uses the declared JSON record field names consistently", () => {
+  assert.match(
+    migration,
+    /as definition\(id text, slug text, name text, "sortOrder" integer\)/,
+  );
+  assert.match(migration, /definition\."sortOrder", true, now\(\), now\(\)/);
+  assert.doesNotMatch(migration, /definition\.sort_order/);
+
+  for (const field of ["brandSlug", "nameEn", "nameAr", "sortOrder"]) {
+    assert.match(migration, new RegExp(`definition\\."${field}"`));
+  }
+  assert.match(migration, /"canonicalSlug" text/);
+  assert.match(migration, /definition\."mainId"/);
+  assert.match(migration, /brand\.slug = definition\."brandSlug"/);
+  assert.match(migration, /main\.id = definition\."mainId"/);
+  assert.match(migration, /definition\.slug/);
+  assert.match(migration, /definition\.name/);
+});
+
 test("migration 021 includes zero-product branches independently of products", () => {
   assert.ok(seed.brands.some((brand) => brand.slug === "baby"));
   assert.ok(seed.brands.some((brand) => brand.slug === "muslim"));

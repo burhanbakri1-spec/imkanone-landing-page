@@ -29,7 +29,7 @@ values ($catalog${"brands":[{"id":"kv-brand-baby","slug":"baby","name":"VELVET B
 insert into public.company_brands
   (id, company_id, slug, name, sort_order, is_active, created_at, updated_at)
 select definition.id, 'kids-velvet', definition.slug, definition.name,
-       definition.sort_order, true, now(), now()
+       definition."sortOrder", true, now(), now()
 from kv_complete_catalog_seed seed
 cross join lateral jsonb_to_recordset(seed.payload -> 'brands')
   as definition(id text, slug text, name text, "sortOrder" integer)
@@ -158,4 +158,3 @@ begin
 end $$;
 
 commit;
-
