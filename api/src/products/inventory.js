@@ -1,5 +1,11 @@
 import { normalizeStockValue } from "./productStock.js";
 
+export function normalizeInventoryTimestamp(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : value;
+}
+
 export function inventoryProduct(product = {}) {
   const variants = (Array.isArray(product.variants) ? product.variants : []).map((variant) => ({
     id: String(variant.id || ""),
@@ -16,7 +22,7 @@ export function inventoryProduct(product = {}) {
     id: product.id, slug: product.slug, sku: product.sku || "", name: product.name,
     brandId: product.brandId || null, mainCategoryId: product.mainCategoryId || null,
     subcategoryId: product.subcategoryId || product.categoryId || null,
-    stock, variants, updatedAt: product.updatedAt || product.updated_at || null,
+    stock, variants, updatedAt: normalizeInventoryTimestamp(product.updatedAt ?? product.updated_at),
   };
 }
 

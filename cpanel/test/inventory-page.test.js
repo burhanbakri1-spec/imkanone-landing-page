@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
+import { formatInventoryDate } from "../src/utils/inventoryDate.js";
 
 const page = fs.readFileSync(new URL("../src/pages/AdminInventoryPage.jsx", import.meta.url), "utf8");
 const app = fs.readFileSync(new URL("../src/CPanelApp.jsx", import.meta.url), "utf8");
@@ -31,4 +32,13 @@ test("inventory write controls respect existing product and inventory permission
 test("inventory page supports Arabic RTL copy through the shared shell", () => {
   assert.match(page, /ar: \{ title: "المخزون"/);
   assert.match(page, /language=\{language\}/);
+});
+
+test("inventory dates render safely for valid, missing, empty, and malformed values", () => {
+  assert.notEqual(formatInventoryDate("2026-08-16T08:23:08.149Z", "en"), "—");
+  assert.equal(formatInventoryDate(null, "en"), "—");
+  assert.equal(formatInventoryDate("", "en"), "—");
+  assert.equal(formatInventoryDate({}, "en"), "—");
+  assert.match(page, /formatInventoryDate\(row\.updatedAt, language\)/);
+  assert.doesNotMatch(page, /format\(new Date\(row\.updatedAt\)\)/);
 });

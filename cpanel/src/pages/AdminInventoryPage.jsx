@@ -4,6 +4,7 @@ import AdminLayout from "../components/AdminLayout.jsx";
 import { hasPermission } from "../data/permissions.js";
 import { isCompanyAdmin } from "../utils/roles.js";
 import { fetchInventory, updateInventory } from "../utils/inventoryApi.js";
+import { formatInventoryDate } from "../utils/inventoryDate.js";
 
 const text = (value, language) => value && typeof value === "object"
   ? value[language] || value.en || value.ar || ""
@@ -88,7 +89,7 @@ export default function AdminInventoryPage({ brands = [], categories = [], compa
                   <td><button className="inventory-product" disabled={!hasVariants} onClick={() => setExpanded((current) => { const next = new Set(current); next.has(row.id) ? next.delete(row.id) : next.add(row.id); return next; })} type="button">{hasVariants ? open ? <ChevronDown size={17} /> : <ChevronRight size={17} /> : <span className="inventory-product__spacer" />}<span><strong>{text(row.name, language)}</strong>{hasVariants && <small>{row.variants.length} {copy.variants}</small>}</span></button></td>
                   <td>{text(brandById.get(String(row.brandId))?.name, language) || "—"}</td><td>{text(categoryById.get(String(row.mainCategoryId))?.name, language) || "—"}</td><td>{text(categoryById.get(String(row.subcategoryId))?.name, language) || "—"}</td><td>{row.sku || "—"}</td>
                   <td>{hasVariants ? row.stock : <input className="inventory-stock-input" min="0" type="number" disabled={!canManage} value={drafts[row.id] ?? row.stock} onChange={(event) => setDraft(row.id, event.target.value)} />}</td>
-                  <td><span className={`inventory-status is-${tone}`}>{copy[tone]}</span></td><td>{row.updatedAt ? new Intl.DateTimeFormat(language === "ar" ? "ar" : "en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(row.updatedAt)) : "—"}</td>
+                  <td><span className={`inventory-status is-${tone}`}>{copy[tone]}</span></td><td>{formatInventoryDate(row.updatedAt, language)}</td>
                   <td><button className="admin-primary-button inventory-save" disabled={!canManage || saving === row.id} onClick={() => saveRow(row)} type="button">{saving === row.id ? "…" : copy.save}</button></td>
                 </tr>{open && row.variants.map((variant) => { const key = `${row.id}:${variant.id}`; const variantTone = statusFor(Number(drafts[key] ?? variant.stock)); return <tr className="inventory-variant-row" key={variant.id}><td colSpan="4"><span>{text(variant.colorName, language)}{text(variant.size, language) ? ` · ${text(variant.size, language)}` : ""}</span></td><td>{variant.sku || row.sku || "—"}</td><td><input className="inventory-stock-input" min="0" type="number" disabled={!canManage} value={drafts[key] ?? variant.stock} onChange={(event) => setDraft(key, event.target.value)} /></td><td><span className={`inventory-status is-${variantTone}`}>{copy[variantTone]}</span></td><td colSpan="2" /></tr>; })}</React.Fragment>;
               }) : <tr><td colSpan="9">{copy.empty}</td></tr>}</tbody></table>

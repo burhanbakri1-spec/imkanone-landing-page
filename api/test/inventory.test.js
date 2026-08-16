@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { hashPassword } from "../src/auth/passwords.js";
-import { applyInventoryUpdate, inventoryProduct } from "../src/products/inventory.js";
+import { applyInventoryUpdate, inventoryProduct, normalizeInventoryTimestamp } from "../src/products/inventory.js";
 import { serializePublicProduct } from "../src/storefront/publicContent.js";
 
 const variantProduct = {
@@ -28,6 +28,15 @@ test("variant inventory is canonical and updates persist without changing other 
 test("product stock is used when no variants exist", () => {
   const updated = applyInventoryUpdate({ id: "plain", stockQty: 4 }, { stock: 9 });
   assert.equal(updated.stockQty, 9);
+});
+
+test("inventory timestamps preserve valid values and normalize missing or malformed values", () => {
+  const valid = "2026-08-16T08:23:08.149Z";
+  assert.equal(normalizeInventoryTimestamp(valid), valid);
+  assert.equal(normalizeInventoryTimestamp(null), null);
+  assert.equal(normalizeInventoryTimestamp(""), null);
+  assert.equal(normalizeInventoryTimestamp({}), null);
+  assert.equal(inventoryProduct({ id: "bad-date", updatedAt: {} }).updatedAt, null);
 });
 
 test("negative and unknown variant stock updates are rejected", () => {
