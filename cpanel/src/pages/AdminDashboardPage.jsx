@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import AdminLayout from "../components/AdminLayout.jsx";
 import AdminOrdersTable from "../components/AdminOrdersTable.jsx";
+import CategoriesHierarchy from "../components/CategoriesHierarchy.jsx";
 import MediaSlotsManager from "../components/MediaSlotsManager.jsx";
 import TenantProductFields from "../components/TenantProductFields.jsx";
 import { deleteProductMedia, uploadImage, uploadImages, uploadProductMedia, validateProductMediaFile } from "../utils/api.js";
@@ -2235,6 +2236,7 @@ function AdminDashboardPage({
 }) {
   const [editingProduct, setEditingProduct] = React.useState(null);
   const [editingCategory, setEditingCategory] = React.useState(null);
+  const [newCategoryDefaults, setNewCategoryDefaults] = React.useState({ brandId: "", parentId: "" });
   const [editingBrand, setEditingBrand] = React.useState(null);
   const [filters, setFilters] = React.useState({ brand: "all", category: "all", search: "", status: "all" });
   const adminCategories = categories;
@@ -2351,6 +2353,14 @@ function AdminDashboardPage({
       vlogs: { rows: vlogs, add: "admin-vlogs-new", search: "Search by title...", title: "Add Vlog" },
       stores: { rows: stores, add: "admin-store-locator-new", search: "Search by name, city...", title: "Add Store" },
     }[kind];
+    if (kind === "categories" && companyId === "kids-velvet") {
+      const openNewCategory = (defaults = {}) => {
+        setEditingCategory(null);
+        setNewCategoryDefaults({ brandId: defaults.brandId || "", parentId: defaults.parentId || "" });
+        onNavigate("admin-categories-new");
+      };
+      return <CategoriesHierarchy brands={brands} canCreate={canCreateCategories} canDelete={canDeleteCategories} canUpdate={canUpdateCategories} categories={adminCategories} language={language} onAddGeneric={() => openNewCategory()} onAddMain={(brandId) => openNewCategory({ brandId })} onAddSubcategory={(parentId) => openNewCategory({ parentId })} onDelete={onDeleteCategory} onEdit={(category) => { setEditingCategory(category); setNewCategoryDefaults({ brandId: "", parentId: "" }); onNavigate("admin-categories-new"); }} />;
+    }
     return (
       <section className="admin-panel-card">
         {kind === "vlogs" && (
@@ -2363,7 +2373,7 @@ function AdminDashboardPage({
         <Toolbar addLabel={config.title} onAdd={readOnly && kind !== "categories" && kind !== "brands" ? null : () => {
           if (kind === "categories" && !canCreateCategories) return;
           if (kind === "brands" && !canCreateBrands) return;
-          if (kind === "categories") setEditingCategory(null);
+          if (kind === "categories") { setEditingCategory(null); setNewCategoryDefaults({ brandId: "", parentId: "" }); }
           if (kind === "brands") setEditingBrand(null);
           onNavigate(config.add);
         }}>
@@ -2406,7 +2416,7 @@ function AdminDashboardPage({
       const ar = language === "ar";
       const parentIdField = { name: "parentId", label: ar ? "الفئة الرئيسية" : "Parent Category", type: "select", options: [{ value: "", label: ar ? "بدون (فئة رئيسية)" : "None (top-level)" }, ...adminCategories.map((category) => ({ value: category.id, label: getText(category.name, language) }))] };
       const isSubcategory = (form) => Boolean(form?.parentId);
-      return <GenericEntityForm isEditing={Boolean(current)} language={language} title={current ? (ar ? "تعديل الفئة" : "Edit Category") : (ar ? "فئة جديدة" : "New Category")} initial={{ active: current?.isActive !== false, brandId: current?.brandId || "", descriptionAr: current?.description?.ar || "", descriptionEn: current?.description?.en || "", heroVideo: current?.heroVideo || "", image: current?.imageUrl || "", nameAr: current?.name?.ar || "", nameEn: current?.name?.en || "", parentId: current?.parentId || "", slug: current?.slug || "" }} fields={[
+      return <GenericEntityForm isEditing={Boolean(current)} language={language} title={current ? (ar ? "تعديل الفئة" : "Edit Category") : (ar ? "فئة جديدة" : "New Category")} initial={{ active: current?.isActive !== false, brandId: current?.brandId || newCategoryDefaults.brandId || "", descriptionAr: current?.description?.ar || "", descriptionEn: current?.description?.en || "", heroVideo: current?.heroVideo || "", image: current?.imageUrl || "", nameAr: current?.name?.ar || "", nameEn: current?.name?.en || "", parentId: current?.parentId || newCategoryDefaults.parentId || "", slug: current?.slug || "" }} fields={[
         { name: "nameEn", label: ar ? "اسم الفئة بالإنجليزية *" : "Category name — English *", required: true, dir: "ltr" },
         { name: "nameAr", label: ar ? "اسم الفئة بالعربية *" : "Category name — Arabic *", required: true, dir: "rtl" },
         { name: "slug", label: ar ? "الرابط المختصر" : "Slug", dir: "ltr" },
@@ -2417,7 +2427,7 @@ function AdminDashboardPage({
         { name: "image", label: ar ? "صورة الفئة" : "Category Image", type: "media", visibleWhen: (form) => !form?.parentId },
         { name: "heroVideo", label: ar ? "فيديو الواجهة" : "Category hero video", type: "media", visibleWhen: (form) => !form?.parentId },
         { name: "active", label: ar ? "نشطة" : "Active", type: "checkbox" },
-      ]} onCancel={() => { setEditingCategory(null); onNavigate("admin-categories"); }} onSave={async (form) => { await onSaveCategory({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.nameEn || form.nameAr), name: createLocalizedCopy(form.nameEn, form.nameAr), description: form.descriptionEn || form.descriptionAr ? createLocalizedCopy(form.descriptionEn, form.descriptionAr) : null, imageUrl: form.parentId ? null : form.image || null, brandId: form.parentId ? null : form.brandId || null, heroVideo: form.parentId ? null : form.heroVideo || null, parentId: form.parentId || null, isActive: form.active }); setEditingCategory(null); onNavigate("admin-categories", { preserveStatusMessage: true }); }} />;
+      ]} onCancel={() => { setEditingCategory(null); setNewCategoryDefaults({ brandId: "", parentId: "" }); onNavigate("admin-categories"); }} onSave={async (form) => { await onSaveCategory({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.nameEn || form.nameAr), name: createLocalizedCopy(form.nameEn, form.nameAr), description: form.descriptionEn || form.descriptionAr ? createLocalizedCopy(form.descriptionEn, form.descriptionAr) : null, imageUrl: form.parentId ? null : form.image || null, brandId: form.parentId ? null : form.brandId || null, heroVideo: form.parentId ? null : form.heroVideo || null, parentId: form.parentId || null, isActive: form.active }); setEditingCategory(null); setNewCategoryDefaults({ brandId: "", parentId: "" }); onNavigate("admin-categories", { preserveStatusMessage: true }); }} />;
     }
     if (kind === "brand") {
       const current = editingBrand;

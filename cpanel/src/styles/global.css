@@ -28341,6 +28341,38 @@ html[dir="ltr"] .header-mega-panel.open,
   font-size: 14px;
 }
 
+/* Kids Velvet category hierarchy management */
+.kv-category-manager { overflow: hidden; }
+.kv-category-toolbar { align-items: center; display: flex; gap: 14px; justify-content: space-between; padding: 18px; }
+.kv-category-toolbar .admin-search-field { flex: 1 1 420px; max-width: 620px; }
+.kv-category-summary { border-block: 1px solid var(--admin-border); color: var(--admin-muted); font-size: 13px; padding: 10px 18px; }
+.kv-category-tree { display: grid; }
+.kv-category-brand + .kv-category-brand { border-block-start: 1px solid var(--admin-border); }
+.kv-category-brand-row, .kv-category-main-row, .kv-category-sub-row { align-items: center; display: flex; gap: 16px; justify-content: space-between; min-height: 62px; padding: 10px 18px; }
+.kv-category-brand-row { background: #f7f9fc; }
+.kv-category-main-list { border-block-start: 1px solid var(--admin-border); }
+.kv-category-main + .kv-category-main { border-block-start: 1px solid var(--admin-border); }
+.kv-category-main-row { padding-inline-start: 42px; }
+.kv-category-sub-list { background: #fbfcfe; border-block-start: 1px solid var(--admin-border); }
+.kv-category-sub-row { min-height: 54px; padding-inline-start: 80px; }
+.kv-category-sub-row + .kv-category-sub-row { border-block-start: 1px solid #edf0f5; }
+.kv-category-sub-row > div:first-child { display: grid; gap: 3px; }
+.kv-category-sub-row small { color: var(--admin-muted); }
+.kv-category-toggle { align-items: center; background: transparent; border: 0; color: var(--admin-text); cursor: pointer; display: flex; flex: 1; gap: 10px; min-width: 0; padding: 0; text-align: start; }
+.kv-category-toggle > span { font-size: 15px; font-weight: 650; }
+.kv-category-brand-row .kv-category-toggle > span { font-size: 16px; }
+.kv-category-toggle small { color: var(--admin-muted); font-weight: 400; margin-inline-start: 4px; }
+.kv-category-add { align-items: center; background: #fff; border: 1px solid var(--admin-border); border-radius: 999px; color: var(--admin-primary); cursor: pointer; display: inline-flex; gap: 6px; min-height: 34px; padding: 0 13px; }
+.kv-category-empty { color: var(--admin-muted); padding: 54px 18px; text-align: center; }
+[dir="rtl"] .kv-category-toggle > svg { transform: scaleX(-1); }
+@media (max-width: 700px) {
+  .kv-category-toolbar, .kv-category-brand-row, .kv-category-main-row, .kv-category-sub-row { align-items: stretch; flex-direction: column; }
+  .kv-category-toolbar .admin-search-field { flex-basis: auto; max-width: none; width: 100%; }
+  .kv-category-main-row { padding-inline-start: 28px; }
+  .kv-category-sub-row { padding-inline-start: 44px; }
+  .kv-category-brand-row .row-actions, .kv-category-main-row .row-actions, .kv-category-sub-row .row-actions { justify-content: flex-end; }
+}
+
 /* CRM Contacts Phase 1B — scoped list, detail and form integration */
 .crm-contacts-phase-one .admin-contacts-summary-strip button { align-items: center; display: inline-flex; gap: 7px; }
 .crm-contacts-phase-one .admin-contacts-overview .admin-contacts-audience-grid { padding-block-start: 22px; }
