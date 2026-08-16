@@ -28341,6 +28341,43 @@ html[dir="ltr"] .header-mega-panel.open,
   font-size: 14px;
 }
 
+/* Inventory management */
+.inventory-page { display: grid; gap: 24px; }
+.inventory-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.inventory-summary__card { min-height: 112px; padding: 22px; border: 1px solid #dbe5f4; border-radius: 12px; background: #fff; display: grid; align-content: space-between; }
+.inventory-summary__card span { color: #65738a; font-size: 14px; }
+.inventory-summary__card strong { color: #15223b; font-size: 30px; }
+.inventory-summary__card.is-in { border-block-start: 3px solid #27a56a; }
+.inventory-summary__card.is-low { border-block-start: 3px solid #e5a11a; }
+.inventory-summary__card.is-out { border-block-start: 3px solid #d34f59; }
+.inventory-panel { overflow: hidden; border: 1px solid #dbe5f4; border-radius: 12px; background: #fff; }
+.inventory-toolbar { display: grid; grid-template-columns: minmax(260px, 1fr) repeat(3, minmax(160px, .36fr)); gap: 12px; padding: 18px; border-block-end: 1px solid #e4eaf3; }
+.inventory-toolbar select, .inventory-search { min-height: 42px; border: 1px solid #cbd8eb; border-radius: 8px; background: #fff; }
+.inventory-search { display: flex; align-items: center; gap: 9px; padding-inline: 12px; }
+.inventory-search input { width: 100%; border: 0; outline: 0; background: transparent; }
+.inventory-toolbar select { padding-inline: 12px; }
+.inventory-error { margin: 16px 18px 0; padding: 12px 14px; border-radius: 8px; background: #fff0f1; color: #a32935; }
+.inventory-table-wrap { overflow-x: auto; }
+.inventory-table { width: 100%; min-width: 1120px; border-collapse: collapse; }
+.inventory-table th { padding: 13px 14px; background: #f7f9fc; color: #59677c; font-size: 12px; font-weight: 650; text-align: start; white-space: nowrap; }
+.inventory-table td { padding: 14px; border-block-start: 1px solid #edf1f6; color: #26354d; vertical-align: middle; }
+.inventory-product { display: flex; align-items: center; gap: 9px; min-width: 210px; border: 0; background: transparent; color: inherit; text-align: start; cursor: pointer; }
+.inventory-product:disabled { cursor: default; }
+.inventory-product span { display: grid; gap: 2px; }
+.inventory-product small { color: #7b879a; }
+.inventory-product__spacer { inline-size: 17px; }
+.inventory-stock-input { inline-size: 84px; min-height: 38px; padding-inline: 10px; border: 1px solid #cbd8eb; border-radius: 7px; }
+.inventory-status { display: inline-flex; padding: 5px 9px; border-radius: 999px; font-size: 12px; font-weight: 650; white-space: nowrap; }
+.inventory-status.is-in { background: #e8f7ef; color: #167a4a; }
+.inventory-status.is-low { background: #fff5dd; color: #966100; }
+.inventory-status.is-out { background: #fdebed; color: #ac2f3b; }
+.inventory-save { min-height: 36px; padding: 7px 14px; }
+.inventory-variant-row td { background: #f9fbfe; }
+.inventory-variant-row td:first-child { padding-inline-start: 54px; color: #57657a; }
+[dir="rtl"] .inventory-table th, [dir="rtl"] .inventory-table td, [dir="rtl"] .inventory-product { text-align: right; }
+@media (max-width: 980px) { .inventory-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .inventory-toolbar { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 620px) { .inventory-summary, .inventory-toolbar { grid-template-columns: 1fr; } }
+
 /* Kids Velvet category hierarchy management */
 .kv-category-manager { overflow: hidden; }
 .kv-category-toolbar { align-items: center; display: flex; gap: 14px; justify-content: space-between; padding: 18px; }

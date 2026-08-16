@@ -60,7 +60,7 @@ const PAGE_PERMISSIONS = {
   "admin-site-editor": ["site_editor.access"],
   "admin-orders": ["orders.view"],
   "admin-reviews": null,
-  "admin-inventory": null,
+  "admin-inventory": ["inventory.view", "inventory.manage", "products.view", "products.manage"],
   "admin-customers": ["customers.view"],
   "admin-customers-detail": ["customers.view"],
   "admin-inbox": ["inbox.view"],

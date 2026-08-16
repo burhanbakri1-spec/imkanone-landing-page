@@ -14,6 +14,7 @@ const rules = [
   [/^\/api\/uploads\/products(?:\/|$)/, "catalog.products"],
   [/^\/api\/admin\/product-schema(?:\/|$)/, "settings.product_settings"],
   [/^\/api\/admin\/product-field-definitions(?:\/|$)/, "catalog.products"],
+  [/^\/api\/admin\/inventory(?:\/|$)/, "operations.inventory"],
   [/^\/api\/admin\/products\/[^/]+\/field-values(?:\/|$)/, "catalog.products"],
   [/^\/api\/admin\/custom-modules(?:\/|$)/, "settings.unit_creator"],
   [/^\/api\/categories(?:\/|$)/, "catalog.categories"],

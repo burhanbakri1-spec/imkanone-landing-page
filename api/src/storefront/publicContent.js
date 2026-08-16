@@ -94,6 +94,9 @@ export function serializePublicProduct(product = {}) {
     usageVideoPoster: safeUrl(product.usageVideoPoster),
     gallery,
     variants,
+    stock: variants.length
+      ? variants.reduce((total, variant) => total + variant.stock, 0)
+      : Math.max(0, finiteNumber(product.stockQty, 0)),
     options: (Array.isArray(product.options) ? product.options : []).map(safeOption),
     badge: localizedWithLegacyArabic(product.label || product.badge, product.labelAr || product.badgeAr),
     availability: localizedWithLegacyArabic(product.availability, product.availabilityAr),
