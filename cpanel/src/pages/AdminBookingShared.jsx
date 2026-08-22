@@ -54,3 +54,19 @@ export function formatDateRange(start, language = "en", includeYear = true) {
   const options = { month: "short", day: "numeric", ...(includeYear ? { year: "numeric" } : {}) };
   return `${start.toLocaleDateString(locale, options)} – ${end.toLocaleDateString(locale, options)}`;
 }
+
+export function BookingFormModal({ children, footer, language = "en", onClose, subtitle, title }) {
+  return (
+    <div className="booking-modal-backdrop" onMouseDown={onClose} role="presentation">
+      <div aria-modal="true" className="booking-modal booking-form-modal" onMouseDown={(event) => event.stopPropagation()} role="dialog">
+        <button aria-label={bi(language, "Close", "إغلاق")} className="booking-modal-close" onClick={onClose} type="button"><X size={18} /></button>
+        <div className="booking-modal-body">
+          <h2>{title}</h2>
+          {subtitle ? <p className="booking-modal-sub">{subtitle}</p> : null}
+          {children}
+        </div>
+        {footer ? <div className="booking-modal-footer">{footer}</div> : null}
+      </div>
+    </div>
+  );
+}

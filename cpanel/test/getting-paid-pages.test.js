@@ -58,11 +58,67 @@ test("payment configuration is confirmed only from explicit company settings", (
 });
 
 test("the existing invoice API and records are preserved", () => {
-  assert.match(pageSource, /apiRequest\("\/admin\/invoices"\)/);
+  assert.match(pageSource, /fetchInvoices\(/);
+  assert.match(pageSource, /reloadInvoices/);
+  assert.match(pageSource, /filterInvoiceRows/);
+  assert.match(pageSource, /invoiceCopy\(language\)/);
+  assert.match(pageSource, /copy\.filterOptions/);
+  assert.match(pageSource, /InvoiceEmptyState/);
+  assert.match(pageSource, /copy\.retry/);
+  assert.match(pageSource, /copy\.noMatches/);
+  assert.doesNotMatch(pageSource, /InvoiceOnboarding/);
+  assert.doesNotMatch(pageSource, /value: "void"/);
   assert.deepEqual(normalizeInvoiceRows({ invoices: [{ id: "invoice-1" }] }), [{ id: "invoice-1" }]);
   assert.deepEqual(normalizeInvoiceRows({}), []);
   assert.deepEqual(invoiceView({ amount: 12, customer: { name: "Real Customer" }, invoiceNumber: "INV-1", status: "open" }), { customer: "Real Customer", date: null, id: "INV-1", number: "INV-1", status: "open", total: 12 });
-  assert.match(pageSource, /state\.rows\.length \? <InvoiceList[\s\S]*?: <InvoiceOnboarding/);
+});
+
+test("invoice create flow uses form modal, customer API, and createInvoice wrapper", () => {
+  assert.match(pageSource, /InvoiceFormModal/);
+  assert.match(pageSource, /emptyInvoiceForm\(company\)/);
+  assert.match(pageSource, /fetchCustomers\(\{ limit: 100 \}\)/);
+  assert.match(pageSource, /customerDisplayName/);
+  assert.match(pageSource, /validateInvoiceForm/);
+  assert.match(pageSource, /buildInvoicePayload/);
+  assert.match(pageSource, /createInvoice\(/);
+  assert.match(pageSource, /computeInvoiceTotals/);
+  assert.match(pageSource, /lineTotalValue/);
+  assert.match(pageSource, /copy\.statusOptions/);
+  assert.match(pageSource, /invoiceCopy\(language\)\.createdNotice/);
+  assert.match(pageSource, /INVOICE_LINE_ITEM_LIMIT/);
+  assert.match(pageSource, /openCreateInvoice/);
+});
+
+test("invoice detail and edit flows use fetchInvoice, invoiceEditable, and updateInvoice", () => {
+  assert.match(pageSource, /InvoiceDetailModal/);
+  assert.match(pageSource, /fetchInvoice\(/);
+  assert.match(pageSource, /invoiceEditable/);
+  assert.match(pageSource, /invoiceToForm/);
+  assert.match(pageSource, /updateInvoice\(/);
+  assert.match(pageSource, /copy\.editStatusOptions/);
+  assert.match(pageSource, /mode="edit"/);
+  assert.match(pageSource, /invoiceCopy\(language\)\.savedNotice/);
+  assert.match(pageSource, /onViewInvoice/);
+  assert.match(pageSource, /onEditInvoice/);
+  assert.match(pageSource, /onStaleState/);
+  assert.match(pageSource, /error\?\.status === 400/);
+});
+
+test("invoice cancel and void lifecycle use InvoiceConfirmDialog and approved API wrappers", () => {
+  assert.match(pageSource, /InvoiceConfirmDialog/);
+  assert.match(pageSource, /voidInvoice\(/);
+  assert.match(pageSource, /status: "cancelled"/);
+  assert.match(pageSource, /copy\.voidTitle/);
+  assert.match(pageSource, /copy\.cancelTitle/);
+  assert.match(pageSource, /copy\.confirmVoid/);
+  assert.match(pageSource, /copy\.confirmCancel/);
+  assert.match(pageSource, /invoiceCopy\(language\)\[action === "void" \? "voidedNotice" : "cancelledNotice"\]/);
+  assert.match(pageSource, /onCancelInvoice/);
+  assert.match(pageSource, /onVoidInvoice/);
+  assert.match(pageSource, /openCancelConfirm/);
+  assert.match(pageSource, /openVoidConfirm/);
+  assert.doesNotMatch(pageSource, /onLifecyclePlaceholder/);
+  assert.doesNotMatch(pageSource, /DELETE \/admin\/invoices/);
 });
 
 test("invoice totals use tenant currency and locale", () => {
@@ -116,4 +172,10 @@ test("Getting Paid CSS remains in one named scoped section", () => {
   assert.match(cssSource, /\.tenant-getting-paid-page/);
   assert.match(cssSource, /\.getting-paid-paylinks-hero/);
   assert.match(cssSource, /\.getting-paid-pos-hero/);
+  assert.match(cssSource, /\.getting-paid-invoice-toolbar/);
+  assert.match(cssSource, /\.getting-paid-invoice-form/);
+  assert.match(cssSource, /\.getting-paid-invoice-totals/);
+  assert.match(cssSource, /\.getting-paid-invoice-modal/);
+  assert.match(cssSource, /\.getting-paid-invoice-detail/);
+  assert.match(cssSource, /\.getting-paid-invoice-confirm/);
 });

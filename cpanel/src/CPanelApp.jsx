@@ -1125,7 +1125,7 @@ function CPanelApp() {
           <AdminBookingCalendarPage activePage={activePage} employees={employees} {...sharedLayoutProps} />
         )}
         {activePage === "admin-bookings-list" && (
-          <AdminBookingListPage activePage={activePage} bookings={null} {...sharedLayoutProps} />
+          <AdminBookingListPage activePage={activePage} bookings={null} employees={employees} {...sharedLayoutProps} />
         )}
         {activePage === "admin-bookings-work-schedule" && (
           <AdminWorkSchedulePage activePage={activePage} availability={null} employees={employees} {...sharedLayoutProps} />

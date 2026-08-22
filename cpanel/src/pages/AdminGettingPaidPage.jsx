@@ -1,14 +1,18 @@
 import React from "react";
 import {
+  AlertCircle,
   ArrowUpRight,
   BadgeCheck,
+  Ban,
   Banknote,
   BriefcaseBusiness,
+  CalendarDays,
   Check,
   ChevronRight,
   CircleHelp,
   CirclePlus,
   CreditCard,
+  Eye,
   FileCheck2,
   FileSignature,
   FileText,
@@ -16,31 +20,58 @@ import {
   HandCoins,
   Laptop,
   Link2,
+  LoaderCircle,
+  Mail,
   Package,
+  Pencil,
   PenTool,
+  Phone,
+  Plus,
   ReceiptText,
   ScanLine,
+  Search,
   ShieldCheck,
   ShoppingBag,
   Smartphone,
   Sparkles,
   Store,
+  Trash2,
   Users,
   WandSparkles,
   X,
+  XCircle,
 } from "lucide-react";
 import AdminLayout from "../components/AdminLayout.jsx";
 import { AdminUnderDevelopmentContent } from "./AdminPlaceholderPage.jsx";
-import { apiRequest } from "../utils/api.js";
+import { fetchCustomers } from "../utils/customersApi.js";
 import {
   canViewGettingPaid,
   confirmedPaymentConfiguration,
   gettingPaidCurrency,
   gettingPaidDirection,
-  invoiceView,
   normalizeInvoiceRows,
   resolveGettingPaidDestination,
 } from "../utils/gettingPaid.js";
+import {
+  buildInvoicePayload,
+  computeInvoiceTotals,
+  createInvoice,
+  customerDisplayName,
+  emptyInvoiceForm,
+  fetchInvoice,
+  fetchInvoices,
+  filterInvoiceRows,
+  INVOICE_LINE_ITEM_LIMIT,
+  invoiceCopy,
+  invoiceEditable,
+  invoiceListRow,
+  invoiceStatusLabel,
+  invoiceToForm,
+  lineTotalValue,
+  updateInvoice,
+  validateInvoiceForm,
+  voidInvoice,
+} from "../utils/invoices.js";
 
 const pageMeta = {
   "admin-tenant-placeholder-getting-paid-setup": ["Connect & Setup", "Choose how this company will accept and request payments.", "الربط والإعداد", "اختر كيف ستقبل هذه الشركة المدفوعات وتطلبها."],
@@ -97,19 +128,753 @@ function PayLinksPage({ company, language, l, payment, unsupported }) {
   return <div className="getting-paid-paylinks-page"><div className="getting-paid-setup-banner"><ShieldCheck size={20}/><span>{payment.configured ? bi(language, "Payment settings detected. Pay Links still require a supported backend.", "تم اكتشاف إعدادات دفع. ما زالت روابط الدفع تتطلب خدمة مدعومة.") : bi(language, "Payment setup is required before accepting money through links.", "يلزم إعداد الدفع قبل قبول الأموال عبر الروابط.")}</span><StatusPill>{payment.configured ? bi(language, "Configuration detected", "تم اكتشاف إعداد") : l.notConnected}</StatusPill></div><section className="getting-paid-paylinks-hero"><div className="getting-paid-onboarding-copy"><span className="getting-paid-platform-label"><Link2 size={18}/>{bi(language, "Pay Links", "روابط الدفع")}</span><h2>{bi(language, "Get paid with a simple link", "استلم المدفوعات برابط بسيط")}</h2><p>{bi(language, "Create a shareable checkout request after a supported Pay Links service is connected.", "أنشئ طلب دفع قابلاً للمشاركة بعد ربط خدمة روابط دفع مدعومة.")}</p><ul>{[[Smartphone, "Share anywhere", "شارك في أي مكان"], [CreditCard, "Offer supported checkout methods", "قدّم وسائل دفع مدعومة"], [BadgeCheck, `Use company currency: ${currency}`, `استخدم عملة الشركة: ${currency}`]].map(([Icon, en, ar]) => <li key={en}><span><Icon size={18}/></span>{bi(language, en, ar)}</li>)}</ul><div className="getting-paid-dual-actions"><button className="admin-primary-button" onClick={unsupported} type="button">{bi(language, "Create Link", "إنشاء رابط")}</button><button className="getting-paid-help-action" onClick={unsupported} type="button"><CircleHelp size={16}/>{l.help}</button></div></div><div className="getting-paid-paylink-visual"><PaymentIllustration type="link"/><div className="getting-paid-checkout-card"><Link2 size={21}/><strong>{company?.name || bi(language, "Payment request", "طلب دفع")}</strong><small>{currency}</small><i/><i/><button type="button">{bi(language, "Checkout preview", "معاينة الدفع")}</button></div></div></section></div>;
 }
 
-function InvoiceOnboarding({ language, l, unsupported }) {
-  return <section className="getting-paid-invoice-hero"><div className="getting-paid-onboarding-copy"><span className="getting-paid-platform-label"><FileText size={18}/>{bi(language, "Invoices", "الفواتير")}</span><h2>{bi(language, "Send Invoices & Get Paid", "أرسل الفواتير واستلم المدفوعات")}</h2><p>{bi(language, "Create professional invoices when an existing invoice creation flow becomes available.", "أنشئ فواتير احترافية عند توفر مسار إنشاء فواتير حالي.")}</p><ul>{[[Users, "Keep customer details together", "احتفظ ببيانات العميل معاً"], [ReceiptText, "Present clear totals", "اعرض الإجماليات بوضوح"], [CreditCard, "Connect supported payment options", "اربط خيارات دفع مدعومة"]].map(([Icon, en, ar]) => <li key={en}><span><Icon size={18}/></span>{bi(language, en, ar)}</li>)}</ul><div className="getting-paid-dual-actions"><button className="admin-primary-button" onClick={unsupported} type="button">{bi(language, "Get Started", "ابدأ الآن")}</button><button className="getting-paid-help-action" onClick={unsupported} type="button"><CircleHelp size={16}/>{l.help}</button></div></div><div className="getting-paid-invoice-visual"><PaymentIllustration type="invoice"/><div className="getting-paid-document-preview"><FileText size={25}/><strong>{bi(language, "Invoice preview", "معاينة الفاتورة")}</strong><i/><i/><i/><span>{l.available}</span></div></div></section>;
+function formatInvoiceDate(value, language) {
+  const raw = String(value || "").trim();
+  if (!raw) return "—";
+  const isoDate = raw.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) {
+    const [year, month, day] = isoDate.split("-").map(Number);
+    return new Date(year, month - 1, day).toLocaleDateString(language);
+  }
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleDateString(language);
 }
 
-function InvoiceList({ company, language, rows }) {
-  const invoices = rows.map(invoiceView);
-  return <section className="getting-paid-invoice-list"><header><div><h2>{bi(language, "Invoice records", "سجلات الفواتير")}</h2><p>{bi(language, "Loaded from the existing tenant invoice API.", "تم تحميلها من واجهة فواتير المستأجر الحالية.")}</p></div><StatusPill>{invoices.length}</StatusPill></header><div className="getting-paid-table-wrap"><table><thead><tr><th>{bi(language, "Invoice", "الفاتورة")}</th><th>{bi(language, "Customer", "العميل")}</th><th>{bi(language, "Date", "التاريخ")}</th><th>{bi(language, "Total", "الإجمالي")}</th><th>{bi(language, "Status", "الحالة")}</th></tr></thead><tbody>{invoices.map((invoice, index) => <tr key={invoice.id || index}><td>{invoice.number || "—"}</td><td>{invoice.customer || "—"}</td><td>{invoice.date ? new Date(invoice.date).toLocaleDateString(language) : "—"}</td><td>{gettingPaidCurrency(invoice.total, company, language)}</td><td><StatusPill>{invoice.status || "—"}</StatusPill></td></tr>)}</tbody></table></div></section>;
+function InvoiceEmptyState({ copy, onCreate }) {
+  return (
+    <section className="getting-paid-invoice-list">
+      <div className="getting-paid-loading">
+        <FileText size={35} />
+        <h2>{copy.noInvoicesTitle}</h2>
+        <p>{copy.noInvoicesText}</p>
+        <button className="admin-primary-button" onClick={onCreate} type="button">
+          <Plus size={16} />
+          {copy.newInvoice}
+        </button>
+      </div>
+    </section>
+  );
 }
 
-function InvoicesPage({ company, language, l, state, unsupported }) {
-  if (state.loading) return <section className="getting-paid-loading">{bi(language, "Loading invoices…", "جارٍ تحميل الفواتير…")}</section>;
-  if (state.error) return <section className="getting-paid-error" role="alert"><strong>{bi(language, "Invoices could not be loaded", "تعذر تحميل الفواتير")}</strong><span>{state.error}</span></section>;
-  return state.rows.length ? <InvoiceList company={company} language={language} rows={state.rows}/> : <InvoiceOnboarding language={language} l={l} unsupported={unsupported}/>;
+function InvoiceList({ company, copy, filters, language, onCancelInvoice, onCreate, onEditInvoice, onFiltersChange, onViewInvoice, onVoidInvoice, rows }) {
+  return (
+    <section className="getting-paid-invoice-list">
+      <header>
+        <div>
+          <h2>{copy.recordsTitle}</h2>
+          <p>{copy.recordsSubtitle}</p>
+        </div>
+        <StatusPill>{rows.length}</StatusPill>
+      </header>
+      <div className="getting-paid-invoice-toolbar getting-paid-dual-actions">
+        <label>
+          <Search size={16} />
+          <input
+            aria-label={copy.search}
+            onChange={(event) => onFiltersChange({ ...filters, query: event.target.value })}
+            placeholder={copy.searchPlaceholder}
+            type="search"
+            value={filters.query}
+          />
+        </label>
+        <select
+          aria-label={copy.filterStatus}
+          onChange={(event) => onFiltersChange({ ...filters, status: event.target.value })}
+          value={filters.status}
+        >
+          {copy.filterOptions.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        <button className="admin-primary-button" onClick={onCreate} type="button">
+          <Plus size={16} />
+          {copy.newInvoice}
+        </button>
+      </div>
+      {rows.length ? (
+        <div className="getting-paid-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{copy.number}</th>
+                <th>{copy.customer}</th>
+                <th>{copy.issued}</th>
+                <th>{copy.total}</th>
+                <th>{copy.status}</th>
+                <th>{bi(language, "Actions", "الإجراءات")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, index) => {
+                const invoice = invoiceListRow(row, language);
+                const editable = invoiceEditable(invoice.status);
+                return (
+                  <tr key={invoice.id || index}>
+                    <td>{invoice.number || "—"}</td>
+                    <td>{invoice.customer || "—"}</td>
+                    <td>{formatInvoiceDate(invoice.issue_date, language)}</td>
+                    <td><bdi dir="ltr">{gettingPaidCurrency(invoice.total, company, language)}</bdi></td>
+                    <td><StatusPill>{invoiceStatusLabel(language, invoice.status)}</StatusPill></td>
+                    <td>
+                      <div className="getting-paid-dual-actions">
+                        <button className="getting-paid-help-action" onClick={() => onViewInvoice(invoice.id)} type="button">
+                          <Eye size={15} />
+                          {copy.view}
+                        </button>
+                        {editable && (
+                          <>
+                            <button className="getting-paid-help-action" onClick={() => onEditInvoice(invoice.id)} type="button">
+                              <Pencil size={15} />
+                              {copy.edit}
+                            </button>
+                            <button className="getting-paid-help-action" onClick={() => onCancelInvoice(invoice.id, invoice.number)} type="button">
+                              {copy.cancelInvoice}
+                            </button>
+                            <button className="getting-paid-help-action" onClick={() => onVoidInvoice(invoice.id, invoice.number)} type="button">
+                              {copy.voidInvoice}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="getting-paid-loading">
+          <p>{copy.noMatches}</p>
+          <button className="getting-paid-help-action" onClick={() => onFiltersChange({ query: "", status: "all" })} type="button">
+            {copy.clearFilters}
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function InvoiceConfirmDialog({ action, invoiceId, invoiceNumber, language, onClose, onStaleState, onSuccess }) {
+  const copy = invoiceCopy(language);
+  const isVoid = action === "void";
+  const [submitting, setSubmitting] = React.useState(false);
+  const [error, setError] = React.useState("");
+
+  React.useEffect(() => {
+    const close = (event) => {
+      if (event.key === "Escape" && !submitting) onClose();
+    };
+    document.addEventListener("keydown", close);
+    return () => document.removeEventListener("keydown", close);
+  }, [onClose, submitting]);
+
+  async function handleConfirm() {
+    setSubmitting(true);
+    setError("");
+    try {
+      if (isVoid) {
+        await voidInvoice(invoiceId);
+      } else {
+        await updateInvoice(invoiceId, { status: "cancelled" });
+      }
+      onSuccess();
+    } catch (requestError) {
+      if (requestError?.status === 400) onStaleState?.();
+      setError(requestError?.message || copy.requestFailed);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="getting-paid-modal-backdrop" onMouseDown={() => !submitting && onClose()} role="presentation">
+      <div
+        aria-labelledby="invoice-confirm-title"
+        aria-modal="true"
+        className="getting-paid-modal getting-paid-invoice-confirm"
+        dir={gettingPaidDirection(language)}
+        onMouseDown={(event) => event.stopPropagation()}
+        role="alertdialog"
+      >
+        <h2 id="invoice-confirm-title">{isVoid ? copy.voidTitle : copy.cancelTitle}</h2>
+        <p>{isVoid ? copy.voidMessage : copy.cancelMessage}</p>
+        <p><strong>{copy.invoiceNumber}:</strong> {invoiceNumber || invoiceId}</p>
+        {error && <div className="message-panel error" role="alert">{error}</div>}
+        <footer className="getting-paid-dual-actions">
+          <button className="secondary-action" disabled={submitting} onClick={onClose} type="button">{copy.back}</button>
+          <button className="admin-primary-button" disabled={submitting} onClick={handleConfirm} type="button">
+            {submitting && <LoaderCircle size={16} />}
+            {submitting ? copy.processing : (isVoid ? copy.confirmVoid : copy.confirmCancel)}
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function InvoiceDetailModal({
+  company,
+  invoiceId,
+  language,
+  onCancel,
+  onClose,
+  onEdit,
+  onVoid,
+  refreshToken = 0,
+}) {
+  const copy = invoiceCopy(language);
+  const [invoice, setInvoice] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState("");
+  const requestRef = React.useRef(0);
+  const editable = invoice ? invoiceEditable(invoice.status) : false;
+  const lineItems = Array.isArray(invoice?.line_items) ? invoice.line_items : [];
+  const detailSubtotal = Number.isFinite(Number(invoice?.subtotal))
+    ? Number(invoice.subtotal)
+    : computeInvoiceTotals(lineItems.map((item) => ({
+      description: item.description,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+    }))).subtotal;
+  const detailTotal = Number.isFinite(Number(invoice?.total)) ? Number(invoice.total) : detailSubtotal;
+
+  React.useEffect(() => {
+    const close = (event) => {
+      if (event.key === "Escape" && !loading) onClose();
+    };
+    document.addEventListener("keydown", close);
+    return () => document.removeEventListener("keydown", close);
+  }, [loading, onClose]);
+
+  React.useEffect(() => {
+    const requestId = ++requestRef.current;
+    setLoading(true);
+    setError("");
+    fetchInvoice(invoiceId)
+      .then((data) => {
+        if (requestRef.current !== requestId) return;
+        setInvoice(data);
+        setLoading(false);
+      })
+      .catch((requestError) => {
+        if (requestRef.current !== requestId) return;
+        setInvoice(null);
+        setError(requestError?.message || copy.requestFailed);
+        setLoading(false);
+      });
+    return () => { requestRef.current += 1; };
+  }, [copy.requestFailed, invoiceId, refreshToken]);
+
+  return (
+    <div className="getting-paid-modal-backdrop" onMouseDown={onClose} role="presentation">
+      <div
+        aria-labelledby="invoice-detail-title"
+        aria-modal="true"
+        className="getting-paid-modal getting-paid-invoice-detail"
+        dir={gettingPaidDirection(language)}
+        onMouseDown={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <button aria-label={copy.close} onClick={onClose} type="button"><X size={18} /></button>
+        <header>
+          <h2 id="invoice-detail-title">{copy.detailTitle}</h2>
+          {invoice?.invoice_number && <p>{invoice.invoice_number}</p>}
+        </header>
+        {loading && (
+          <div className="getting-paid-loading">
+            <LoaderCircle size={22} />
+            {copy.processing}
+          </div>
+        )}
+        {error && (
+          <div className="getting-paid-error" role="alert">
+            <strong>{copy.loadFailed}</strong>
+            <span>{error}</span>
+          </div>
+        )}
+        {invoice && !loading && (
+          <>
+            <div className="getting-paid-invoice-form">
+              <dl>
+                <div><dt>{copy.invoiceNumber}</dt><dd>{invoice.invoice_number || invoice.id || "—"}</dd></div>
+                <div><dt>{copy.statusLabel}</dt><dd><StatusPill>{invoiceStatusLabel(language, invoice.status)}</StatusPill></dd></div>
+                <div><dt>{copy.issueDate}</dt><dd>{formatInvoiceDate(invoice.issue_date, language)}</dd></div>
+                <div><dt>{copy.dueDate}</dt><dd>{formatInvoiceDate(invoice.due_date, language)}</dd></div>
+                <div><dt>{copy.currency}</dt><dd>{invoice.currency || "—"}</dd></div>
+              </dl>
+              <section>
+                <h3>{copy.customerDetails}</h3>
+                <dl>
+                  <div><dt>{copy.customerName}</dt><dd>{invoice.customer_name || "—"}</dd></div>
+                  <div><dt>{copy.emailLabel}</dt><dd>{invoice.customer_email || "—"}</dd></div>
+                  <div><dt>{copy.phoneLabel}</dt><dd>{invoice.customer_phone || "—"}</dd></div>
+                </dl>
+              </section>
+              {invoice.notes && (
+                <section>
+                  <h3>{copy.notesLabel}</h3>
+                  <p>{invoice.notes}</p>
+                </section>
+              )}
+              <section>
+                <h3>{copy.lineItems}</h3>
+                <div className="getting-paid-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>{copy.itemDescription}</th>
+                        <th>{copy.quantity}</th>
+                        <th>{copy.price}</th>
+                        <th>{copy.lineTotal}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lineItems.length ? lineItems.map((item, index) => (
+                        <tr key={index}>
+                          <td>{item.description || "—"}</td>
+                          <td>{item.quantity ?? "—"}</td>
+                          <td><bdi dir="ltr">{gettingPaidCurrency(item.unit_price, company, language)}</bdi></td>
+                          <td><bdi dir="ltr">{gettingPaidCurrency(lineTotalValue(item), company, language)}</bdi></td>
+                        </tr>
+                      )) : (
+                        <tr><td colSpan={4}>—</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <footer className="getting-paid-invoice-totals">
+                  <div><span>{copy.subtotal}</span><strong><bdi dir="ltr">{gettingPaidCurrency(detailSubtotal, company, language)}</bdi></strong></div>
+                  <div><span>{copy.totalLabel}</span><strong><bdi dir="ltr">{gettingPaidCurrency(detailTotal, company, language)}</bdi></strong></div>
+                </footer>
+              </section>
+            </div>
+            {!editable && (
+              <div className="message-panel warning" role="status">
+                {bi(language, "This invoice cannot be edited.", "لا يمكن تعديل هذه الفاتورة.")}
+              </div>
+            )}
+            <footer className="getting-paid-dual-actions">
+              {editable && (
+                <>
+                  <button className="admin-primary-button" onClick={() => onEdit(invoice.id)} type="button">
+                    <Pencil size={16} />
+                    {copy.edit}
+                  </button>
+                  <button className="secondary-action" onClick={() => onCancel(invoice)} type="button">{copy.cancelInvoice}</button>
+                  <button className="secondary-action" onClick={() => onVoid(invoice)} type="button">{copy.voidInvoice}</button>
+                </>
+              )}
+              <button className="getting-paid-help-action" onClick={onClose} type="button">{copy.close}</button>
+            </footer>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function InvoiceFormModal({ company, invoiceId = null, language, mode = "create", onClose, onStaleState, onSuccess }) {
+  const isEdit = mode === "edit";
+  const copy = invoiceCopy(language);
+  const [values, setValues] = React.useState(() => emptyInvoiceForm(company));
+  const [selectedCustomerId, setSelectedCustomerId] = React.useState("");
+  const [customers, setCustomers] = React.useState([]);
+  const [customersLoading, setCustomersLoading] = React.useState(true);
+  const [customersError, setCustomersError] = React.useState("");
+  const [invoiceLoading, setInvoiceLoading] = React.useState(isEdit);
+  const [editBlocked, setEditBlocked] = React.useState(false);
+  const [formErrors, setFormErrors] = React.useState({});
+  const [itemErrors, setItemErrors] = React.useState({});
+  const [submitError, setSubmitError] = React.useState("");
+  const [submitting, setSubmitting] = React.useState(false);
+  const customerRequestRef = React.useRef(0);
+  const invoiceRequestRef = React.useRef(0);
+  const totals = computeInvoiceTotals(values.line_items);
+  const statusOptions = isEdit ? copy.editStatusOptions : copy.statusOptions;
+  const blockedMessage = bi(language, "This invoice cannot be edited.", "لا يمكن تعديل هذه الفاتورة.");
+
+  React.useEffect(() => {
+    const close = (event) => {
+      if (event.key === "Escape" && !submitting && !invoiceLoading) onClose();
+    };
+    document.addEventListener("keydown", close);
+    return () => document.removeEventListener("keydown", close);
+  }, [invoiceLoading, onClose, submitting]);
+
+  React.useEffect(() => {
+    if (!isEdit || !invoiceId) return undefined;
+    const requestId = ++invoiceRequestRef.current;
+    setInvoiceLoading(true);
+    setEditBlocked(false);
+    setSubmitError("");
+    fetchInvoice(invoiceId)
+      .then((data) => {
+        if (invoiceRequestRef.current !== requestId) return;
+        if (!invoiceEditable(data.status)) setEditBlocked(true);
+        setValues(invoiceToForm(data, company));
+        setInvoiceLoading(false);
+      })
+      .catch((error) => {
+        if (invoiceRequestRef.current !== requestId) return;
+        setSubmitError(error?.message || copy.requestFailed);
+        setInvoiceLoading(false);
+      });
+    return () => { invoiceRequestRef.current += 1; };
+  }, [company, copy.requestFailed, invoiceId, isEdit]);
+
+  React.useEffect(() => {
+    const requestId = ++customerRequestRef.current;
+    setCustomersLoading(true);
+    setCustomersError("");
+    fetchCustomers({ limit: 100 })
+      .then((data) => {
+        if (customerRequestRef.current !== requestId) return;
+        setCustomers(Array.isArray(data) ? data : []);
+        setCustomersLoading(false);
+      })
+      .catch((error) => {
+        if (customerRequestRef.current !== requestId) return;
+        setCustomers([]);
+        setCustomersError(error?.message || copy.requestFailed);
+        setCustomersLoading(false);
+      });
+    return () => { customerRequestRef.current += 1; };
+  }, [copy.requestFailed]);
+
+  function updateField(field, value) {
+    setValues((current) => ({ ...current, [field]: value }));
+    setFormErrors((current) => ({ ...current, [field]: "" }));
+    setSubmitError("");
+  }
+
+  function updateLineItem(index, field, value) {
+    setValues((current) => ({
+      ...current,
+      line_items: current.line_items.map((item, itemIndex) => (
+        itemIndex === index ? { ...item, [field]: value } : item
+      )),
+    }));
+    setItemErrors((current) => {
+      const next = { ...current };
+      if (next[index]) {
+        next[index] = { ...next[index], [field]: "" };
+        if (!Object.values(next[index]).some(Boolean)) delete next[index];
+      }
+      return next;
+    });
+    setFormErrors((current) => ({ ...current, line_items: "" }));
+    setSubmitError("");
+  }
+
+  function addLineItem() {
+    if (values.line_items.length >= INVOICE_LINE_ITEM_LIMIT) return;
+    setValues((current) => ({
+      ...current,
+      line_items: [...current.line_items, { description: "", quantity: "1", unit_price: "" }],
+    }));
+  }
+
+  function removeLineItem(index) {
+    setValues((current) => ({
+      ...current,
+      line_items: current.line_items.length > 1
+        ? current.line_items.filter((_, itemIndex) => itemIndex !== index)
+        : current.line_items,
+    }));
+    setItemErrors({});
+    setFormErrors((current) => ({ ...current, line_items: "" }));
+  }
+
+  function handleCustomerSelect(event) {
+    const customerId = event.target.value;
+    setSelectedCustomerId(customerId);
+    if (!customerId) return;
+    const customer = customers.find((row) => String(row.id) === customerId);
+    if (!customer) return;
+    setValues((current) => ({
+      ...current,
+      customer_name: customerDisplayName(customer),
+      customer_email: customer.email || "",
+      customer_phone: customer.phone || "",
+    }));
+    setFormErrors((current) => ({
+      ...current,
+      customer_name: "",
+      customer_email: "",
+      customer_phone: "",
+    }));
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    if (editBlocked) {
+      setSubmitError(blockedMessage);
+      return;
+    }
+    const allowedStatuses = statusOptions.map((option) => option.value);
+    if (!allowedStatuses.includes(values.status)) {
+      setSubmitError(bi(language, "Choose a valid invoice status.", "اختر حالة فاتورة صالحة."));
+      return;
+    }
+    const validation = validateInvoiceForm(values, copy);
+    setFormErrors(validation.errors);
+    setItemErrors(validation.itemErrors);
+    if (Object.keys(validation.errors).length || Object.keys(validation.itemErrors).length) return;
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      if (isEdit) {
+        await updateInvoice(invoiceId, buildInvoicePayload(values));
+      } else {
+        await createInvoice(buildInvoicePayload(values));
+      }
+      onSuccess();
+    } catch (error) {
+      if (isEdit && error?.status === 400) onStaleState?.();
+      setSubmitError(error?.message || copy.requestFailed);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (invoiceLoading) {
+    return (
+      <div className="getting-paid-modal-backdrop" role="presentation">
+        <div aria-modal="true" className="getting-paid-modal getting-paid-invoice-modal" dir={gettingPaidDirection(language)} role="dialog">
+          <div className="getting-paid-loading">
+            <LoaderCircle size={22} />
+            {copy.processing}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="getting-paid-modal-backdrop" onMouseDown={() => !submitting && onClose()} role="presentation">
+      <form
+        aria-labelledby="invoice-form-title"
+        aria-modal="true"
+        className="getting-paid-modal getting-paid-invoice-modal"
+        dir={gettingPaidDirection(language)}
+        onMouseDown={(event) => event.stopPropagation()}
+        onSubmit={handleSubmit}
+        role="dialog"
+      >
+        <button aria-label={copy.close} disabled={submitting} onClick={onClose} type="button"><X size={18} /></button>
+        <header>
+          <h2 id="invoice-form-title">{isEdit ? copy.editTitle : copy.createTitle}</h2>
+          <p>{copy.formSubtitle}</p>
+        </header>
+        {editBlocked && <div className="message-panel warning" role="status">{blockedMessage}</div>}
+        {submitError && <div className="message-panel error" role="alert">{submitError}</div>}
+        {customersError && (
+          <div className="message-panel warning" role="status">
+            {bi(language, "Customers could not be loaded. You can still enter details manually.", "تعذر تحميل العملاء. ما زال بإمكانك إدخال البيانات يدوياً.")}
+            {customersError ? ` ${customersError}` : ""}
+          </div>
+        )}
+        <div className="getting-paid-invoice-form">
+          <label>
+            <span>{copy.customerDetails}</span>
+            {customersLoading ? (
+              <span className="getting-paid-invoice-customer-loading"><LoaderCircle size={16} /> {copy.processing}</span>
+            ) : (
+              <select aria-label={copy.customerDetails} disabled={editBlocked || submitting} onChange={handleCustomerSelect} value={selectedCustomerId}>
+                <option value="">{bi(language, "Manual entry", "إدخال يدوي")}</option>
+                {customers.map((customer) => (
+                  <option key={customer.id} value={customer.id}>{customerDisplayName(customer)}</option>
+                ))}
+              </select>
+            )}
+          </label>
+          <label>
+            <span>{copy.customerName}</span>
+            <input disabled={editBlocked || submitting} onChange={(event) => updateField("customer_name", event.target.value)} value={values.customer_name} />
+            {formErrors.customer_name && <small role="alert">{formErrors.customer_name}</small>}
+          </label>
+          <label>
+            <span>{copy.customerEmail}</span>
+            <input disabled={editBlocked || submitting} onChange={(event) => updateField("customer_email", event.target.value)} type="email" value={values.customer_email} />
+            {formErrors.customer_email && <small role="alert">{formErrors.customer_email}</small>}
+          </label>
+          <label>
+            <span>{copy.customerPhone}</span>
+            <input disabled={editBlocked || submitting} onChange={(event) => updateField("customer_phone", event.target.value)} value={values.customer_phone} />
+          </label>
+          <label>
+            <span>{copy.statusLabel}</span>
+            <select disabled={editBlocked || submitting} onChange={(event) => updateField("status", event.target.value)} value={values.status}>
+              {statusOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>{copy.issueDate}</span>
+            <input disabled={editBlocked || submitting} onChange={(event) => updateField("issue_date", event.target.value)} type="date" value={values.issue_date} />
+          </label>
+          <label>
+            <span>{copy.dueDate}</span>
+            <input disabled={editBlocked || submitting} onChange={(event) => updateField("due_date", event.target.value)} type="date" value={values.due_date} />
+          </label>
+          <label>
+            <span>{copy.currency}</span>
+            <input disabled={editBlocked || submitting} onChange={(event) => updateField("currency", event.target.value.toUpperCase())} value={values.currency} />
+          </label>
+          <label>
+            <span>{copy.notes}</span>
+            <textarea disabled={editBlocked || submitting} onChange={(event) => updateField("notes", event.target.value)} rows={3} value={values.notes} />
+          </label>
+          <section>
+            <header className="getting-paid-dual-actions">
+              <h3>{copy.lineItems}</h3>
+              <button
+                className="secondary-action"
+                disabled={editBlocked || submitting || values.line_items.length >= INVOICE_LINE_ITEM_LIMIT}
+                onClick={addLineItem}
+                type="button"
+              >
+                <Plus size={16} />
+                {copy.addItem}
+              </button>
+            </header>
+            {formErrors.line_items && <div className="message-panel error" role="alert">{formErrors.line_items}</div>}
+            <div className="getting-paid-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>{copy.itemDescription}</th>
+                    <th>{copy.quantity}</th>
+                    <th>{copy.price}</th>
+                    <th>{copy.lineTotal}</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {values.line_items.map((item, index) => (
+                    <tr key={index}>
+                      <td>
+                        <input
+                          aria-label={copy.itemDescription}
+                          disabled={editBlocked || submitting}
+                          onChange={(event) => updateLineItem(index, "description", event.target.value)}
+                          value={item.description}
+                        />
+                        {itemErrors[index]?.description && <small role="alert">{itemErrors[index].description}</small>}
+                      </td>
+                      <td>
+                        <input
+                          aria-label={copy.quantity}
+                          disabled={editBlocked || submitting}
+                          min="0"
+                          onChange={(event) => updateLineItem(index, "quantity", event.target.value)}
+                          step="any"
+                          type="number"
+                          value={item.quantity}
+                        />
+                        {itemErrors[index]?.quantity && <small role="alert">{itemErrors[index].quantity}</small>}
+                      </td>
+                      <td>
+                        <input
+                          aria-label={copy.price}
+                          disabled={editBlocked || submitting}
+                          min="0"
+                          onChange={(event) => updateLineItem(index, "unit_price", event.target.value)}
+                          step="any"
+                          type="number"
+                          value={item.unit_price}
+                        />
+                        {itemErrors[index]?.unit_price && <small role="alert">{itemErrors[index].unit_price}</small>}
+                      </td>
+                      <td><bdi dir="ltr">{gettingPaidCurrency(lineTotalValue(item), company, language)}</bdi></td>
+                      <td>
+                        <button
+                          aria-label={copy.removeItem}
+                          className="getting-paid-help-action"
+                          disabled={editBlocked || submitting || values.line_items.length <= 1}
+                          onClick={() => removeLineItem(index)}
+                          type="button"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <footer className="getting-paid-invoice-totals">
+              <div><span>{copy.subtotal}</span><strong><bdi dir="ltr">{gettingPaidCurrency(totals.subtotal, company, language)}</bdi></strong></div>
+              <div><span>{copy.totalLabel}</span><strong><bdi dir="ltr">{gettingPaidCurrency(totals.total, company, language)}</bdi></strong></div>
+            </footer>
+          </section>
+        </div>
+        <footer className="getting-paid-dual-actions">
+          <button className="secondary-action" disabled={submitting} onClick={onClose} type="button">{copy.cancel}</button>
+          <button className="admin-primary-button" disabled={editBlocked || submitting} type="submit">
+            {submitting && <LoaderCircle size={16} />}
+            {submitting ? copy.saving : (isEdit ? copy.save : copy.create)}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function InvoicesPage({ company, language, notice, onCancelInvoice, onCreate, onDismissNotice, onEditInvoice, onRetry, onViewInvoice, onVoidInvoice, state }) {
+  const copy = invoiceCopy(language);
+  const [filters, setFilters] = React.useState({ query: "", status: "all" });
+  const filteredRows = filterInvoiceRows(state.rows, filters);
+  const content = (() => {
+    if (state.loading) {
+      return (
+        <section className="getting-paid-loading">
+          <LoaderCircle size={22} />
+          {copy.loading}
+        </section>
+      );
+    }
+    if (state.error) {
+      return (
+        <section className="getting-paid-error" role="alert">
+          <strong>{copy.loadFailed}</strong>
+          <span>{state.error}</span>
+          <button className="admin-primary-button" onClick={onRetry} type="button">{copy.retry}</button>
+        </section>
+      );
+    }
+    if (!state.rows.length) return <InvoiceEmptyState copy={copy} onCreate={onCreate} />;
+    return (
+      <InvoiceList
+        company={company}
+        copy={copy}
+        filters={filters}
+        language={language}
+        onCancelInvoice={onCancelInvoice}
+        onCreate={onCreate}
+        onEditInvoice={onEditInvoice}
+        onFiltersChange={setFilters}
+        onViewInvoice={onViewInvoice}
+        onVoidInvoice={onVoidInvoice}
+        rows={filteredRows}
+      />
+    );
+  })();
+  return (
+    <>
+      {notice && (
+        <div className="message-panel success" role="status">
+          <span>{notice}</span>
+          <button aria-label={copy.close} className="getting-paid-help-action" onClick={onDismissNotice} type="button">
+            <X size={15} />
+          </button>
+        </div>
+      )}
+      {content}
+    </>
+  );
 }
 
 function QuotesPage({ language, l, unsupported }) {
@@ -128,6 +893,13 @@ function PosPage({ company, language, l, products, unsupported }) {
 export default function AdminGettingPaidPage({ activePage, company, currentUser, language = "en", modules = [], onNavigate, products = [], t, ...layout }) {
   const [showUnsupported, setShowUnsupported] = React.useState(false);
   const [invoiceState, setInvoiceState] = React.useState({ error: "", loading: activePage === "admin-invoices", rows: [] });
+  const [invoiceModal, setInvoiceModal] = React.useState(null);
+  const [invoiceNotice, setInvoiceNotice] = React.useState("");
+  const [invoiceDetailId, setInvoiceDetailId] = React.useState(null);
+  const [selectedInvoiceId, setSelectedInvoiceId] = React.useState(null);
+  const [detailRefreshToken, setDetailRefreshToken] = React.useState(0);
+  const [confirmDialog, setConfirmDialog] = React.useState(null);
+  const invoiceRequestRef = React.useRef(0);
   const l = labels(language);
   const meta = pageMeta[activePage] || pageMeta["admin-tenant-placeholder-getting-paid-setup"];
   const title = language === "ar" ? meta[2] : meta[0];
@@ -135,25 +907,100 @@ export default function AdminGettingPaidPage({ activePage, company, currentUser,
   const unsupported = () => setShowUnsupported(true);
   const payment = confirmedPaymentConfiguration(company);
   const canView = canViewGettingPaid(currentUser, company, modules, activePage);
+  const requestFailed = invoiceCopy(language).requestFailed;
   const go = (action, fallback = unsupported) => {
     const page = resolveGettingPaidDestination(action, { currentUser, modules });
     if (page) onNavigate(page); else fallback();
   };
+  const openCreateInvoice = React.useCallback(() => {
+    setInvoiceModal("create");
+  }, []);
+  const closeInvoiceForm = React.useCallback(() => {
+    setInvoiceModal(null);
+    setSelectedInvoiceId(null);
+  }, []);
+  const openViewInvoice = React.useCallback((invoiceId) => {
+    setInvoiceDetailId(invoiceId);
+  }, []);
+  const closeDetailInvoice = React.useCallback(() => {
+    setInvoiceDetailId(null);
+  }, []);
+  const openEditInvoice = React.useCallback((invoiceId) => {
+    setSelectedInvoiceId(invoiceId);
+    setInvoiceDetailId(null);
+    setInvoiceModal("edit");
+  }, []);
+  const reloadInvoices = React.useCallback(() => {
+    const requestId = ++invoiceRequestRef.current;
+    setInvoiceState({ error: "", loading: true, rows: [] });
+    fetchInvoices()
+      .then((data) => {
+        if (invoiceRequestRef.current !== requestId) return;
+        setInvoiceState({ error: "", loading: false, rows: normalizeInvoiceRows(data) });
+      })
+      .catch((error) => {
+        if (invoiceRequestRef.current !== requestId) return;
+        setInvoiceState({ error: error?.message || requestFailed, loading: false, rows: [] });
+      });
+  }, [requestFailed]);
+  const handleInvoiceStaleState = React.useCallback(() => {
+    reloadInvoices();
+    setDetailRefreshToken((value) => value + 1);
+  }, [reloadInvoices]);
+  const openCancelConfirm = React.useCallback((invoiceId, invoiceNumber) => {
+    setConfirmDialog({ action: "cancel", invoiceId, invoiceNumber });
+  }, []);
+  const openVoidConfirm = React.useCallback((invoiceId, invoiceNumber) => {
+    setConfirmDialog({ action: "void", invoiceId, invoiceNumber });
+  }, []);
+  const closeConfirmDialog = React.useCallback(() => {
+    setConfirmDialog(null);
+  }, []);
+  const handleConfirmSuccess = React.useCallback((action, invoiceId) => {
+    setConfirmDialog(null);
+    if (invoiceDetailId === invoiceId) setInvoiceDetailId(null);
+    setInvoiceNotice(invoiceCopy(language)[action === "void" ? "voidedNotice" : "cancelledNotice"]);
+    reloadInvoices();
+  }, [invoiceDetailId, language, reloadInvoices]);
+  const handleCreateSuccess = React.useCallback(() => {
+    setInvoiceModal(null);
+    setSelectedInvoiceId(null);
+    setInvoiceNotice(invoiceCopy(language).createdNotice);
+    reloadInvoices();
+  }, [language, reloadInvoices]);
+  const handleEditSuccess = React.useCallback(() => {
+    setInvoiceModal(null);
+    setSelectedInvoiceId(null);
+    setInvoiceNotice(invoiceCopy(language).savedNotice);
+    reloadInvoices();
+  }, [language, reloadInvoices]);
 
   React.useEffect(() => {
     if (activePage !== "admin-invoices" || !canView) return undefined;
-    let active = true;
-    setInvoiceState({ error: "", loading: true, rows: [] });
-    apiRequest("/admin/invoices").then((data) => active && setInvoiceState({ error: "", loading: false, rows: normalizeInvoiceRows(data) })).catch((error) => active && setInvoiceState({ error: error?.message || "Request failed.", loading: false, rows: [] }));
-    return () => { active = false; };
-  }, [activePage, canView, company?.id]);
+    reloadInvoices();
+    return () => { invoiceRequestRef.current += 1; };
+  }, [activePage, canView, company?.id, reloadInvoices]);
 
   function content() {
     if (!canView) return <section className="getting-paid-access-denied"><ShieldCheck size={35}/><h2>{bi(language, "Access denied", "الوصول مرفوض")}</h2></section>;
     switch (activePage) {
       case "admin-tenant-placeholder-getting-paid-setup": return <SetupPage company={company} go={go} language={language} l={l} payment={payment} unsupported={unsupported}/>;
       case "admin-tenant-placeholder-getting-paid-pay-links": return <PayLinksPage company={company} language={language} l={l} payment={payment} unsupported={unsupported}/>;
-      case "admin-invoices": return <InvoicesPage company={company} language={language} l={l} state={invoiceState} unsupported={unsupported}/>;
+      case "admin-invoices": return (
+        <InvoicesPage
+          company={company}
+          language={language}
+          notice={invoiceNotice}
+          onCancelInvoice={openCancelConfirm}
+          onCreate={openCreateInvoice}
+          onDismissNotice={() => setInvoiceNotice("")}
+          onEditInvoice={openEditInvoice}
+          onRetry={reloadInvoices}
+          onViewInvoice={openViewInvoice}
+          onVoidInvoice={openVoidConfirm}
+          state={invoiceState}
+        />
+      );
       case "admin-tenant-placeholder-getting-paid-quotes": return <QuotesPage language={language} l={l} unsupported={unsupported}/>;
       case "admin-tenant-placeholder-getting-paid-proposals": return <ProposalsPage language={language} l={l} unsupported={unsupported}/>;
       case "admin-tenant-placeholder-getting-paid-pos": return <PosPage company={company} language={language} l={l} products={products} unsupported={unsupported}/>;
@@ -161,5 +1008,5 @@ export default function AdminGettingPaidPage({ activePage, company, currentUser,
     }
   }
 
-  return <AdminLayout activePage={activePage} company={company} currentUser={currentUser} hideHeader language={language} modules={modules} onNavigate={onNavigate} subtitle={description} t={t} title={title} {...layout}><div className="tenant-getting-paid-page" data-getting-paid-direction={gettingPaidDirection(language)} dir={gettingPaidDirection(language)}><PageHeader description={description} title={title}/>{content()}</div>{showUnsupported && <UnsupportedDialog onClose={() => setShowUnsupported(false)} t={t}/>}</AdminLayout>;
+  return <AdminLayout activePage={activePage} company={company} currentUser={currentUser} hideHeader language={language} modules={modules} onNavigate={onNavigate} subtitle={description} t={t} title={title} {...layout}><div className="tenant-getting-paid-page" data-getting-paid-direction={gettingPaidDirection(language)} dir={gettingPaidDirection(language)}><PageHeader description={description} title={title}/>{content()}</div>{invoiceModal === "create" && <InvoiceFormModal company={company} key="create-invoice" language={language} mode="create" onClose={closeInvoiceForm} onSuccess={handleCreateSuccess} />}{invoiceModal === "edit" && selectedInvoiceId && <InvoiceFormModal company={company} invoiceId={selectedInvoiceId} key={`edit-invoice-${selectedInvoiceId}`} language={language} mode="edit" onClose={closeInvoiceForm} onStaleState={handleInvoiceStaleState} onSuccess={handleEditSuccess} />}{invoiceDetailId && <InvoiceDetailModal company={company} invoiceId={invoiceDetailId} key={`detail-invoice-${invoiceDetailId}`} language={language} onCancel={(invoice) => openCancelConfirm(invoice.id, invoice.invoice_number || invoice.id)} onClose={closeDetailInvoice} onEdit={openEditInvoice} onVoid={(invoice) => openVoidConfirm(invoice.id, invoice.invoice_number || invoice.id)} refreshToken={detailRefreshToken} />}{confirmDialog && <InvoiceConfirmDialog action={confirmDialog.action} invoiceId={confirmDialog.invoiceId} invoiceNumber={confirmDialog.invoiceNumber} key={`confirm-${confirmDialog.action}-${confirmDialog.invoiceId}`} language={language} onClose={closeConfirmDialog} onStaleState={handleInvoiceStaleState} onSuccess={() => handleConfirmSuccess(confirmDialog.action, confirmDialog.invoiceId)} />}{showUnsupported && <UnsupportedDialog onClose={() => setShowUnsupported(false)} t={t}/>}</AdminLayout>;
 }

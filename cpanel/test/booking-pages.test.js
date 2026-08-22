@@ -6,11 +6,17 @@ import { canonicalAdminPageKey, resolvePage } from "../src/utils/cpanelAccess.js
 import { moduleAllowsPage, normalizedModulePage } from "../src/utils/moduleRegistry.js";
 import { canAccessAdminPage } from "../src/utils/roles.js";
 import {
+  applyBookingListFilters,
+  bookingListColumns,
   bookingPageKeys,
   bookingRoutes,
+  buildBookingListChips,
   buildBookingSummary,
   canManageBookings,
   canonicalBookingPageKey,
+  countActiveListFilters,
+  createDefaultListFilters,
+  defaultBookingListColumnVisibility,
   employeeDisplayName,
   filterRealBookings,
   moveWeek,
@@ -97,16 +103,91 @@ test("booking summaries and filters use only supplied real booking records", () 
 
 test("Calendar implements controls, drawer, Add menu, and slot context menu", async () => {
   const page = await source("../src/pages/AdminBookingCalendarPage.jsx");
-  for (const marker of ["booking-mini-calendar", "booking-filter-drawer", "booking-week-grid-body", "booking-add-button", "selectedSlot", "ActionMenu", "Appointment waitlist", "Sync your personal calendar"]) assert.match(page, new RegExp(marker));
+  for (const marker of [
+    "booking-mini-calendar",
+    "booking-filter-drawer",
+    "booking-display-drawer",
+    "booking-calendar-rail-drawer",
+    "booking-rail-trigger",
+    "booking-calendar-body",
+    "booking-week-grid-body",
+    "booking-slot-menu-anchor",
+    "SlotMenuAnchor",
+    "closeToolbarMenus",
+    "toggleAddMenu",
+    "toggleManageMenu",
+    "booking-add-button",
+    "selectedSlot",
+    "ActionMenu",
+    "Appointment waitlist",
+    "Sync your personal calendar",
+    "Display settings",
+    "booking-cal-search",
+    "booking-cal-footer",
+    "Daily",
+    "Staff",
+    "Schedule",
+    "Quick Sale",
+    "Export booking data",
+    "BookingFormModal",
+  ]) assert.match(page, new RegExp(marker));
   assert.match(page, /onNavigate\?\.\("admin-tenant-placeholder-catalog-booking-services"\)/);
   assert.doesNotMatch(page, /window\.location|history\.pushState|admin-dashboard/);
+  assert.doesNotMatch(page, /localStorage|bookingsApi|localBookingsRepository/);
 });
 
 test("Booking List implements tabs, filter chips, table fields, and an honest empty state", async () => {
   const page = await source("../src/pages/AdminBookingListPage.jsx");
-  for (const marker of ["booking-list-tabs", "booking-filter-chips", "BookingTable", "Appointments & Classes", "Courses", "No verified booking data source is connected", "No bookings yet"]) assert.match(page, new RegExp(marker));
-  for (const field of ["Booking date", "Customer", "Service", "Staff member", "Payment", "Total"]) assert.match(page, new RegExp(field));
+  for (const marker of [
+    "booking-list-tabs",
+    "booking-filter-chips",
+    "booking-list-filter-drawer",
+    "booking-list-columns-panel",
+    "booking-list-manage-menu",
+    "booking-list-export-options",
+    "BookingTable",
+    "ListFilterDrawer",
+    "buildBookingListChips",
+    "removeChip",
+    "clearFilters",
+    "closeTransientUi",
+    "Manage View",
+    "Save view",
+    "Export booking data",
+    "BookingFormModal",
+    "Appointments & Classes",
+    "Courses",
+    "No verified booking data source is connected",
+    "No bookings yet",
+    "No results found",
+  ]) assert.match(page, new RegExp(marker));
+  assert.match(page, /bookingListColumns/);
+  assert.deepEqual(bookingListColumns.map((column) => column.labelEn), ["Booking date", "Customer", "Service", "Staff member", "Session", "Status", "Payment", "Total"]);
+  assert.match(page, /setUnsupported\(true\)|openUnsupported/);
+  assert.match(page, /employees\.map/);
+  assert.match(page, /No verified booking services are connected/);
+  assert.match(page, /No verified booking locations are connected/);
+  assert.match(page, /Filters apply locally to connected booking rows only/);
   assert.doesNotMatch(page, /window\.location|history\.pushState|admin-dashboard/);
+  assert.doesNotMatch(page, /localStorage|bookingsApi|localBookingsRepository|seedSnapshot/i);
+  assert.doesNotMatch(page, /Casey Morgan|Alex Rivera/i);
+  assert.doesNotMatch(page, /\$1,|\$2,|USD 1,|EUR 1,/);
+  assert.doesNotMatch(page, /window\.prompt/);
+});
+
+test("booking list helpers filter only supplied real booking rows", () => {
+  const defaults = createDefaultListFilters();
+  assert.equal(countActiveListFilters(defaults), 0);
+  assert.deepEqual(defaultBookingListColumnVisibility(), Object.fromEntries(bookingListColumns.map((column) => [column.key, true])));
+  const rows = [
+    { id: "b1", kind: "course", status: "confirmed", paymentStatus: "paid", staffId: "e1", sessionAt: "2026-08-20T10:00:00.000Z", total: 20 },
+    { id: "b2", kind: "appointment", status: "pending", paymentStatus: "unpaid", staffId: "e2", sessionAt: "2026-07-01T10:00:00.000Z", total: 80 },
+  ];
+  assert.deepEqual(applyBookingListFilters(null, { applied: defaults, tab: "appointments" }), []);
+  assert.deepEqual(applyBookingListFilters(rows, { applied: defaults, tab: "courses" }).map((row) => row.id), ["b1"]);
+  assert.deepEqual(applyBookingListFilters(rows, { applied: { ...defaults, payment: true, paymentValue: "paid" }, tab: "appointments" }).map((row) => row.id), ["b1"]);
+  assert.deepEqual(applyBookingListFilters(rows, { applied: { ...defaults, status: true, statusValue: "pending" }, tab: "appointments" }).map((row) => row.id), ["b2"]);
+  assert.equal(buildBookingListChips({ ...defaults, status: true, statusValue: "pending" }).length, 1);
 });
 
 test("Work Schedule renders only supplied employees and never invents working hours", async () => {
@@ -115,7 +196,17 @@ test("Work Schedule renders only supplied employees and never invents working ho
   assert.match(page, /employeeDisplayName/);
   assert.match(page, /Availability not configured/);
   assert.match(page, /Array\.isArray\(availability\)/);
+  assert.match(page, /booking-week-range-picker/);
+  assert.match(page, /WorkingHoursModal/);
+  assert.match(page, /booking-schedule-block/);
+  assert.match(page, /booking-schedule-cell-add/);
+  assert.match(page, /DirectionalChevron/);
+  assert.match(page, /admin-settings-bookings-staff/);
+  assert.match(page, /admin-settings-bookings-default-hours/);
+  assert.match(page, /ScheduleBlockMenuAnchor/);
+  assert.match(page, /setUnsupported\(true\)|openUnsupported/);
   assert.doesNotMatch(page, /9:00 AM|10:00 AM|12:00 AM|burhan|ruba|shren/i);
+  assert.doesNotMatch(page, /localStorage|scheduleApi|localScheduleRepository|seedSnapshot/i);
 });
 
 test("Bookings Analytics provides the requested composition with no fabricated attribution", async () => {
@@ -150,8 +241,17 @@ test("booking CSS is narrowly scoped and responsive", async () => {
   assert.match(css, /\/\* Tenant Booking Calendar module \*\//);
   assert.match(css, /\.booking-calendar-layout/);
   assert.match(css, /\.booking-filter-drawer/);
+  assert.match(css, /\.booking-display-drawer/);
+  assert.match(css, /\.booking-calendar-rail-drawer/);
+  assert.match(css, /\.booking-calendar-body/);
+  assert.match(css, /\.booking-slot-menu-anchor\.is-flip-up/);
   assert.match(css, /\.booking-schedule-grid/);
+  assert.match(css, /\.booking-week-range-picker/);
+  assert.match(css, /\.booking-schedule-block/);
+  assert.match(css, /\.booking-schedule-cell-add/);
   assert.match(css, /\.booking-analytics-feature-row/);
+  assert.match(css, /\.booking-list-filter-drawer/);
+  assert.match(css, /\.booking-list-columns-panel/);
   assert.match(css, /\[dir="rtl"\] \.booking-filter-drawer/);
   assert.match(css, /@media \(max-width: 980px\)/);
 });
