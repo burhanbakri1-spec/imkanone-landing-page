@@ -7,6 +7,7 @@ import {
   catalogError,
   requireTenantPermission,
   sendCatalogError,
+  validateLocalized,
   validateOptionalUrl,
   validateSlug,
   validateSortOrder,
@@ -23,11 +24,18 @@ function validateText(value, field, { required = false, maxLength = 160 } = {}) 
   return value.trim();
 }
 
+function validateBrandName(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return validateLocalized(value, "name", { required: true });
+  }
+  return validateText(value, "name", { required: true });
+}
+
 function validatedBrand(body, current = null) {
   assertAllowedFields(body, brandFields, { requireNonEmpty: Boolean(current) });
   const result = {};
   if (!current || Object.hasOwn(body, "slug")) result.slug = validateSlug(body.slug);
-  if (!current || Object.hasOwn(body, "name")) result.name = validateText(body.name, "name", { required: true });
+  if (!current || Object.hasOwn(body, "name")) result.name = validateBrandName(body.name);
   if (Object.hasOwn(body, "logoUrl")) result.logoUrl = validateOptionalUrl(body.logoUrl, "logoUrl");
   if (Object.hasOwn(body, "heroVideo")) result.heroVideo = validateOptionalUrl(body.heroVideo, "heroVideo");
   if (Object.hasOwn(body, "heroPoster")) result.heroPoster = validateOptionalUrl(body.heroPoster, "heroPoster");

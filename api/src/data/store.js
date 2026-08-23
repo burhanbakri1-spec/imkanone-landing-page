@@ -1055,7 +1055,11 @@ class CategoryRepository extends TenantRepository {
 
 class BrandRepository extends TenantRepository {
   countProductReferences(companyId, brand) {
-    const legacyNames = new Set([brand.slug, brand.name]
+    const name = brand?.name;
+    const names = name && typeof name === "object" && !Array.isArray(name)
+      ? [name.en, name.ar]
+      : [name];
+    const legacyNames = new Set([brand.slug, ...names]
       .filter(Boolean)
       .map((value) => String(value).trim().toLowerCase()));
     return productRepository.getByCompany(companyId).filter((product) => {
@@ -1501,11 +1505,15 @@ function normalizeBrand(brand, index = 0) {
     updated_at: _updatedAt,
     ...data
   } = brand;
+  const rawName = brand.name;
+  const name = rawName && typeof rawName === "object" && !Array.isArray(rawName)
+    ? rawName
+    : String(rawName || "").trim();
   return {
     ...data,
     id: String(brand.id || `brand-${index}-${Date.now()}`),
     slug: String(brand.slug || "").trim().toLowerCase(),
-    name: String(brand.name || "").trim(),
+    name,
     logoUrl: brand.logoUrl || brand.logo_url || null,
     heroVideo: brand.heroVideo || brand.hero_video || null,
     heroPoster: brand.heroPoster || brand.hero_poster || null,

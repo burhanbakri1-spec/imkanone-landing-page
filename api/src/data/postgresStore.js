@@ -2020,11 +2020,38 @@ function mergeCategory(row) {
   };
 }
 
+function parseStoredBrandName(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && (parsed.en != null || parsed.ar != null)) {
+        return parsed;
+      }
+    } catch {
+      // Keep the original plain-text brand name.
+    }
+  }
+  return trimmed;
+}
+
+function brandLegacyNameValues(brand) {
+  const name = brand?.name;
+  const names = name && typeof name === "object" && !Array.isArray(name)
+    ? [name.en, name.ar]
+    : [name];
+  return [brand?.slug, ...names]
+    .filter(Boolean)
+    .map((value) => String(value).trim().toLowerCase());
+}
+
 function mergeBrand(row) {
   return {
     id: row.id,
     slug: row.slug,
-    name: row.name,
+    name: parseStoredBrandName(row.name),
     logoUrl: row.logo_url || null,
     heroVideo: row.hero_video || null,
     heroPoster: row.hero_poster || null,
@@ -2309,8 +2336,7 @@ export function deleteBrandWithTenantLockInSupabase(companyId, id) {
     );
     if (!brandResult.rows[0]) return null;
     const brand = mergeBrand(brandResult.rows[0]);
-    const legacyValues = [brand.slug, brand.name]
-      .filter(Boolean).map((value) => String(value).trim().toLowerCase());
+    const legacyValues = brandLegacyNameValues(brand);
     const references = await client.query(
       `select count(*)::integer as count from public.products
        where company_id = $1 and (
@@ -2665,9 +2691,7 @@ export async function countCategoryProductReferencesFromSupabase(companyId, cate
 
 export async function countBrandProductReferencesFromSupabase(companyId, brand) {
   const normalized = normalizeCompanyId(companyId);
-  const legacyValues = [brand.slug, brand.name]
-    .filter(Boolean)
-    .map((value) => String(value).trim().toLowerCase());
+  const legacyValues = brandLegacyNameValues(brand);
   const result = await query(
     `select count(*)::integer as count
      from public.products
