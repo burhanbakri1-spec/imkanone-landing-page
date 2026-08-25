@@ -25,10 +25,30 @@ const allowedExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
 const videoTypes = new Map([["video/mp4", ".mp4"], ["video/webm", ".webm"]]);
 const productMediaTypes = new Map([...imageTypes, ...videoTypes]);
 
+// Product-scoped media routes: update is enough (matches CPanel product form media UI).
+const PRODUCT_MEDIA_MUTATION_PERMISSIONS = ["product_media.manage", "products.manage", "products.update"];
+// Legacy POST /uploads stores company-root images and is also used by Website Media UI.
+// Do NOT grant products.update here — that would let product editors dump unrelated company files.
+const LEGACY_IMAGE_UPLOAD_PERMISSIONS = ["product_media.manage", "products.manage", "website_media.manage"];
+
+function employeeHasAnyPermission(req, permissions) {
+  const role = effectiveTenantRole(req);
+  return (
+    ["employee", "staff"].includes(role) &&
+    req.user?.permissions?.some((permission) => permissions.includes(permission))
+  );
+}
+
+function employeeCanMutateProductMedia(req) {
+  return employeeHasAnyPermission(req, PRODUCT_MEDIA_MUTATION_PERMISSIONS);
+}
+
 function requireProductUploader(req, res, next) {
   const role = effectiveTenantRole(req);
   if (["admin", "company_admin", "super_admin", "manager"].includes(role)) return next();
-  if (["employee", "staff"].includes(role) && req.user?.permissions?.some((p) => ["product_media.manage", "products.manage"].includes(p))) return next();
+  // Shared company-root image endpoint: product media editors OR website media editors.
+  // products.update alone is intentionally excluded (use /uploads/products/:productId).
+  if (employeeHasAnyPermission(req, LEGACY_IMAGE_UPLOAD_PERMISSIONS)) return next();
   return res.status(403).json({ message: "Product media permission required." });
 }
 
@@ -135,7 +155,7 @@ function requiresPersistentStorage() {
 function requireProductMediaPermission(req, res, next) {
   const role = effectiveTenantRole(req);
   if (["admin", "company_admin", "super_admin", "manager"].includes(role)) return next();
-  if (["employee", "staff"].includes(role) && req.user?.permissions?.some((permission) => ["product_media.manage", "products.manage", "products.update"].includes(permission))) return next();
+  if (employeeCanMutateProductMedia(req)) return next();
   return res.status(403).json({ message: "Product media permission required." });
 }
 

@@ -198,3 +198,21 @@ export function canReadCatalogFormOptions(user) {
     ["products.create", "products.update", "products.manage"].includes(p),
   );
 }
+
+export function canManageProductMedia(user) {
+  const role = user?.role;
+  if (isCompanyAdmin(role) || role === "manager") return true;
+  if (!isStaffRole(role)) return false;
+  const permissions = permissionsFromUser(user);
+  return ["product_media.manage", "products.manage", "products.update"].some((permission) =>
+    permissions.includes(permission),
+  );
+}
+
+export function canUpdateProducts(user) {
+  const role = user?.role;
+  if (isCompanyAdmin(role) || role === "manager") return true;
+  if (!isStaffRole(role)) return false;
+  const permissions = permissionsFromUser(user);
+  return ["products.update", "products.manage"].some((permission) => permissions.includes(permission));
+}

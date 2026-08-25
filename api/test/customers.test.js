@@ -13,6 +13,7 @@ const users = [
   ["icare-admin", "admin@icare.test", "company_admin"],
   ["other-admin", "admin@other.test", "company_admin"],
   ["icare-employee", "employee@icare.test", "employee"],
+  ["icare-plain-employee", "plain-employee@icare.test", "employee"],
   ["customer-user", "customer@customer-company.test", "customer"],
 ].map(([id, email, role]) => ({
   id,
@@ -36,6 +37,7 @@ const memberships = [
     "employee",
     ["customers.view", "customers.create", "customers.update", "customers.archive", "customers.manage"],
   ],
+  ["icare:icare-plain-employee", "icare", "icare-plain-employee", "employee", []],
   ["customer-company:customer-user", "customer-company", "customer-user", "customer", []],
 ].map(([id, companyId, userId, role, permissions]) => ({
   id,
@@ -105,6 +107,7 @@ test("tenant CRM customer API", async (t) => {
   const icareToken = await login("admin@icare.test");
   const otherToken = await login("admin@other.test");
   const employeeToken = await login("employee@icare.test");
+  const plainEmployeeToken = await login("plain-employee@icare.test");
   const customerToken = await login("customer@customer-company.test");
 
   await t.test("existing list contract remains an array and an empty iCare list is valid", async () => {
@@ -219,10 +222,24 @@ test("tenant CRM customer API", async (t) => {
     }
   });
 
-  await t.test("ordinary employees and customers remain unauthorized", async () => {
-    for (const token of [employeeToken, customerToken]) {
+  await t.test("employees with customers.view can list contacts", async () => {
+    const result = await request("/admin/customers", { token: employeeToken });
+    assert.equal(result.response.status, 200);
+    assert.ok(Array.isArray(result.body));
+    assert.notEqual(result.body.message, "Tenant admin access required.");
+  });
+
+  await t.test("employees with customers.view cannot export the store snapshot", async () => {
+    const result = await request("/admin/export-store", { token: employeeToken });
+    assert.equal(result.response.status, 403);
+    assert.notEqual(result.response.status, 200);
+  });
+
+  await t.test("employees without customer permissions and customers remain unauthorized", async () => {
+    for (const token of [plainEmployeeToken, customerToken]) {
       const result = await request("/admin/customers", { token });
       assert.equal(result.response.status, 403);
+      assert.notEqual(result.body.message, "Tenant admin access required.");
     }
   });
 

@@ -40,7 +40,7 @@ import {
 import { tenantStorageKey } from "../utils/companyContext.js";
 import { parseRequiredStock, preserveLegacySingleVariantStock } from "../utils/productStock.js";
 import { moduleAllowsPage, pageKeyForModule } from "../utils/moduleRegistry.js";
-import { canAccessAdminPage, isAdminPortalRole, isCompanyAdmin, isStaffRole, isTenantOperator, tenantAccessNotice } from "../utils/roles.js";
+import { canAccessAdminPage, canManageProductMedia, canUpdateProducts, isAdminPortalRole, isCompanyAdmin, isStaffRole, isTenantOperator, tenantAccessNotice } from "../utils/roles.js";
 import { hasPermission } from "../data/permissions.js";
 import { createTranslator } from "../data/translations.js";
 import { resolveProductImageUrl, useProductImagePlaceholder } from "../utils/productImages.js";
@@ -1260,7 +1260,7 @@ function ProductsListPage({ brands, canCreate = true, canDelete = true, canUpdat
         <select value={filters.brand} onChange={(event) => setFilters((current) => ({ ...current, brand: event.target.value }))}>
           <option value="all">All brands</option>
           {brands.map((brand) => (
-            <option key={brand.id} value={brand.id}>{brand.name}</option>
+            <option key={brand.id} value={brand.id}>{getText(brand.name)}</option>
           ))}
         </select>
         <div className="admin-segmented">
@@ -1296,7 +1296,7 @@ function ProductsListPage({ brands, canCreate = true, canDelete = true, canUpdat
                 <td><img className="admin-thumb" alt="" src={resolveProductImageUrl(product.image || product.primaryImage)} onError={useProductImagePlaceholder} /></td>
                 <td><strong>{getText(product.name)}</strong><span className="table-muted">{getProductSku(product)}</span></td>
                 <td>{getText(category?.name) || "-"}</td>
-                <td>{brands.find((brand) => brand.id === product.brandId)?.name || product.brand || "-"}</td>
+                <td>{getText(brands.find((brand) => brand.id === product.brandId)?.name) || product.brand || "-"}</td>
                 <td>{product.sizes?.length || 1}</td>
                 <td><strong>{getProductPrice(product)} ILS</strong></td>
                 <td>{stock}</td>
@@ -1794,7 +1794,7 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
               <select name="brandId" value={form.brandId} onChange={change}>
                 <option value="">{t("productForm.noBrand")}</option>
                 {brands.map((brand) => (
-                  <option key={brand.id} value={brand.id}>{brand.name}</option>
+                  <option key={brand.id} value={brand.id}>{getText(brand.name, language)}</option>
                 ))}
               </select>
             </label>
@@ -2291,9 +2291,9 @@ function AdminDashboardPage({
   const canEdit = isTenantOperator(role);
   const canManageSensitive = isCompanyAdmin(role);
   const canManageProductContent = isCompanyAdmin(role) || ["product_content.manage", "products.manage", "products.update"].some((permission) => hasPermission(currentUser, permission));
-  const canManageProductMedia = isCompanyAdmin(role) || ["product_media.manage", "products.manage", "products.update"].some((permission) => hasPermission(currentUser, permission));
+  const productMediaAllowed = canManageProductMedia(currentUser);
   const canCreateProducts = isCompanyAdmin(role) || ["products.create", "products.manage"].some((permission) => hasPermission(currentUser, permission));
-  const canUpdateProducts = isCompanyAdmin(role) || ["products.update", "products.manage"].some((permission) => hasPermission(currentUser, permission));
+  const productsUpdateAllowed = canUpdateProducts(currentUser);
   const canDeleteProducts = isCompanyAdmin(role) || ["products.delete", "products.manage"].some((permission) => hasPermission(currentUser, permission));
   const canCreateCategories = isCompanyAdmin(role) || ["categories.create", "categories.manage"].some((permission) => hasPermission(currentUser, permission));
   const canUpdateCategories = isCompanyAdmin(role) || ["categories.update", "categories.manage"].some((permission) => hasPermission(currentUser, permission));
@@ -2511,7 +2511,7 @@ function AdminDashboardPage({
   function renderActivePage() {
     switch (activePage) {
       case "admin-products":
-        return <ProductsListPage brands={brands} canCreate={canCreateProducts} canDelete={canDeleteProducts} canUpdate={canUpdateProducts} categories={adminCategories} filters={filters} onAdd={() => { setEditingProduct(null); onNavigate("admin-products-new"); }} onDeleteProduct={onDeleteProduct} onEdit={(product) => { setEditingProduct(product); onNavigate("admin-products-new", { path: `/admin/products/${encodeURIComponent(product.id)}/edit` }); }} products={products} setFilters={setFilters} t={t} />;
+        return <ProductsListPage brands={brands} canCreate={canCreateProducts} canDelete={canDeleteProducts} canUpdate={productsUpdateAllowed} categories={adminCategories} filters={filters} onAdd={() => { setEditingProduct(null); onNavigate("admin-products-new"); }} onDeleteProduct={onDeleteProduct} onEdit={(product) => { setEditingProduct(product); onNavigate("admin-products-new", { path: `/admin/products/${encodeURIComponent(product.id)}/edit` }); }} products={products} setFilters={setFilters} t={t} />;
       case "admin-products-new":
       case "admin-products-edit": {
         const match = window.location.pathname.match(/^\/admin\/products\/([^/]+)\/edit$/);
@@ -2520,8 +2520,8 @@ function AdminDashboardPage({
           ? products.find((item) => String(item.id) === routeProductId)
           : editingProduct;
         if (routeProductId && !productToEdit) return <section className="admin-panel-card">Loading product...</section>;
-        if ((productToEdit && !canUpdateProducts) || (!productToEdit && !canCreateProducts)) return <EmptyState title="View-only access" description="You do not have permission to save products." />;
-        return <ProductWizard brands={brands} categories={adminCategories} canManageContent={canManageProductContent} canManageMedia={canManageProductMedia} editingProduct={productToEdit} language={language} onCancel={(options) => onNavigate("admin-products", options)} onPersisted={(product) => { setEditingProduct(product); onNavigate("admin-products-edit", { path: `/admin/products/${encodeURIComponent(product.id)}/edit`, preserveStatusMessage: true, replace: true }); }} onSave={onSaveProduct} />;
+        if ((productToEdit && !productsUpdateAllowed) || (!productToEdit && !canCreateProducts)) return <EmptyState title="View-only access" description="You do not have permission to save products." />;
+        return <ProductWizard brands={brands} categories={adminCategories} canManageContent={canManageProductContent} canManageMedia={productMediaAllowed} editingProduct={productToEdit} language={language} onCancel={(options) => onNavigate("admin-products", options)} onPersisted={(product) => { setEditingProduct(product); onNavigate("admin-products-edit", { path: `/admin/products/${encodeURIComponent(product.id)}/edit`, preserveStatusMessage: true, replace: true }); }} onSave={onSaveProduct} />;
       }
       case "admin-categories":
         return renderSimpleTable("categories");

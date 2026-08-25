@@ -7,10 +7,10 @@ import {
   productRepository,
   userRepository,
 } from "../data/store.js";
-import { requireAuth, requireAdmin } from "../middleware/auth.js";
+import { requireAuth, requireAnyPermission } from "../middleware/auth.js";
 
 const router = Router();
-router.use(requireAuth, requireAdmin);
+router.use(requireAuth, requireAnyPermission("reports.view"));
 
 function safeNumber(value, fallback = 0) {
   const parsed = Number(value);

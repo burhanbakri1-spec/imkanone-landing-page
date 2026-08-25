@@ -37,6 +37,7 @@ const users = [
   ["icare-category-create-employee", "category-create@icare.test", "employee", "icare"],
   ["icare-category-update-employee", "category-update@icare.test", "employee", "icare"],
   ["icare-media-employee", "media@icare.test", "employee", "icare"],
+  ["icare-website-media-employee", "website-media@icare.test", "employee", "icare"],
   ["icare-manager-user", "manager@icare.test", "manager", "icare"],
 ].map(([id, email, role, companyId]) => ({
   id,
@@ -69,6 +70,7 @@ const memberships = [
   ["icare:icare-category-create-employee", "icare", "icare-category-create-employee", "employee", "active"],
   ["icare:icare-category-update-employee", "icare", "icare-category-update-employee", "employee", "active"],
   ["icare:icare-media-employee", "icare", "icare-media-employee", "employee", "active"],
+  ["icare:icare-website-media-employee", "icare", "icare-website-media-employee", "employee", "active"],
   ["icare:icare-manager-user", "icare", "icare-manager-user", "manager", "active"],
 ].map(([id, companyId, userId, role, status]) => ({
   id,
@@ -85,6 +87,7 @@ const memberships = [
     "icare-category-create-employee": ["categories.create"],
     "icare-category-update-employee": ["categories.update"],
     "icare-media-employee": ["products.view", "product_media.manage"],
+    "icare-website-media-employee": ["website_media.manage"],
   })[userId] || [],
   createdAt: now,
   updatedAt: now,
@@ -280,7 +283,7 @@ test("membership-aware authentication and authenticated tenant context", async (
     assert.equal(employeesResult.response.status, 200);
     assert.deepEqual(
       employeesResult.body.map((employee) => employee.id).sort(),
-      ["icare-catalog-employee", "icare-category-create-employee", "icare-category-update-employee", "icare-create-employee", "icare-employee", "icare-media-employee", "icare-product-employee", "icare-update-employee", "icare-view-employee"],
+      ["icare-catalog-employee", "icare-category-create-employee", "icare-category-update-employee", "icare-create-employee", "icare-employee", "icare-media-employee", "icare-product-employee", "icare-update-employee", "icare-view-employee", "icare-website-media-employee"],
     );
     assert.equal(employeesResult.body.some((employee) => employee.id === "eb-employee"), false);
 
@@ -896,6 +899,64 @@ test("employee product permission enforcement", async (t) => {
       method: "POST",
     });
     assert.ok(result.response.status === 403 || result.response.status === 400, "uploads rejects or expects multipart");
+  });
+
+  await t.test("update-only employee cannot use legacy POST /uploads (website/company-root isolation)", async () => {
+    const result = await request("/uploads", {
+      token: updateEmp.body.token,
+      method: "POST",
+    });
+    assert.equal(result.response.status, 403);
+    assert.equal(result.body.message, "Product media permission required.");
+  });
+
+  await t.test("update-only employee can upload via product-scoped media route", async () => {
+    const boundary = "----TestBoundaryUpdate" + Date.now();
+    const header = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="update-only.jpg"\r\nContent-Type: image/jpeg\r\n\r\n`;
+    const footer = `\r\n--${boundary}--\r\n`;
+    const bodyBuffer = Buffer.concat([Buffer.from(header), Buffer.alloc(120, 0x41), Buffer.from(footer)]);
+    const result = await fetch(`${baseUrl}/uploads/products/icare-product-1`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${updateEmp.body.token}`,
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+      },
+      body: bodyBuffer,
+    });
+    assert.equal(result.status, 201, "products.update may upload product-scoped media");
+    const json = await result.json();
+    assert.ok(json.path?.includes("/products/icare-product-1/"));
+    await request("/uploads/products/icare-product-1", {
+      token: updateEmp.body.token,
+      method: "DELETE",
+      body: { path: json.path },
+    });
+  });
+
+  await t.test("website-media-only employee may call legacy POST /uploads but not product-scoped uploads", async () => {
+    const websiteMediaEmp = await login("website-media@icare.test");
+    assert.equal(websiteMediaEmp.response.status, 200);
+    const legacy = await request("/uploads", {
+      token: websiteMediaEmp.body.token,
+      method: "POST",
+    });
+    assert.notEqual(legacy.response.status, 403, "website_media.manage allows company-root image upload endpoint");
+    assert.ok(legacy.response.status === 400 || legacy.response.status === 415 || legacy.response.status === 201);
+    const scoped = await request("/uploads/products/icare-product-1", {
+      token: websiteMediaEmp.body.token,
+      method: "POST",
+    });
+    assert.equal(scoped.response.status, 403);
+    assert.equal(scoped.body.message, "Product media permission required.");
+  });
+
+  await t.test("view-only employee still receives 403 on legacy POST /uploads", async () => {
+    const result = await request("/uploads", {
+      token: viewEmp.body.token,
+      method: "POST",
+    });
+    assert.equal(result.response.status, 403);
+    assert.equal(result.body.message, "Product media permission required.");
   });
 
   await t.test("employee without product permissions cannot access orders, customers, employees, settings, reports, memberships, or platform APIs", async () => {

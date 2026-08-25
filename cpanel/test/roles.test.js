@@ -26,7 +26,9 @@ import { isValidCpanelUser, landingPage, resolvePage } from "../src/utils/cpanel
 import {
   adminDashboardPath,
   canAccessAdminPage,
+  canManageProductMedia,
   canReadCatalogFormOptions,
+  canUpdateProducts,
   filterAccessiblePages,
   isAdminPortalRole,
   isCompanyAdmin,
@@ -291,6 +293,31 @@ test("update-only employee can edit products but cannot create", () => {
     ),
     "admin-products-edit",
   );
+});
+
+test("employee product media UI matrix: view / update / media-removed", () => {
+  assert.equal(canUpdateProducts(employeeViewOnly), false);
+  assert.equal(canManageProductMedia(employeeViewOnly), false);
+  assert.equal(canAccessAdminPage(employeeViewOnly, "admin-products"), true);
+  assert.equal(canAccessAdminPage(employeeViewOnly, "admin-products-edit"), false);
+
+  assert.equal(canUpdateProducts(employeeUpdateOnly), true);
+  assert.equal(canManageProductMedia(employeeUpdateOnly), true);
+  assert.equal(canAccessAdminPage(employeeUpdateOnly, "admin-products-edit"), true);
+
+  const updateWithoutMediaUi = {
+    role: "employee",
+    permissions: ["products.view", "products.update"],
+  };
+  assert.equal(canUpdateProducts(updateWithoutMediaUi), true);
+  assert.equal(canManageProductMedia(updateWithoutMediaUi), true, "products.update still enables product-scoped media UI");
+
+  const viewPlusContentOnly = {
+    role: "employee",
+    permissions: ["products.view", "product_content.manage"],
+  };
+  assert.equal(canUpdateProducts(viewPlusContentOnly), false);
+  assert.equal(canManageProductMedia(viewPlusContentOnly), false);
 });
 
 test("employee with product permissions cannot access Orders, Customers, Settings, Employees, or platform pages", () => {

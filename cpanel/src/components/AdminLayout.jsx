@@ -258,13 +258,22 @@ function AdminLayout({
   const [openMain, setOpenMain] = React.useState(activeMain);
   const [openNested, setOpenNested] = React.useState({});
   const [activePopover, setActivePopover] = React.useState(null);
+  const sidebarId = "admin-shell-sidebar";
 
   React.useEffect(() => {
     if (activeMain) setOpenMain(activeMain);
   }, [activeMain]);
 
   React.useEffect(() => {
-    const closeOnEscape = (event) => event.key === "Escape" && setActivePopover(null);
+    setMobileOpen(false);
+  }, [activeKey]);
+
+  React.useEffect(() => {
+    const closeOnEscape = (event) => {
+      if (event.key !== "Escape") return;
+      if (mobileOpen) setMobileOpen(false);
+      else setActivePopover(null);
+    };
     const closeOutside = (event) => {
       if (activePopover && !event.target.closest("[data-admin-popover-root]")) setActivePopover(null);
     };
@@ -274,7 +283,16 @@ function AdminLayout({
       document.removeEventListener("keydown", closeOnEscape);
       document.removeEventListener("pointerdown", closeOutside);
     };
-  }, [activePopover]);
+  }, [activePopover, mobileOpen]);
+
+  React.useEffect(() => {
+    if (!mobileOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobileOpen]);
 
   const activatePopover = (name) => setActivePopover((current) => toggleExclusivePopover(current, name));
   const labels = {
@@ -291,6 +309,7 @@ function AdminLayout({
     ai: ar ? "الذكاء الاصطناعي" : "AI",
     quickActions: ar ? "إجراءات سريعة" : "Quick Actions",
     menu: ar ? "القائمة" : "Menu",
+    closeMenu: ar ? "إغلاق القائمة" : "Close menu",
     collapse: ar ? "طي القائمة" : "Collapse sidebar",
     expand: ar ? "توسيع القائمة" : "Expand sidebar",
     storefront: ar ? "واجهة المتجر" : "Storefront",
@@ -301,6 +320,8 @@ function AdminLayout({
     if (typeof onNavigate === "function") onNavigate(pageKey);
     setMobileOpen(false);
   };
+
+  const toggleMobileSidebar = () => setMobileOpen((open) => !open);
 
   const renderNode = (item, level = 0) => {
     const Icon = iconFor(item.icon);
@@ -322,9 +343,20 @@ function AdminLayout({
   const editSiteItem = isTenant ? sections.find((item) => item.pageKey === "admin-site-editor") : null;
   const primarySections = editSiteItem ? sections.filter((item) => item !== editSiteItem) : sections;
 
-  return <section className={`admin-layout admin-studio-shell ${isDarkMode ? "admin-dark" : ""} ${isTenant ? "admin-tenant" : "admin-platform"} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} dir={ar ? "rtl" : "ltr"}>
+  return <section className={`admin-layout admin-studio-shell ${isDarkMode ? "admin-dark" : ""} ${isTenant ? "admin-tenant" : "admin-platform"} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${mobileOpen ? "mobile-nav-open" : ""}`} dir={ar ? "rtl" : "ltr"}>
     <header className="admin-topnav">
       <div className="admin-topnav-left">
+        <button
+          aria-controls={sidebarId}
+          aria-expanded={mobileOpen}
+          aria-label={mobileOpen ? labels.closeMenu : labels.menu}
+          className={`admin-mobile-menu ${mobileOpen ? "is-open" : ""}`}
+          onClick={toggleMobileSidebar}
+          type="button"
+        >
+          {mobileOpen ? <X size={17} /> : <Menu size={17} />}
+          <span>{mobileOpen ? labels.closeMenu : labels.menu}</span>
+        </button>
         <div className="admin-platform-logo" aria-label="iGroup"><span>iG</span><strong>iGroup</strong></div>
         <CompanySwitcher company={company} currentUser={currentUser} language={language} onSwitchCompany={onSwitchCompany} onReturnToPlatform={onReturnToPlatform} />
         {!isTenant && <button className="admin-topnav-btn" onClick={() => go("admin-platform-companies")} type="button"><Globe2 size={16} /><span>{labels.allSites}</span></button>}
@@ -355,11 +387,11 @@ function AdminLayout({
       </div>
     </header>
     <div className="admin-body">
-      <button className="admin-mobile-menu" onClick={() => setMobileOpen(true)} type="button"><Menu size={17} />{labels.menu}</button>
-      <aside className={`admin-sidebar ${mobileOpen ? "open" : ""}`}>
+      <aside className={`admin-sidebar ${mobileOpen ? "open" : ""}`} id={sidebarId}>
         <div className="admin-sidebar-brand">
           {company?.logoUrl ? <img className="admin-logo-mark" src={company.logoUrl} alt={`${companyName} logo`} /> : <span className="admin-logo-mark">{companyMark}</span>}
           <div className="admin-sidebar-brand-copy"><strong>{companyName}</strong>{isSuperAdmin && isTenant && <small className="admin-sidebar-scope-badge">Scoped</small>}</div>
+          <button className="admin-sidebar-close-mobile" onClick={() => setMobileOpen(false)} type="button" aria-label={labels.closeMenu}><X size={16} /></button>
           <button className="admin-sidebar-collapse" type="button" aria-label={sidebarCollapsed ? labels.expand : labels.collapse} onClick={() => setSidebarCollapsed((value) => !value)}>{sidebarCollapsed ? (ar ? <ChevronLeft size={16} /> : <ChevronRight size={16} />) : <PanelLeftClose size={16} />}</button>
         </div>
         {isTenant && <button className={`admin-sidebar-quick-actions ${activePopover === "quickActions" ? "active" : ""}`} data-admin-popover-root type="button" onClick={() => activatePopover("quickActions")} aria-expanded={activePopover === "quickActions"}><span><Plus size={18} /></span><b>{labels.quickActions}</b><ChevronRight className="admin-sidebar-quick-chevron" size={15} /></button>}
@@ -370,7 +402,7 @@ function AdminLayout({
           {isSuperAdmin && onReturnToPlatform && <button className="admin-sidebar-platform-link" onClick={onReturnToPlatform} type="button"><Building2 size={15} /><span>{labels.backToPlatform}</span></button>}
         </div>}
       </aside>
-      {mobileOpen && <button aria-label={ar ? "إغلاق القائمة" : "Close menu"} className="admin-sidebar-backdrop" onClick={() => setMobileOpen(false)} type="button" />}
+      {mobileOpen && <button aria-label={labels.closeMenu} className="admin-sidebar-backdrop" onClick={() => setMobileOpen(false)} type="button" />}
       <div className="admin-workspace">
         {!hideHeader && <div className="admin-page-header"><div><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div></div>}
         <main className="admin-content">{children}</main>

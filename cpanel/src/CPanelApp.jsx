@@ -230,6 +230,7 @@ function CPanelApp() {
     () => localStorage.getItem("epChemicalAdminDarkMode") === "true",
   );
   const previousCompanyId = React.useRef(company?.id || null);
+  const sessionInvalidatingRef = React.useRef(false);
   const t = React.useMemo(() => createTranslator(language), [language]);
 
   function navigate(page, options = {}) {
@@ -276,6 +277,9 @@ function CPanelApp() {
 
   function handleApiError(error) {
     if (error?.status === 401) {
+      // Single-flight: parallel protected refreshes must not clear session / redirect repeatedly.
+      if (sessionInvalidatingRef.current) return;
+      sessionInvalidatingRef.current = true;
       persistCurrentUser(null);
       setUser(null);
       setCompany(null);
@@ -293,6 +297,7 @@ function CPanelApp() {
       navigate("admin-login", { preserveLoginMessage: true, replace: true, role: null });
       return;
     }
+    // 403 is permission denial — keep the session; never treat as logout.
     setAdminMessageType("error");
     setAdminMessage(error?.status === 403 ? "Access denied." : error?.message || "Request failed.");
   }
@@ -358,16 +363,23 @@ function CPanelApp() {
         if (user && !isValidCpanelUser(user)) {
           persistCurrentUser(null);
           setUser(null);
+          setCompany(null);
           setAdminLoginMessage("Access denied. An administrator account is required.");
         } else {
+          sessionInvalidatingRef.current = false;
           setUser(user);
           setCompany(user?.activeCompany || null);
         }
       })
-      .catch(() => {
+      .catch((error) => {
+        if (sessionInvalidatingRef.current) return;
+        sessionInvalidatingRef.current = true;
         persistCurrentUser(null);
         setUser(null);
         setCompany(null);
+        if (error?.status === 401) {
+          setAdminLoginMessage("Your session expired. Please sign in again.");
+        }
       })
       .finally(() => setIsAuthResolving(false));
   }, []);
@@ -420,6 +432,8 @@ function CPanelApp() {
   }, [isDarkMode]);
 
   React.useEffect(() => {
+    // Wait for /auth/me bootstrap so expired localStorage tokens do not storm protected APIs.
+    if (isAuthResolving || sessionInvalidatingRef.current) return;
     if (!isAdminPortalRole(currentUser?.role) || isPlatformAdmin(currentUser.role) || !company)
       return;
     if (
@@ -458,7 +472,7 @@ function CPanelApp() {
       canAccessAdminPage(currentUser, "admin-website-media")
     )
       void refreshWebsiteMedia(currentUser);
-  }, [currentUser, company?.id]);
+  }, [currentUser, company?.id, isAuthResolving]);
 
   async function refreshProducts() {
     try {
@@ -574,6 +588,7 @@ function CPanelApp() {
         setAdminLoginMessage("Access denied. An administrator account is required.");
         return;
       }
+      sessionInvalidatingRef.current = false;
       setUser(session.user);
       setCompany(session.activeCompany || null);
       navigate(landingPage(session.user, session.activeCompany?.modules), {
@@ -587,6 +602,7 @@ function CPanelApp() {
 
   async function handleLogout() {
     await logoutUser().catch(() => persistCurrentUser(null));
+    sessionInvalidatingRef.current = false;
     setUser(null);
     setCompany(null);
     clearTenantCaches();

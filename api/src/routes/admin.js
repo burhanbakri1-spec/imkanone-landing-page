@@ -19,7 +19,7 @@ import { requireAdmin, requireAnyPermission, requireAuth } from "../middleware/a
 
 const router = Router();
 
-router.use(requireAuth, requireAdmin);
+router.use(requireAuth);
 
 const VALID_ACCOUNT_TYPES = new Set(["retail", "trader", "wholesale"]);
 const canReadCustomers = requireAnyPermission("customers.view", "customers.manage");
@@ -55,7 +55,7 @@ async function customerMembership(companyId, customerId) {
   return membership;
 }
 
-router.get("/summary", (req, res) => {
+router.get("/summary", requireAdmin, (req, res) => {
   const users = userRepository.getByCompany(req.companyId);
   res.json({
     products: productRepository.getByCompany(req.companyId).length,
@@ -156,7 +156,7 @@ router.post("/customers/:customerId/restore", canArchiveCustomers, async (req, r
   }
 });
 
-router.patch("/users/:id/account-type", async (req, res) => {
+router.patch("/users/:id/account-type", canUpdateCustomers, async (req, res) => {
   try {
     const user = userRepository.findByCompany(req.companyId, req.params.id);
     if (!user) return res.status(404).json({ message: "User not found." });
@@ -209,7 +209,7 @@ router.patch("/users/:id/account-type", async (req, res) => {
   }
 });
 
-router.get("/export-store", (req, res) => {
+router.get("/export-store", requireAdmin, (req, res) => {
   res.json(currentStoreSnapshot(req.companyId));
 });
 
