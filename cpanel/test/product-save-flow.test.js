@@ -47,7 +47,7 @@ test("product form preserves bilingual values and localizes repeaters", () => {
 });
 
 test("save is single-flight and waits for media uploads", () => {
-  assert.match(dashboard, /if \(isSaving\) return/);
+  assert.match(dashboard, /if \(readOnly \|\| isSaving\) return/);
   assert.match(dashboard, /if \(activeChildUploads > 0 \|\| uploadingField \|\| uploadingVariantIndex >= 0 \|\| uploadingGalleryIndex >= 0\)/);
   assert.match(dashboard, /disabled=\{isSaving \|\| activeChildUploads > 0 \|\| Boolean\(uploadingField\)/);
 });

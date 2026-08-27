@@ -32,10 +32,11 @@ import TenantProductFields from "../components/TenantProductFields.jsx";
 import { deleteProductMedia, uploadImage, uploadImages, uploadProductMedia, uploadWebsiteVideo, validateProductMediaFile } from "../utils/api.js";
 import { fieldStateToValues, productFieldApi, valuesToFieldState } from "../utils/productFields.js";
 import {
-  getMainCategories,
-  getSelectableAdminCategories,
+  getMainCategoriesForBrand,
   getSubcategoriesForMain,
+  isCompleteProductHierarchy,
   resolveMainCategoryFor,
+  validateProductHierarchySelection,
 } from "../utils/adminCategories.js";
 import { tenantStorageKey } from "../utils/companyContext.js";
 import { parseRequiredStock, preserveLegacySingleVariantStock } from "../utils/productStock.js";
@@ -1326,10 +1327,12 @@ function ProductsListPage({ brands, canCreate = true, canDelete = true, canUpdat
   );
 }
 
-export function ProductWizard({ brands = [], categories = [], editingProduct, onCancel, onPersisted, onSave, canManageContent = true, canManageMedia = true, language = "en" }) {
+export function ProductWizard({ brands = [], categories = [], editingProduct, onCancel, onPersisted, onSave, canManageContent = true, canManageMedia = true, language = "en", readOnly = false }) {
   const t = React.useMemo(() => createTranslator(language), [language]);
+  const ar = language === "ar";
   const [step, setStep] = React.useState("basic");
-  const initialCategoryOptions = getSelectableAdminCategories(categories, editingProduct?.categoryId);
+  const [advancedOpen, setAdvancedOpen] = React.useState(false);
+  const [fieldErrors, setFieldErrors] = React.useState({});
   const [uploadError, setUploadError] = React.useState("");
   const [uploadingField, setUploadingField] = React.useState("");
   const [uploadingVariantIndex, setUploadingVariantIndex] = React.useState(-1);
@@ -1352,10 +1355,10 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
     nameAr: editingProduct?.name?.ar || "",
     slug: editingProduct?.slug || "",
     sku: editingProduct?.sku || "",
-    categoryId: editingProduct?.categoryId || initialCategoryOptions[0]?.id || "",
+    categoryId: editingProduct?.subcategoryId || editingProduct?.categoryId || "",
     brandId: editingProduct?.brandId || "",
-    subcategoryId: editingProduct?.subcategoryId || editingProduct?.categoryId || "",
-    mainCategoryId: editingProduct?.mainCategoryId || resolveMainCategoryFor(categories, editingProduct?.mainCategoryId, editingProduct?.subcategoryId || editingProduct?.categoryId),
+    subcategoryId: editingProduct?.subcategoryId || "",
+    mainCategoryId: editingProduct?.mainCategoryId || resolveMainCategoryFor(categories, editingProduct?.mainCategoryId, editingProduct?.subcategoryId || ""),
     manufacturer: editingProduct?.manufacturer || "",
     age: editingProduct?.age || "",
     gender: editingProduct?.gender || "",
@@ -1436,11 +1439,57 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
   const allTabs = ["basic", "pricing", "variants", "media", "details", "marketing", "preview"];
   const tabName = { basic: t("productForm.tabs.basic"), pricing: t("productForm.tabs.pricing"), variants: t("productForm.tabs.variants"), media: t("productForm.tabs.media"), details: t("productForm.tabs.details"), marketing: t("productForm.tabs.marketing"), preview: t("productForm.tabs.preview") };
   const tabs = allTabs.filter((tab) => (tab !== "media" || canManageMedia) && (!["details", "marketing"].includes(tab) || canManageContent));
-  const selectableCategories = getSelectableAdminCategories(categories, form.categoryId);
-  const mainCategoryOptions = getMainCategories(categories)
+  const brandOptions = brands.filter((brand) => brand && brand.id && (brand.isActive !== false || brand.id === form.brandId));
+  const mainCategoryOptions = getMainCategoriesForBrand(categories, form.brandId)
     .filter((category) => category.isActive !== false && category.active !== false || category.id === form.mainCategoryId);
   const subcategoryOptions = getSubcategoriesForMain(categories, form.mainCategoryId)
     .filter((category) => category.isActive !== false && category.active !== false || category.id === form.subcategoryId);
+  const hierarchyIncomplete = Boolean(editingProduct) && !isCompleteProductHierarchy({
+    brandId: form.brandId,
+    mainCategoryId: form.mainCategoryId,
+    subcategoryId: form.subcategoryId,
+  });
+  const hierarchyLabels = ar
+    ? {
+      basic: "المعلومات الأساسية",
+      classification: "التصنيف (مطلوب)",
+      pricing: "التسعير",
+      media: "الوسائط",
+      advanced: "خيارات متقدمة",
+      brand: "العلامة التجارية *",
+      main: "الفئة الرئيسية *",
+      sub: "الفئة الفرعية *",
+      selectBrand: "اختر علامة تجارية أولاً",
+      selectMain: "اختر فئة رئيسية أولاً",
+      noMains: "لا توجد فئات رئيسية لهذه العلامة التجارية",
+      noSubs: "لا توجد فئات فرعية لهذه الفئة الرئيسية",
+      helper: "اختر العلامة التجارية ثم الفئة الرئيسية ثم الفئة الفرعية.",
+      incomplete: "التصنيف غير مكتمل. يجب اختيار علامة تجارية وفئة رئيسية وفئة فرعية قبل الحفظ.",
+      viewOnly: "وضع العرض فقط — ليست لديك صلاحية حفظ التغييرات.",
+      nameEnHelp: "الاسم الظاهر في الواجهة الإنجليزية.",
+      nameArHelp: "الاسم الظاهر في الواجهة العربية.",
+      shortHelp: "وصف مختصر يظهر في بطاقة المنتج.",
+    }
+    : {
+      basic: "Basic information",
+      classification: "Classification (required)",
+      pricing: "Pricing",
+      media: "Media",
+      advanced: "Advanced options",
+      brand: "Brand *",
+      main: "Main Category *",
+      sub: "Subcategory *",
+      selectBrand: "Select a Brand first",
+      selectMain: "Select a Main Category first",
+      noMains: "No Main Categories available for this Brand",
+      noSubs: "No Subcategories available for this Main Category",
+      helper: "Choose Brand, then Main Category, then Subcategory.",
+      incomplete: "Classification is incomplete. Choose Brand, Main Category, and Subcategory before saving.",
+      viewOnly: "View only — you do not have permission to save changes.",
+      nameEnHelp: "Name shown on the English storefront.",
+      nameArHelp: "Name shown on the Arabic storefront.",
+      shortHelp: "Short summary shown on product cards.",
+    };
 
   const trackChildUpload = React.useCallback((active) => {
     setActiveChildUploads((count) => Math.max(0, count + (active ? 1 : -1)));
@@ -1448,6 +1497,12 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
 
   function change(event) {
     const { checked, name, removeImage, type, value } = event.target;
+    setFieldErrors((current) => {
+      if (!current[name]) return current;
+      const next = { ...current };
+      delete next[name];
+      return next;
+    });
     setForm((current) => {
       const removed = new Set(current.removedImageFields || []);
       if (removeImage) removed.add(name);
@@ -1455,8 +1510,33 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
       return { ...current, [name]: type === "checkbox" ? checked : value, removedImageFields: [...removed] };
     });
   }
+  function changeBrand(event) {
+    const brandId = event.target.value;
+    setFieldErrors((current) => {
+      const next = { ...current };
+      delete next.brandId;
+      delete next.mainCategoryId;
+      delete next.subcategoryId;
+      return next;
+    });
+    setForm((current) => {
+      const mainStillValid = getMainCategoriesForBrand(categories, brandId).some((category) => category.id === current.mainCategoryId);
+      const mainCategoryId = mainStillValid ? current.mainCategoryId : "";
+      const subcategoryId = mainCategoryId
+        && getSubcategoriesForMain(categories, mainCategoryId).some((category) => category.id === current.subcategoryId)
+        ? current.subcategoryId
+        : "";
+      return { ...current, brandId, mainCategoryId, subcategoryId, categoryId: subcategoryId || "" };
+    });
+  }
   function changeMainCategory(event) {
     const mainCategoryId = event.target.value;
+    setFieldErrors((current) => {
+      const next = { ...current };
+      delete next.mainCategoryId;
+      delete next.subcategoryId;
+      return next;
+    });
     setForm((current) => {
       const subcategoryId = getSubcategoriesForMain(categories, mainCategoryId)
         .some((category) => category.id === current.subcategoryId)
@@ -1468,6 +1548,12 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
 
   function changeSubcategory(event) {
     const subcategoryId = event.target.value;
+    setFieldErrors((current) => {
+      if (!current.subcategoryId) return current;
+      const next = { ...current };
+      delete next.subcategoryId;
+      return next;
+    });
     setForm((current) => ({ ...current, subcategoryId, categoryId: subcategoryId }));
   }
 
@@ -1678,13 +1764,27 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
 
   async function submit(event) {
     event.preventDefault();
-    if (isSaving) return;
+    if (readOnly || isSaving) return;
     if (activeChildUploads > 0 || uploadingField || uploadingVariantIndex >= 0 || uploadingGalleryIndex >= 0) {
       setUploadError(t("productForm.errors.waitForUploads"));
       return;
     }
+    const hierarchy = validateProductHierarchySelection({
+      brands,
+      categories,
+      brandId: form.brandId,
+      mainCategoryId: form.mainCategoryId,
+      subcategoryId: form.subcategoryId,
+    });
+    if (!hierarchy.ok) {
+      setFieldErrors({ [hierarchy.field]: ar ? hierarchy.messageAr : hierarchy.messageEn });
+      setUploadError(ar ? hierarchy.messageAr : hierarchy.messageEn);
+      setStep("basic");
+      return;
+    }
     setIsSaving(true);
     setUploadError("");
+    setFieldErrors({});
     let productPayload;
     try {
       productPayload = createProductFromForm(form);
@@ -1772,7 +1872,7 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
   }
 
   return (
-    <section className="admin-panel-card" dir={language === "ar" ? "rtl" : "ltr"}>
+    <section className="admin-panel-card product-wizard-shell" dir={language === "ar" ? "rtl" : "ltr"}>
       <div className="admin-tabs">
         {tabs.map((tab, index) => (
           <button className={step === tab ? "active" : ""} key={tab} onClick={() => setStep(tab)} type="button">
@@ -1780,46 +1880,125 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
           </button>
         ))}
       </div>
-      <form className="admin-form admin-wizard-form" onSubmit={submit}>
+      <form className={`admin-form admin-wizard-form product-wizard-form ${readOnly ? "is-readonly" : ""}`} onSubmit={submit}>
+        {readOnly && <div className="message-panel full-field product-form-banner" role="status">{hierarchyLabels.viewOnly}</div>}
+        {hierarchyIncomplete && <div className="message-panel error full-field product-form-banner" role="alert">{hierarchyLabels.incomplete}</div>}
         {uploadError && <div className="message-panel error full-field" role="alert">{uploadError}{contentRetryId && <button className="secondary-action" onClick={retryContentSave} type="button">{language === "ar" ? "إعادة محاولة حفظ المحتوى" : "Retry content save"}</button>}</div>}
         {step === "basic" && (
           <>
-            <label>{t("productForm.productNameEn")} *<input dir="ltr" name="nameEn" required value={form.nameEn} onChange={change} /></label>
-            <label>{t("productForm.productNameAr")}<input dir="rtl" name="nameAr" value={form.nameAr} onChange={change} /></label>
-            <label>{t("productForm.slug")}<input dir="ltr" name="slug" value={form.slug} onChange={change} /></label>
-            <label>{t("productForm.sku")}<input dir="ltr" name="sku" value={form.sku} onChange={change} /></label>
-            <label>{t("productForm.category")} *<select name="categoryId" required value={form.categoryId} onChange={change}>{selectableCategories.map((category) => <option key={category.id} value={category.id}>{getText(category.name, language)}</option>)}</select></label>
-            <label>
-              {t("productForm.brand")}
-              <select name="brandId" value={form.brandId} onChange={change}>
-                <option value="">{t("productForm.noBrand")}</option>
-                {brands.map((brand) => (
-                  <option key={brand.id} value={brand.id}>{getText(brand.name, language)}</option>
-                ))}
-              </select>
-            </label>
-            <label>Main Category<select name="mainCategoryId" value={form.mainCategoryId || ""} onChange={changeMainCategory}><option value="">—</option>{mainCategoryOptions.map((category) => <option key={category.id} value={category.id}>{getText(category.name, language)}</option>)}</select></label>
-            <label>Subcategory *<select name="subcategoryId" required value={form.subcategoryId || ""} onChange={changeSubcategory} disabled={!form.mainCategoryId}><option value="">Select a subcategory</option>{subcategoryOptions.map((category) => <option key={category.id} value={category.id}>{getText(category.name, language)}</option>)}</select></label>
-            <label>Manufacturer<input name="manufacturer" value={form.manufacturer || ""} onChange={change} /></label>
-            <label>Age<select name="age" value={form.age || ""} onChange={change}><option value="">Any</option>{["0-12 months", "1-3 years", "3-6 years", "6-9 years", "9-12 years", "12+ years"].map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-            <label>Gender<select name="gender" value={form.gender || ""} onChange={change}><option value="">Any</option>{["Boys", "Girls", "Unisex"].map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-            <label>Skill<select name="skill" value={form.skill || ""} onChange={change}><option value="">Any</option>{["Beginner", "Intermediate", "Advanced"].map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-            <label>Occasion<select name="occasion" value={form.occasion || ""} onChange={change}><option value="">Any</option>{["Birthday", "Everyday", "Gift", "School", "Festive"].map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-            <div className="admin-checkbox-grid full-field">
-              <label className="checkbox-line"><input name="quickShop" type="checkbox" checked={Boolean(form.quickShop)} onChange={change} />Quick Shop</label>
-            </div>
+            <section className="product-form-section">
+              <header className="product-form-section-head"><h3>{hierarchyLabels.basic}</h3></header>
+              <label className={fieldErrors.nameEn ? "has-error" : ""}>
+                {t("productForm.productNameEn")} *
+                <input dir="ltr" disabled={readOnly} name="nameEn" required value={form.nameEn} onChange={change} />
+                <small className="product-field-help">{hierarchyLabels.nameEnHelp}</small>
+              </label>
+              <label>
+                {t("productForm.productNameAr")} *
+                <input dir="rtl" disabled={readOnly} name="nameAr" required value={form.nameAr} onChange={change} />
+                <small className="product-field-help">{hierarchyLabels.nameArHelp}</small>
+              </label>
+              <label>
+                {t("productForm.shortDescriptionEn")}
+                <textarea dir="ltr" disabled={readOnly} name="shortDescription" value={form.shortDescription} onChange={change} />
+                <small className="product-field-help">{hierarchyLabels.shortHelp}</small>
+              </label>
+              <label>
+                {t("productForm.shortDescriptionAr")}
+                <textarea dir="rtl" disabled={readOnly} name="shortDescriptionAr" value={form.shortDescriptionAr} onChange={change} />
+              </label>
+              <div className="admin-checkbox-grid full-field">
+                <label className="checkbox-line"><input disabled={readOnly} name="active" type="checkbox" checked={Boolean(form.active)} onChange={change} />{t("productForm.active")}</label>
+                <label className="checkbox-line"><input disabled={readOnly} name="visible" type="checkbox" checked={Boolean(form.visible)} onChange={change} />{t("productForm.visible")}</label>
+              </div>
+            </section>
 
-            <label>{t("productForm.shortDescriptionEn")}<textarea dir="ltr" name="shortDescription" value={form.shortDescription} onChange={change} /></label>
-            <label>{t("productForm.shortDescriptionAr")}<textarea dir="rtl" name="shortDescriptionAr" value={form.shortDescriptionAr} onChange={change} /></label>
-            <label>{t("productForm.longDescriptionEn")}<textarea dir="ltr" name="fullDescription" value={form.fullDescription} onChange={change} /></label>
-            <label>{t("productForm.longDescriptionAr")}<textarea dir="rtl" name="fullDescriptionAr" value={form.fullDescriptionAr} onChange={change} /></label>
-            <div className="admin-checkbox-grid full-field">
-              {["active", "visible", "featured", "newArrival", "bestseller"].map((field) => (
-                <label className="checkbox-line" key={field}><input name={field} type="checkbox" checked={Boolean(form[field])} onChange={change} />{t(`productForm.${field}`)}</label>
-              ))}
-            </div>
-            <label>{t("productForm.labelEn")}<input dir="ltr" name="label" value={form.label} onChange={change} /></label>
-            <label>{t("productForm.labelAr")}<input dir="rtl" name="labelAr" value={form.labelAr} onChange={change} /></label>
+            <section className="product-form-section product-form-classification">
+              <header className="product-form-section-head">
+                <h3>{hierarchyLabels.classification}</h3>
+                <p>{hierarchyLabels.helper}</p>
+              </header>
+              <label className={fieldErrors.brandId ? "has-error" : ""}>
+                {hierarchyLabels.brand}
+                <select disabled={readOnly} name="brandId" required value={form.brandId} onChange={changeBrand}>
+                  <option value="">{ar ? "اختر علامة تجارية" : "Select a Brand"}</option>
+                  {brandOptions.map((brand) => (
+                    <option key={brand.id} value={brand.id}>{getText(brand.name, language)}</option>
+                  ))}
+                </select>
+                {fieldErrors.brandId && <span className="product-field-error">{fieldErrors.brandId}</span>}
+              </label>
+              <label className={fieldErrors.mainCategoryId ? "has-error" : ""}>
+                {hierarchyLabels.main}
+                <select disabled={readOnly || !form.brandId} name="mainCategoryId" required value={form.mainCategoryId || ""} onChange={changeMainCategory}>
+                  <option value="">{!form.brandId ? hierarchyLabels.selectBrand : (ar ? "اختر فئة رئيسية" : "Select a Main Category")}</option>
+                  {mainCategoryOptions.map((category) => (
+                    <option key={category.id} value={category.id}>{getText(category.name, language)}</option>
+                  ))}
+                </select>
+                {!form.brandId && <small className="product-field-help">{hierarchyLabels.selectBrand}</small>}
+                {form.brandId && !mainCategoryOptions.length && <small className="product-field-help">{hierarchyLabels.noMains}</small>}
+                {fieldErrors.mainCategoryId && <span className="product-field-error">{fieldErrors.mainCategoryId}</span>}
+              </label>
+              <label className={fieldErrors.subcategoryId ? "has-error" : ""}>
+                {hierarchyLabels.sub}
+                <select disabled={readOnly || !form.mainCategoryId} name="subcategoryId" required value={form.subcategoryId || ""} onChange={changeSubcategory}>
+                  <option value="">{!form.mainCategoryId ? hierarchyLabels.selectMain : (ar ? "اختر فئة فرعية" : "Select a Subcategory")}</option>
+                  {subcategoryOptions.map((category) => (
+                    <option key={category.id} value={category.id}>{getText(category.name, language)}</option>
+                  ))}
+                </select>
+                {!form.mainCategoryId && <small className="product-field-help">{hierarchyLabels.selectMain}</small>}
+                {form.mainCategoryId && !subcategoryOptions.length && <small className="product-field-help">{hierarchyLabels.noSubs}</small>}
+                {fieldErrors.subcategoryId && <span className="product-field-error">{fieldErrors.subcategoryId}</span>}
+              </label>
+            </section>
+
+            <section className="product-form-section">
+              <header className="product-form-section-head">
+                <h3>{hierarchyLabels.pricing}</h3>
+                <p className="admin-note">{t("productForm.pricingHelp")}</p>
+              </header>
+              <p><strong>{form.variants?.length || 0}</strong> {ar ? "متغيرات" : "variants"} · <strong>{(form.variants || []).reduce((sum, variant) => sum + Number(variant.stock || 0), 0)}</strong> {ar ? "وحدة في المخزون" : "units in stock"}</p>
+              <button className="secondary-action" onClick={() => setStep("variants")} type="button">{t("productForm.manageVariants")}</button>
+            </section>
+
+            {canManageMedia && (
+              <section className="product-form-section">
+                <header className="product-form-section-head"><h3>{hierarchyLabels.media}</h3></header>
+                <p className="admin-note">{ar ? "الصورة الأساسية ومعرض الوسائط متاحان في تبويب الوسائط." : "Primary image and gallery tools are available in the Media tab."}</p>
+                <button className="secondary-action" onClick={() => setStep("media")} type="button">{ar ? "فتح الوسائط" : "Open media"}</button>
+              </section>
+            )}
+
+            <section className="product-form-section product-form-advanced">
+              <button className="product-advanced-toggle" onClick={() => setAdvancedOpen((open) => !open)} type="button" aria-expanded={advancedOpen}>
+                <span>{hierarchyLabels.advanced}</span>
+                <ChevronDown className={advancedOpen ? "open" : ""} size={16} />
+              </button>
+              {advancedOpen && (
+                <div className="product-advanced-body">
+                  <label>{t("productForm.slug")}<input dir="ltr" disabled={readOnly} name="slug" value={form.slug} onChange={change} /></label>
+                  <label>{t("productForm.sku")}<input dir="ltr" disabled={readOnly} name="sku" value={form.sku} onChange={change} /></label>
+                  <label>{t("productForm.longDescriptionEn")}<textarea dir="ltr" disabled={readOnly} name="fullDescription" value={form.fullDescription} onChange={change} /></label>
+                  <label>{t("productForm.longDescriptionAr")}<textarea dir="rtl" disabled={readOnly} name="fullDescriptionAr" value={form.fullDescriptionAr} onChange={change} /></label>
+                  <label>Manufacturer<input disabled={readOnly} name="manufacturer" value={form.manufacturer || ""} onChange={change} /></label>
+                  <label>Age<select disabled={readOnly} name="age" value={form.age || ""} onChange={change}><option value="">Any</option>{["0-12 months", "1-3 years", "3-6 years", "6-9 years", "9-12 years", "12+ years"].map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+                  <label>Gender<select disabled={readOnly} name="gender" value={form.gender || ""} onChange={change}><option value="">Any</option>{["Boys", "Girls", "Unisex"].map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+                  <label>Skill<select disabled={readOnly} name="skill" value={form.skill || ""} onChange={change}><option value="">Any</option>{["Beginner", "Intermediate", "Advanced"].map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+                  <label>Occasion<select disabled={readOnly} name="occasion" value={form.occasion || ""} onChange={change}><option value="">Any</option>{["Birthday", "Everyday", "Gift", "School", "Festive"].map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+                  <div className="admin-checkbox-grid full-field">
+                    <label className="checkbox-line"><input disabled={readOnly} name="quickShop" type="checkbox" checked={Boolean(form.quickShop)} onChange={change} />Quick Shop</label>
+                    {["featured", "newArrival", "bestseller"].map((field) => (
+                      <label className="checkbox-line" key={field}><input disabled={readOnly} name={field} type="checkbox" checked={Boolean(form[field])} onChange={change} />{t(`productForm.${field}`)}</label>
+                    ))}
+                  </div>
+                  <label>{t("productForm.labelEn")}<input dir="ltr" disabled={readOnly} name="label" value={form.label} onChange={change} /></label>
+                  <label>{t("productForm.labelAr")}<input dir="rtl" disabled={readOnly} name="labelAr" value={form.labelAr} onChange={change} /></label>
+                  <p className="admin-note">{ar ? "وسائط التفاصيل والاستخدام الإضافية موجودة في تبويب الوسائط." : "Additional usage/detail media remains available in the Media tab."}</p>
+                </div>
+              )}
+            </section>
           </>
         )}
         {step === "pricing" && <div className="full-field">
@@ -2089,11 +2268,11 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
           {form.videoUrl && <video controls preload="metadata" src={form.videoUrl} />}
           {(tenantValues.product_faqs || []).filter((item) => item.is_active !== false).length > 0 && <p>{tenantValues.product_faqs.filter((item) => item.is_active !== false).length} active FAQ items</p>}
         </article>}
-        <div className="form-actions full-field">
+        <div className="form-actions full-field product-form-actions">
           <button className="secondary-action" disabled={isSaving || tabs.indexOf(step) === 0} onClick={() => setStep(tabs[tabs.indexOf(step) - 1])} type="button">{t("productForm.previous")}</button>
           <button className="secondary-action" disabled={isSaving || tabs.indexOf(step) === tabs.length - 1} onClick={() => setStep(tabs[tabs.indexOf(step) + 1])} type="button">{t("productForm.next")}</button>
           <button className="secondary-action" disabled={isSaving} onClick={() => onCancel()} type="button">{t("productForm.cancel")}</button>
-          <button className="admin-primary-button" disabled={isSaving || activeChildUploads > 0 || Boolean(uploadingField) || uploadingVariantIndex >= 0 || uploadingGalleryIndex >= 0} type="submit">{isSaving ? t("productForm.saving") : (editingProduct || form.id) ? t("productForm.saveChanges") : t("productForm.create")}</button>
+          {!readOnly && <button className="admin-primary-button" disabled={isSaving || activeChildUploads > 0 || Boolean(uploadingField) || uploadingVariantIndex >= 0 || uploadingGalleryIndex >= 0} type="submit">{isSaving ? t("productForm.saving") : (editingProduct || form.id) ? t("productForm.saveChanges") : t("productForm.create")}</button>}
         </div>
       </form>
     </section>
@@ -2520,8 +2699,9 @@ function AdminDashboardPage({
           ? products.find((item) => String(item.id) === routeProductId)
           : editingProduct;
         if (routeProductId && !productToEdit) return <section className="admin-panel-card">Loading product...</section>;
-        if ((productToEdit && !productsUpdateAllowed) || (!productToEdit && !canCreateProducts)) return <EmptyState title="View-only access" description="You do not have permission to save products." />;
-        return <ProductWizard brands={brands} categories={adminCategories} canManageContent={canManageProductContent} canManageMedia={productMediaAllowed} editingProduct={productToEdit} language={language} onCancel={(options) => onNavigate("admin-products", options)} onPersisted={(product) => { setEditingProduct(product); onNavigate("admin-products-edit", { path: `/admin/products/${encodeURIComponent(product.id)}/edit`, preserveStatusMessage: true, replace: true }); }} onSave={onSaveProduct} />;
+        if (!productToEdit && !canCreateProducts) return <EmptyState title="View-only access" description="You do not have permission to create products." />;
+        const formReadOnly = Boolean(productToEdit) && !productsUpdateAllowed;
+        return <ProductWizard brands={brands} categories={adminCategories} canManageContent={canManageProductContent} canManageMedia={productMediaAllowed && !formReadOnly} editingProduct={productToEdit} language={language} readOnly={formReadOnly} onCancel={(options) => onNavigate("admin-products", options)} onPersisted={(product) => { setEditingProduct(product); onNavigate("admin-products-edit", { path: `/admin/products/${encodeURIComponent(product.id)}/edit`, preserveStatusMessage: true, replace: true }); }} onSave={onSaveProduct} />;
       }
       case "admin-categories":
         return renderSimpleTable("categories");

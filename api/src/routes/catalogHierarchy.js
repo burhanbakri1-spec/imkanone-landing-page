@@ -74,14 +74,24 @@ function nullOrTrimmed(value) {
 //   brands     - array of the company's brand rows
 //   categories - array of the company's category rows
 //   product    - the normalized product (or body) to validate
-//   options.requireMainCategory - when true the product must carry a Main
-//     Category (used by the Kids Velvet CPanel flow). Defaults to false for
-//     backward compatibility with flat legacy catalogs.
-export function validateCatalogHierarchy({ brands = [], categories = [], product = {}, requireMainCategory = false }) {
+//   options.requireFullHierarchy - when true (default for product create/update),
+//     Brand + Main Category + Subcategory are all mandatory and must form a
+//     tenant-valid chain. No company IDs are hard-coded.
+export function validateCatalogHierarchy({
+  brands = [],
+  categories = [],
+  product = {},
+  requireMainCategory = false,
+  requireFullHierarchy = false,
+}) {
   const categoryById = new Map(categories.map((category) => [category.id, category]));
   const brandById = new Map(brands.map((brand) => [brand.id, brand]));
+  const requireHierarchy = requireFullHierarchy || requireMainCategory;
 
   const brandId = nullOrTrimmed(product.brandId ?? product.brand_id);
+  if (requireFullHierarchy && !brandId) {
+    throw catalogHierarchyError("Brand is required.");
+  }
   if (brandId) {
     const brand = brandById.get(brandId);
     if (!brand) throw catalogHierarchyError("Brand not found.", 404);
@@ -91,8 +101,11 @@ export function validateCatalogHierarchy({ brands = [], categories = [], product
   const mainCategoryId = nullOrTrimmed(product.mainCategoryId);
   const subcategoryId = nullOrTrimmed(product.subcategoryId ?? product.categoryId ?? product.category_id);
 
-  if (requireMainCategory && !mainCategoryId) {
-    throw catalogHierarchyError("A Main Category is required.");
+  if (requireHierarchy && !mainCategoryId) {
+    throw catalogHierarchyError("Main Category is required.");
+  }
+  if (requireFullHierarchy && !subcategoryId) {
+    throw catalogHierarchyError("Subcategory is required.");
   }
 
   if (mainCategoryId) {
@@ -103,10 +116,11 @@ export function validateCatalogHierarchy({ brands = [], categories = [], product
     if (main.parentId) {
       throw catalogHierarchyError("Selected category is a Subcategory, not a Main Category.");
     }
-    // Kids Velvet: a Main Category belongs directly to a Brand. When the Main
-    // Category carries a brandId, the product's Brand must match it.
-    if (main.brandId && brandId && main.brandId !== brandId) {
-      throw catalogHierarchyError("Main Category does not belong to the selected Brand.");
+    // Main Category must belong to the selected Brand when hierarchy is required.
+    if (requireFullHierarchy || brandId) {
+      if (!main.brandId || (brandId && main.brandId !== brandId)) {
+        throw catalogHierarchyError("Main Category does not belong to the selected Brand.");
+      }
     }
   }
 
@@ -114,9 +128,15 @@ export function validateCatalogHierarchy({ brands = [], categories = [], product
     const sub = categoryById.get(subcategoryId);
     if (!sub) throw catalogHierarchyError("Subcategory not found.", 404);
     if (sub.isActive === false) throw catalogHierarchyError("Subcategory is inactive.");
+    if (requireFullHierarchy && !sub.parentId) {
+      throw catalogHierarchyError("Selected category must be a Subcategory.");
+    }
     // When both are supplied the Subcategory must belong to the Main Category.
     if (mainCategoryId && sub.parentId !== mainCategoryId) {
       throw catalogHierarchyError("Subcategory does not belong to the selected Main Category.");
+    }
+    if (requireFullHierarchy && !mainCategoryId) {
+      throw catalogHierarchyError("Main Category is required.");
     }
   }
 

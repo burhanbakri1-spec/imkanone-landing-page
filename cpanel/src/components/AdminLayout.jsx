@@ -258,32 +258,46 @@ function AdminLayout({
   const [openMain, setOpenMain] = React.useState(activeMain);
   const [openNested, setOpenNested] = React.useState({});
   const [activePopover, setActivePopover] = React.useState(null);
+  const [locationPath, setLocationPath] = React.useState(() => (typeof window !== "undefined" ? window.location.pathname : ""));
   const sidebarId = "admin-shell-sidebar";
+  const closeMobileSidebar = React.useCallback(() => setMobileOpen(false), []);
 
   React.useEffect(() => {
     if (activeMain) setOpenMain(activeMain);
   }, [activeMain]);
 
+  // Close on route/page/auth changes so Back/Forward and login cannot leave a stale drawer.
   React.useEffect(() => {
-    setMobileOpen(false);
-  }, [activeKey]);
+    closeMobileSidebar();
+    if (typeof window !== "undefined") setLocationPath(window.location.pathname);
+  }, [activeKey, activePage, company?.id, currentUser?.id, closeMobileSidebar]);
 
   React.useEffect(() => {
+    closeMobileSidebar();
+  }, [locationPath, closeMobileSidebar]);
+
+  React.useEffect(() => {
+    const syncPathAndClose = () => {
+      setLocationPath(window.location.pathname);
+      closeMobileSidebar();
+    };
     const closeOnEscape = (event) => {
       if (event.key !== "Escape") return;
-      if (mobileOpen) setMobileOpen(false);
+      if (mobileOpen) closeMobileSidebar();
       else setActivePopover(null);
     };
     const closeOutside = (event) => {
       if (activePopover && !event.target.closest("[data-admin-popover-root]")) setActivePopover(null);
     };
+    window.addEventListener("popstate", syncPathAndClose);
     document.addEventListener("keydown", closeOnEscape);
     document.addEventListener("pointerdown", closeOutside);
     return () => {
+      window.removeEventListener("popstate", syncPathAndClose);
       document.removeEventListener("keydown", closeOnEscape);
       document.removeEventListener("pointerdown", closeOutside);
     };
-  }, [activePopover, mobileOpen]);
+  }, [activePopover, closeMobileSidebar, mobileOpen]);
 
   React.useEffect(() => {
     if (!mobileOpen) return undefined;
@@ -317,8 +331,8 @@ function AdminLayout({
   };
 
   const go = (pageKey) => {
+    closeMobileSidebar();
     if (typeof onNavigate === "function") onNavigate(pageKey);
-    setMobileOpen(false);
   };
 
   const toggleMobileSidebar = () => setMobileOpen((open) => !open);
@@ -391,7 +405,7 @@ function AdminLayout({
         <div className="admin-sidebar-brand">
           {company?.logoUrl ? <img className="admin-logo-mark" src={company.logoUrl} alt={`${companyName} logo`} /> : <span className="admin-logo-mark">{companyMark}</span>}
           <div className="admin-sidebar-brand-copy"><strong>{companyName}</strong>{isSuperAdmin && isTenant && <small className="admin-sidebar-scope-badge">Scoped</small>}</div>
-          <button className="admin-sidebar-close-mobile" onClick={() => setMobileOpen(false)} type="button" aria-label={labels.closeMenu}><X size={16} /></button>
+          <button className="admin-sidebar-close-mobile" onClick={closeMobileSidebar} type="button" aria-label={labels.closeMenu}><X size={16} /></button>
           <button className="admin-sidebar-collapse" type="button" aria-label={sidebarCollapsed ? labels.expand : labels.collapse} onClick={() => setSidebarCollapsed((value) => !value)}>{sidebarCollapsed ? (ar ? <ChevronLeft size={16} /> : <ChevronRight size={16} />) : <PanelLeftClose size={16} />}</button>
         </div>
         {isTenant && <button className={`admin-sidebar-quick-actions ${activePopover === "quickActions" ? "active" : ""}`} data-admin-popover-root type="button" onClick={() => activatePopover("quickActions")} aria-expanded={activePopover === "quickActions"}><span><Plus size={18} /></span><b>{labels.quickActions}</b><ChevronRight className="admin-sidebar-quick-chevron" size={15} /></button>}
@@ -402,7 +416,7 @@ function AdminLayout({
           {isSuperAdmin && onReturnToPlatform && <button className="admin-sidebar-platform-link" onClick={onReturnToPlatform} type="button"><Building2 size={15} /><span>{labels.backToPlatform}</span></button>}
         </div>}
       </aside>
-      {mobileOpen && <button aria-label={labels.closeMenu} className="admin-sidebar-backdrop" onClick={() => setMobileOpen(false)} type="button" />}
+      {mobileOpen && <button aria-label={labels.closeMenu} className="admin-sidebar-backdrop" onClick={closeMobileSidebar} type="button" />}
       <div className="admin-workspace">
         {!hideHeader && <div className="admin-page-header"><div><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div></div>}
         <main className="admin-content">{children}</main>

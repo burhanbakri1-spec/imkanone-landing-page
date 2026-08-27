@@ -275,7 +275,12 @@ async function applyCatalogHierarchyAndFilters(companyId, product) {
     tenantBrandRepository.listByCompany(companyId),
     tenantCategoryRepository.listByCompany(companyId),
   ]);
-  const validated = validateCatalogHierarchy({ brands, categories, product });
+  const validated = validateCatalogHierarchy({
+    brands,
+    categories,
+    product,
+    requireFullHierarchy: true,
+  });
   return { ...product, ...validated };
 }
 
