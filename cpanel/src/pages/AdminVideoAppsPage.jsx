@@ -28,6 +28,7 @@ import {
   Star,
   Store,
   Tag,
+  Trash2,
   Upload,
   Video,
   X,
@@ -35,13 +36,16 @@ import {
 import AdminLayout from "../components/AdminLayout.jsx";
 import AdminMediaField from "../components/AdminMediaField.jsx";
 import { AdminUnderDevelopmentContent } from "./AdminPlaceholderPage.jsx";
+import { resolveApiAssetUrl } from "../utils/api.js";
 import { tenantStorageKey } from "../utils/companyContext.js";
 import {
   canManageVideoLibrary,
   canViewTenantApps,
   canViewVideoLibrary,
   enabledCompanyApps,
+  normalizeVlogMediaType,
   videoAppsDirection,
+  vlogPreviewUrl,
 } from "../utils/videoApps.js";
 
 const pageCopy = {
@@ -299,7 +303,7 @@ function readTenantValue(companyId, key, fallback) {
   }
 }
 
-function VideosPage({ canManage, language, labels, onNavigate, onUnsupported, vlogs = [], onDeleteVlog, vlogHero, onSaveVlogHero }) {
+function VideosPage({ canManage, language, labels, onNavigate, onUnsupported, vlogs = [], onDeleteVlog, vlogHero, onSaveVlogHero, statusMessage, statusMessageType = "success" }) {
   const [query, setQuery] = React.useState("");
   const [sort, setSort] = React.useState("newest");
   const [selected, setSelected] = React.useState(() => new Set());
@@ -337,6 +341,11 @@ function VideosPage({ canManage, language, labels, onNavigate, onUnsupported, vl
 
   return (
     <section className="video-list-card video-library-list">
+      {statusMessage ? (
+        <div className={`message-panel ${statusMessageType}`} role={statusMessageType === "error" ? "alert" : "status"}>
+          {statusMessage}
+        </div>
+      ) : null}
       {canManage && (
         <div className="admin-vlog-hero">
           <AdminMediaField label={language === "ar" ? "فيديو الواجهة" : "Hero video"} language={language} name="videoUrl" value={heroDraft.videoUrl || ""} onChange={(event) => setHeroDraft((current) => ({ ...current, videoUrl: event.target.value }))} allowVideo />
@@ -378,19 +387,29 @@ function VideosPage({ canManage, language, labels, onNavigate, onUnsupported, vl
       </div>
       {rows.length ? (
         <div className="tenant-video-list" data-real-video-list>
-          {rows.map((video) => (
+          {rows.map((video) => {
+            const previewUrl = vlogPreviewUrl(video, resolveApiAssetUrl);
+            const isImage = normalizeVlogMediaType(video.mediaType) === "image";
+            return (
             <article className="tenant-video-card" key={video.id}>
               <input
-                aria-label={`${labels.selectAll}: ${video.title}`}
+                aria-label={`${labels.selectAll}: ${getLocalizedText(video.title, language)}`}
                 checked={selected.has(video.id)}
                 onChange={() => toggleVideo(video.id)}
                 type="checkbox"
               />
-              <div className="tenant-video-thumb">
-                {video.thumbnail || video.imageUrl ? (
-                  <img alt="" src={video.thumbnail || video.imageUrl} />
+              <div className={`tenant-video-thumb ${previewUrl ? "has-preview" : ""}`}>
+                {previewUrl ? (
+                  <>
+                    <img alt="" src={previewUrl} />
+                    {!isImage ? (
+                      <span aria-hidden="true" className="tenant-video-thumb__play">
+                        <Play size={25} />
+                      </span>
+                    ) : null}
+                  </>
                 ) : (
-                  <span>
+                  <span aria-hidden="true">
                     <Play size={25} />
                   </span>
                 )}
@@ -401,7 +420,7 @@ function VideosPage({ canManage, language, labels, onNavigate, onUnsupported, vl
               </div>
               <div className="tenant-video-meta">
                 <span>{language === "ar" ? "النوع" : "Type"}</span>
-                <strong>{video.mediaType === "image" ? (language === "ar" ? "صورة" : "Image") : (language === "ar" ? "فيديو" : "Video")}</strong>
+                <strong>{isImage ? (language === "ar" ? "صورة" : "Image") : (language === "ar" ? "فيديو" : "Video")}</strong>
               </div>
               <span className={`video-status ${video.isActive === false ? "inactive" : ""}`}>
                 {video.isActive === false
@@ -419,16 +438,29 @@ function VideosPage({ canManage, language, labels, onNavigate, onUnsupported, vl
               ) : (
                 <span className="video-channel-empty">—</span>
               )}
-              <button
-                aria-label={language === "ar" ? "تعديل الفيديو" : "Edit video"}
-                className="video-apps-icon-button"
-                onClick={() => onNavigate("admin-vlogs-new", { path: `/admin/vlogs/new?edit=${encodeURIComponent(video.id)}` })}
-                type="button"
-              >
-                <Edit3 size={17} />
-              </button>
+              <div className="tenant-video-actions">
+                <button
+                  aria-label={language === "ar" ? "تعديل الفيديو" : "Edit video"}
+                  className="video-apps-icon-button"
+                  onClick={() => onNavigate("admin-vlogs-new", { path: `/admin/vlogs/new?edit=${encodeURIComponent(video.id)}` })}
+                  type="button"
+                >
+                  <Edit3 size={17} />
+                </button>
+                {canManage && onDeleteVlog ? (
+                  <button
+                    aria-label={language === "ar" ? "حذف الفيديو" : "Delete video"}
+                    className="video-apps-icon-button danger"
+                    onClick={() => onDeleteVlog(video.id)}
+                    type="button"
+                  >
+                    <Trash2 size={17} />
+                  </button>
+                ) : null}
+              </div>
             </article>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="video-apps-empty" data-video-empty>
@@ -1033,6 +1065,8 @@ export default function AdminVideoAppsPage({
   onNavigate,
   onDeleteVlog,
   onSaveVlogHero,
+  statusMessage,
+  statusMessageType = "success",
   vlogHero,
   vlogs = [],
   t,
@@ -1128,6 +1162,8 @@ export default function AdminVideoAppsPage({
             onUnsupported={unsupported}
             onDeleteVlog={onDeleteVlog}
             onSaveVlogHero={onSaveVlogHero}
+            statusMessage={statusMessage}
+            statusMessageType={statusMessageType}
             vlogHero={vlogHero}
             vlogs={vlogs}
           />

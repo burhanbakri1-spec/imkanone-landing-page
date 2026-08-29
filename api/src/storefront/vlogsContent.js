@@ -30,6 +30,11 @@ const safeUrl = (value) => {
 
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+function normalizeMediaType(value, fallback = "video") {
+  const type = String(value ?? fallback).trim().toLowerCase();
+  return type === "image" || type === "post" ? "image" : "video";
+}
+
 export function readWebsiteContentSettings(company) {
   const settings = company?.settings?.websiteContent;
   return settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
@@ -47,7 +52,7 @@ export function normalizeVlogEntry(input = {}, existing = {}) {
     error.statusCode = 400;
     throw error;
   }
-  const mediaType = input.mediaType === "image" ? "image" : "video";
+  const mediaType = normalizeMediaType(input.mediaType ?? input.type ?? existing.mediaType ?? existing.type, "video");
   return {
     id: String(input.id || existing.id || `vlog-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
     slug: slug || String(existing.slug || input.id || "").trim().toLowerCase(),
@@ -88,7 +93,8 @@ export function listCompanyVlogs(company) {
       posterUrl: safeUrl(entry.posterUrl || entry.thumbnail),
       imageUrl: safeUrl(entry.imageUrl || entry.image),
       linkUrl: safeUrl(entry.linkUrl || entry.link),
-      mediaType: entry.mediaType === "image" ? "image" : "video",
+      mediaType: normalizeMediaType(entry.mediaType ?? entry.type, "video"),
+      thumbnail: safeUrl(entry.posterUrl || entry.thumbnail),
       sortOrder: finiteNumber(entry.sortOrder, 0),
       isActive: entry.isActive !== false,
       featured: entry.featured === true,
@@ -150,7 +156,7 @@ export function serializePublicVlog(entry = {}, locale = "en") {
     posterUrl: safeUrl(entry.posterUrl),
     imageUrl: safeUrl(entry.imageUrl),
     linkUrl: safeUrl(entry.linkUrl),
-    mediaType: entry.mediaType === "image" ? "image" : "video",
+    mediaType: normalizeMediaType(entry.mediaType ?? entry.type, "video"),
     sortOrder: finiteNumber(entry.sortOrder, 0),
     featured: entry.featured === true,
     label: title[locale] || title.en || "",

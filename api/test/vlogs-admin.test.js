@@ -172,3 +172,63 @@ test("simulated cold reload serves the same persisted vlog list", async () => {
   assert.equal(listed.body.items.length, 1);
   assert.equal(listed.body.items[0].slug, "care-story");
 });
+
+test("admin can create image/post vlogs and expose poster fields on storefront", async () => {
+  const created = await api("/admin/vlogs", {
+    method: "POST",
+    token,
+    body: {
+      slug: "photo-post",
+      title: { en: "Photo post", ar: "منشور صورة" },
+      description: { en: "Gallery", ar: "معرض" },
+      imageUrl: "https://cdn.example/post.jpg",
+      mediaType: "post",
+      sortOrder: 2,
+      isActive: true,
+    },
+  });
+  assert.equal(created.response.status, 201);
+  assert.equal(created.body.mediaType, "image");
+
+  const listed = await api("/admin/vlogs", { token });
+  assert.equal(listed.response.status, 200);
+  assert.equal(listed.body.items.some((item) => item.slug === "photo-post"), true);
+  const imageItem = listed.body.items.find((item) => item.slug === "photo-post");
+  assert.equal(imageItem.imageUrl, "https://cdn.example/post.jpg");
+  assert.equal(imageItem.thumbnail, "");
+
+  const storefront = await fetch(`${baseUrl}/storefront/content?locale=en`, {
+    headers: { "X-Company-Id": companyId, "X-Site-Id": siteId },
+  });
+  const storefrontBody = await storefront.json();
+  assert.equal(storefront.status, 200);
+  const videoItem = storefrontBody.vlogs.find((item) => item.slug === "care-story");
+  assert.equal(videoItem.posterUrl, "https://cdn.example/story.jpg");
+  const postItem = storefrontBody.vlogs.find((item) => item.slug === "photo-post");
+  assert.equal(postItem.mediaType, "image");
+  assert.equal(postItem.imageUrl, "https://cdn.example/post.jpg");
+});
+
+test("admin delete removes vlog records and duplicate slug validation still works", async () => {
+  const before = await api("/admin/vlogs", { token });
+  assert.ok(before.body.items.some((item) => item.slug === "care-story"));
+
+  const removed = await api("/admin/vlogs/care-story", { method: "DELETE", token });
+  assert.equal(removed.response.status, 200);
+  assert.equal(removed.body.ok, true);
+
+  const afterDelete = await api("/admin/vlogs", { token });
+  assert.equal(afterDelete.body.items.some((item) => item.slug === "care-story"), false);
+  assert.equal(afterDelete.body.items.some((item) => item.slug === "photo-post"), true);
+
+  const duplicate = await api("/admin/vlogs", {
+    method: "POST",
+    token,
+    body: { slug: "photo-post", title: { en: "Duplicate", ar: "مكرر" }, mediaType: "image" },
+  });
+  assert.equal(duplicate.response.status, 409);
+
+  const persisted = JSON.parse(fs.readFileSync(path.join(dataStoreDir, "store.json"), "utf8"));
+  const savedCompany = persisted.companies.find((entry) => entry.id === companyId);
+  assert.deepEqual(savedCompany.settings.websiteContent.vlogs.map((item) => item.slug), ["photo-post"]);
+});

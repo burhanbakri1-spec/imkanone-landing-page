@@ -1201,6 +1201,8 @@ function CPanelApp() {
             activePage={activePage}
             onDeleteVlog={handleDeleteVlog}
             onSaveVlogHero={handleSaveVlogHero}
+            statusMessage={adminMessage}
+            statusMessageType={adminMessageType}
             vlogHero={vlogHero}
             vlogs={vlogs}
             {...sharedLayoutProps}

@@ -22,6 +22,20 @@ export function videoAppsDirection(language) {
   return language === "ar" ? "rtl" : "ltr";
 }
 
+export function normalizeVlogMediaType(value) {
+  const type = String(value || "video").trim().toLowerCase();
+  return type === "image" || type === "post" ? "image" : "video";
+}
+
+export function vlogPreviewUrl(vlog, resolveUrl = (value) => value) {
+  if (!vlog || typeof vlog !== "object") return "";
+  const mediaType = normalizeVlogMediaType(vlog.mediaType || vlog.type);
+  if (mediaType === "image") {
+    return resolveUrl(vlog.imageUrl || vlog.image || "");
+  }
+  return resolveUrl(vlog.posterUrl || vlog.thumbnail || vlog.imageUrl || vlog.image || "");
+}
+
 function hasScopedTenantAccess(currentUser, company) {
   const companyId =
     company?.id || currentUser?.activeCompany?.id || currentUser?.active_company?.id;

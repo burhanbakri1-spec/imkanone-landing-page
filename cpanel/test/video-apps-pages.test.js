@@ -8,8 +8,10 @@ import {
   canViewVideoLibrary,
   enabledCompanyApps,
   isVideoAppsPage,
+  normalizeVlogMediaType,
   videoAppsDirection,
   videoAppsPageKeys,
+  vlogPreviewUrl,
 } from "../src/utils/videoApps.js";
 import { canAccessAdminPage, isScopedPlatformSuperAdmin } from "../src/utils/roles.js";
 import { tenantNavigation } from "../src/data/adminNavigation.js";
@@ -50,11 +52,33 @@ test("Videos use API-backed tenant vlog management and creation flow", () => {
   assert.match(pageSource, /onDeleteVlog/);
   assert.match(pageSource, /onSaveVlogHero/);
   assert.match(pageSource, /onNavigate\("admin-vlogs-new"\)/);
+  assert.match(pageSource, /vlogPreviewUrl\(/);
+  assert.match(pageSource, /resolveApiAssetUrl/);
+  assert.match(pageSource, /tenant-video-actions/);
+  assert.match(pageSource, /onDeleteVlog\(video\.id\)/);
+  assert.match(pageSource, /statusMessage/);
   assert.match(appSource, /from "\.\/utils\/vlogsApi\.js"/);
   assert.match(appSource, /fetchVlogs\(\)/);
   assert.match(appSource, /saveVlogHero\(/);
+  assert.match(appSource, /statusMessage=\{adminMessage\}/);
   assert.match(dashboardSource, /case "admin-vlogs-new":[\s\S]*?renderEntityForm\("vlog"\)/);
   assert.match(dashboardSource, /onSaveVlog\?\./);
+  assert.match(dashboardSource, /visibleWhen: \(form\) => form\?\.mediaType !== "image"/);
+  assert.match(dashboardSource, /visibleWhen: \(form\) => form\?\.mediaType === "image"/);
+});
+
+test("vlog preview URLs prefer poster for video and image for post items", () => {
+  assert.equal(normalizeVlogMediaType("post"), "image");
+  assert.equal(
+    vlogPreviewUrl({ mediaType: "video", posterUrl: "/uploads/poster.jpg", imageUrl: "/uploads/other.jpg" }),
+    "/uploads/poster.jpg",
+  );
+  assert.equal(
+    vlogPreviewUrl({ mediaType: "image", posterUrl: "/uploads/poster.jpg", imageUrl: "/uploads/post.jpg" }),
+    "/uploads/post.jpg",
+  );
+  assert.equal(vlogPreviewUrl({ mediaType: "video", thumbnail: "/uploads/legacy.jpg" }), "/uploads/legacy.jpg");
+  assert.equal(vlogPreviewUrl({ mediaType: "video" }), "");
 });
 
 test("authorized tenant admins and scoped Super Admins can view setup pages", () => {

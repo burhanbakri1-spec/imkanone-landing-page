@@ -31163,7 +31163,7 @@ html[dir="ltr"] .header-mega-panel.open,
   border-bottom: 1px solid #e7ecf1;
   display: grid;
   gap: 19px;
-  grid-template-columns: 22px 220px minmax(220px, 1fr) 110px 92px minmax(100px, auto) 42px;
+  grid-template-columns: 22px 220px minmax(220px, 1fr) 110px 92px minmax(100px, auto) 84px;
   min-height: 150px;
   padding: 16px 3px;
 }
@@ -31177,9 +31177,35 @@ html[dir="ltr"] .header-mega-panel.open,
   height: 118px;
   justify-content: center;
   overflow: hidden;
+  position: relative;
   width: 210px;
 }
-.tenant-video-thumb img { height: 100%; object-fit: cover; width: 100%; }
+.tenant-video-thumb img { display: block; height: 100%; object-fit: cover; width: 100%; }
+.tenant-video-thumb__play {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.28);
+  color: #fff;
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  pointer-events: none;
+  position: absolute;
+}
+.tenant-video-actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.video-apps-icon-button.danger {
+  border-color: #fecdca;
+  color: #b42318;
+}
+.video-apps-icon-button.danger:hover {
+  background: #fef3f2;
+  border-color: #fda29b;
+  color: #912018;
+}
 .tenant-video-copy h2 { color: #172033; font-size: 16px; line-height: 1.35; margin: 0 0 8px; }
 .tenant-video-copy p { color: #667085; font-size: 13px; line-height: 1.45; margin: 0; max-width: 480px; }
 .tenant-video-meta { display: grid; gap: 5px; }
@@ -31447,7 +31473,7 @@ html[dir="ltr"] .header-mega-panel.open,
 [dir="rtl"] .app-market-flyout button > svg { transform: rotate(180deg); }
 
 @media (max-width: 1250px) {
-  .tenant-video-card { grid-template-columns: 22px 180px minmax(180px, 1fr) 90px 82px 42px; }
+  .tenant-video-card { grid-template-columns: 22px 180px minmax(180px, 1fr) 90px 82px 84px; }
   .tenant-video-thumb { height: 96px; width: 170px; }
   .video-channel-badge,
   .video-channel-empty { display: none; }
@@ -31469,7 +31495,7 @@ html[dir="ltr"] .header-mega-panel.open,
   .video-list-toolbar { align-items: stretch; flex-direction: column; }
   .video-library-list .video-apps-search { flex-basis: auto; margin-inline-start: 0; max-width: none; }
   .tenant-video-list { padding-inline: 14px; }
-  .tenant-video-card { align-items: start; grid-template-columns: 22px 128px minmax(0, 1fr) 38px; min-height: 122px; }
+  .tenant-video-card { align-items: start; grid-template-columns: 22px 128px minmax(0, 1fr) 84px; min-height: 122px; }
   .tenant-video-thumb { height: 72px; width: 128px; }
   .tenant-video-meta,
   .tenant-video-card .video-status { display: none; }
