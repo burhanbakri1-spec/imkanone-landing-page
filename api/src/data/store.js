@@ -1850,6 +1850,12 @@ export const companyRepository = {
     if (settingsPatch.socialLinks) {
       mergedSettings.socialLinks = { ...(currentSettings.socialLinks || {}), ...settingsPatch.socialLinks };
     }
+    if (settingsPatch.websiteContent) {
+      mergedSettings.websiteContent = {
+        ...(currentSettings.websiteContent || {}),
+        ...settingsPatch.websiteContent,
+      };
+    }
     return this.updateCompanyDraft(current.id, {
       ...(name !== undefined ? { name } : {}),
       settings: mergedSettings,

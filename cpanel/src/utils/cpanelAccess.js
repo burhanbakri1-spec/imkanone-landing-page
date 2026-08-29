@@ -3,6 +3,7 @@ import {
   filterAccessiblePages,
   isAdminPortalRole,
   isPlatformAdmin,
+  isScopedPlatformSuperAdmin,
   landingPageForRole,
   resolveAdminPage,
 } from "./roles.js";
@@ -72,6 +73,12 @@ export function landingPage(user, overrideModules) {
   return "admin-no-access";
 }
 
+export function moduleAllowsPageForUser(user, modules, page) {
+  if (!modules?.length) return true;
+  if (isScopedPlatformSuperAdmin(user)) return true;
+  return moduleAllowsPage(modules, page);
+}
+
 const customerLeadPaths = Object.freeze({
   "admin-customers": "/admin/customers",
   "admin-inbox": "/admin/inbox",
@@ -128,7 +135,7 @@ function canOpenCustomerLeadPage(user, page, navigationModules) {
   const modules = navigationModules?.length
     ? navigationModules
     : user?.activeCompany?.modules || [];
-  return !modules.length || moduleAllowsPage(modules, page);
+  return moduleAllowsPageForUser(user, modules, page);
 }
 
 export function canonicalAdminPageKey(page) {

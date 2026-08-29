@@ -1,5 +1,10 @@
 import { moduleAllowsPage, pageKeyForModule } from "./moduleRegistry.js";
-import { canAccessAdminPage, isPlatformAdmin, isTenantOperator } from "./roles.js";
+import {
+  canAccessAdminPage,
+  effectivePlatformRole,
+  isPlatformAdmin,
+  isTenantOperator,
+} from "./roles.js";
 
 export const videoAppsPageKeys = Object.freeze([
   "admin-vlogs",
@@ -20,21 +25,25 @@ export function videoAppsDirection(language) {
 function hasScopedTenantAccess(currentUser, company) {
   const companyId =
     company?.id || currentUser?.activeCompany?.id || currentUser?.active_company?.id;
+  const platformRole = effectivePlatformRole(currentUser);
   return (
     Boolean(companyId) &&
-    (isTenantOperator(currentUser?.role) || isPlatformAdmin(currentUser?.role))
+    (isTenantOperator(currentUser?.role) || isPlatformAdmin(platformRole))
   );
 }
 
 export function canViewVideoLibrary(currentUser, modules = [], company) {
-  if (isPlatformAdmin(currentUser?.role)) return hasScopedTenantAccess(currentUser, company);
+  if (isPlatformAdmin(effectivePlatformRole(currentUser))) {
+    return hasScopedTenantAccess(currentUser, company);
+  }
   return moduleAllowsPage(modules, "admin-vlogs") && canAccessAdminPage(currentUser, "admin-vlogs");
 }
 
 export function canManageVideoLibrary(currentUser, company) {
+  const platformRole = effectivePlatformRole(currentUser);
   return (
     isTenantOperator(currentUser?.role) ||
-    (isPlatformAdmin(currentUser?.role) && hasScopedTenantAccess(currentUser, company))
+    (isPlatformAdmin(platformRole) && hasScopedTenantAccess(currentUser, company))
   );
 }
 

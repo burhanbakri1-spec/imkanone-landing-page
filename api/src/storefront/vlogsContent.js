@@ -108,12 +108,10 @@ export async function saveCompanyVlogs(companyId, vlogs) {
     error.statusCode = 404;
     throw error;
   }
-  const current = readWebsiteContentSettings(company);
   const normalized = (Array.isArray(vlogs) ? vlogs : []).map((entry) => normalizeVlogEntry(entry, entry));
   await companyRepository.updateCompanyBrandingAndSettings(companyId, {
     settingsPatch: {
       websiteContent: {
-        ...current,
         vlogs: normalized,
       },
     },
@@ -133,7 +131,6 @@ export async function saveCompanyVlogHero(companyId, hero) {
   await companyRepository.updateCompanyBrandingAndSettings(companyId, {
     settingsPatch: {
       websiteContent: {
-        ...current,
         vlogHero: normalized,
       },
     },

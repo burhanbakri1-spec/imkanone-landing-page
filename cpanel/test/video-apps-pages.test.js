@@ -11,6 +11,8 @@ import {
   videoAppsDirection,
   videoAppsPageKeys,
 } from "../src/utils/videoApps.js";
+import { canAccessAdminPage, isScopedPlatformSuperAdmin } from "../src/utils/roles.js";
+import { tenantNavigation } from "../src/data/adminNavigation.js";
 
 const pageSource = fs.readFileSync(
   new URL("../src/pages/AdminVideoAppsPage.jsx", import.meta.url),
@@ -22,6 +24,10 @@ const dashboardSource = fs.readFileSync(
   "utf8",
 );
 const cssSource = fs.readFileSync(new URL("../src/styles/global.css", import.meta.url), "utf8");
+const layoutSource = fs.readFileSync(
+  new URL("../src/components/AdminLayout.jsx", import.meta.url),
+  "utf8",
+);
 
 test("Video Library and Apps routes render through the dedicated tenant page", () => {
   assert.equal(videoAppsPageKeys.length, 5);
@@ -67,15 +73,54 @@ test("authorized tenant admins and scoped Super Admins can view setup pages", ()
   );
 });
 
-test("the real Videos page retains its existing module and permission guard", () => {
-  const company = { id: "icare" };
-  const user = { role: "company_admin" };
-  assert.equal(canViewVideoLibrary(user, [], company), false);
+test("platform Super Admin Vlogs access recognizes scoped globalRole", () => {
+  const company = { id: "tenant-a" };
+  const scopedSuperAdmin = {
+    role: "company_admin",
+    globalRole: "super_admin",
+    isCompanyScope: true,
+    activeCompany: company,
+  };
+  const companyAdmin = { role: "company_admin", activeCompany: company };
+  const employee = { role: "employee", permissions: [], activeCompany: company };
+  const videosModule = [{ enabled: true, route: "/admin/vlogs" }];
+
   assert.equal(
-    canViewVideoLibrary(user, [{ enabled: true, route: "/admin/vlogs" }], company),
+    canViewVideoLibrary({ role: "super_admin", activeCompany: company }, [], company),
     true,
+    "unscoped super_admin is allowed without module gating",
   );
-  assert.equal(canViewVideoLibrary({ role: "super_admin" }, [], company), true);
+  assert.equal(
+    canViewVideoLibrary(scopedSuperAdmin, [], company),
+    true,
+    "scoped super_admin is allowed without module gating",
+  );
+  assert.equal(
+    canViewVideoLibrary(companyAdmin, [], company),
+    false,
+    "company_admin remains denied when the videos module is missing",
+  );
+  assert.equal(
+    canViewVideoLibrary(companyAdmin, videosModule, company),
+    true,
+    "company_admin remains allowed when the videos module is enabled",
+  );
+  assert.equal(
+    canViewVideoLibrary(employee, videosModule, company),
+    false,
+    "employee remains denied for vlogs",
+  );
+  assert.equal(canManageVideoLibrary(scopedSuperAdmin, company), true);
+  assert.equal(canAccessAdminPage(scopedSuperAdmin, "admin-vlogs-new"), true);
+  assert.equal(isScopedPlatformSuperAdmin(scopedSuperAdmin), true);
+  assert.equal(isScopedPlatformSuperAdmin(companyAdmin), false);
+});
+
+test("scoped Super Admin keeps Vlogs navigation visible when module gating would hide it", () => {
+  const videoGroup = tenantNavigation.find((item) => item.id === "tenant-video");
+  const vlogsItem = videoGroup?.children?.find((item) => item.pageKey === "admin-vlogs");
+  assert.equal(vlogsItem?.requiresModule, true);
+  assert.match(layoutSource, /isScopedPlatformSuperAdmin\(currentUser\)/);
 });
 
 test("Manage Apps groups only recognizable company-facing features", () => {

@@ -54,7 +54,7 @@ import {
 } from "../data/adminNavigation.js";
 import { groupCompanyModules, normalizedModulePage } from "../utils/moduleRegistry.js";
 import { canonicalAdminPageKey } from "../utils/cpanelAccess.js";
-import { canAccessAdminPage } from "../utils/roles.js";
+import { canAccessAdminPage, isScopedPlatformSuperAdmin } from "../utils/roles.js";
 
 const iconMap = {
   activity: Activity,
@@ -111,7 +111,12 @@ function filterNavigation(items, { currentUser, modulePages, modulesConfigured }
       return children.length ? [{ ...item, children }] : [];
     }
     if (!item.pageKey || !canAccessAdminPage(currentUser, item.pageKey)) return [];
-    if (item.requiresModule && modulesConfigured && !modulePages.has(normalizedModulePage(item.pageKey))) {
+    if (
+      item.requiresModule &&
+      modulesConfigured &&
+      !modulePages.has(normalizedModulePage(item.pageKey)) &&
+      !isScopedPlatformSuperAdmin(currentUser)
+    ) {
       return [];
     }
     return [item];
@@ -249,7 +254,7 @@ function AdminLayout({
     { pageKey: "admin-settings", label: { en: "Company settings", ar: "إعدادات الشركة" }, description: { en: "Update workspace settings", ar: "تحديث إعدادات مساحة العمل" }, icon: "settings" },
   ].filter((action) => {
     if (!canAccessAdminPage(currentUser, action.pageKey)) return false;
-    if (!modules.length) return true;
+    if (!modules.length || isScopedPlatformSuperAdmin(currentUser)) return true;
     return modulePages.has(normalizedModulePage(action.pageKey));
   }), [currentUser, modulePages, modules]);
   const activeMain = sections.find((item) => navigationContainsPage(item, activeKey))?.id || null;

@@ -5,6 +5,19 @@ export function isPlatformAdmin(role) {
   return role === "super_admin";
 }
 
+export function effectivePlatformRole(user) {
+  if (!user || typeof user !== "object") return user;
+  return user.globalRole || user.role;
+}
+
+export function isScopedPlatformSuperAdmin(user) {
+  return (
+    isPlatformAdmin(effectivePlatformRole(user)) &&
+    user?.isCompanyScope === true &&
+    Boolean(user?.activeCompany?.id)
+  );
+}
+
 export function isCompanyAdmin(role) {
   return role === "admin" || role === "company_admin";
 }

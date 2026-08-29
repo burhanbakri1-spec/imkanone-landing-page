@@ -49,13 +49,18 @@ test("tenant Website Texts route remains canonical while legacy placeholder rout
   assert.equal(canonicalAdminPageKey("admin-tenant-placeholder-website-content-multilingual"), "admin-website-content-multilingual");
 });
 
-test("Website Content navigation exposes persisted page text plus CMS and Multilingual", () => {
+test("Website Content navigation exposes page text, media, CMS, and Multilingual", () => {
   const group = tenantNavigation.find((item) => item.id === "tenant-website-content");
   assert.deepEqual(group.children.map((item) => item.pageKey), [
     "admin-website-texts",
+    "admin-website-media",
     "admin-website-content-cms",
     "admin-website-content-multilingual",
   ]);
+  assert.deepEqual(
+    group.children.find((item) => item.pageKey === "admin-website-media")?.label,
+    { en: "Media", ar: "الوسائط" },
+  );
   assert.ok(group.children.every((item) => item.existing && !item.placeholder));
 });
 

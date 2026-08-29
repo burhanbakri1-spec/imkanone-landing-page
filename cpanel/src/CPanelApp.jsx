@@ -127,7 +127,7 @@ import {
   fetchAllWebsiteMedia,
   saveWebsiteMedia as saveWebsiteMediaApi,
 } from "./utils/websiteMediaApi.js";
-import { canonicalAdminPageKey, isValidCpanelUser, landingPage, resolvePage } from "./utils/cpanelAccess.js";
+import { canonicalAdminPageKey, isValidCpanelUser, landingPage, moduleAllowsPageForUser, resolvePage } from "./utils/cpanelAccess.js";
 import {
   canAccessAdminPage,
   adminDashboardPath,
@@ -265,7 +265,7 @@ function CPanelApp() {
       requestedPage === "admin-login" ||
       requestedPage === "admin-site-editor" ||
       isNavigationPlaceholderPage(requestedPage) ||
-      moduleAllowsPage(navigationModules, requestedPage);
+      moduleAllowsPageForUser(authorizationUser, navigationModules, requestedPage);
     const safePage =
       roleAllowed && moduleAllowed
         ? requestedPage
@@ -484,11 +484,20 @@ function CPanelApp() {
     )
       void refreshWebsiteMedia(currentUser);
     if (
-      moduleAllowsPage(modules, "admin-vlogs") &&
+      moduleAllowsPageForUser(currentUser, modules, "admin-vlogs") &&
       canAccessAdminPage(currentUser, "admin-vlogs")
     )
       void refreshVlogs();
-  }, [currentUser, company?.id, isAuthResolving]);
+  }, [currentUser, company?.id, isAuthResolving, modules]);
+
+  React.useEffect(() => {
+    if (isAuthResolving || sessionInvalidatingRef.current) return;
+    if (!isAdminPortalRole(currentUser?.role) || isPlatformAdmin(currentUser.role) || !company) return;
+    if (!["admin-vlogs", "admin-vlogs-new"].includes(activePage)) return;
+    if (!moduleAllowsPageForUser(currentUser, modules, "admin-vlogs")) return;
+    if (!canAccessAdminPage(currentUser, "admin-vlogs")) return;
+    void refreshVlogs();
+  }, [activePage, company?.id, currentUser, isAuthResolving, modules]);
 
   async function refreshProducts() {
     try {

@@ -2811,6 +2811,12 @@ export async function runCompanyBrandingSettingsTransaction(client, companyId, i
     if (settingsPatch.socialLinks) {
       settings.socialLinks = { ...(currentSettings.socialLinks || {}), ...settingsPatch.socialLinks };
     }
+    if (settingsPatch.websiteContent) {
+      settings.websiteContent = {
+        ...(currentSettings.websiteContent || {}),
+        ...settingsPatch.websiteContent,
+      };
+    }
     const updatedAt = new Date().toISOString();
     const name = input.name === undefined ? companyResult.rows[0].name : input.name;
     if (input.name !== undefined) {
