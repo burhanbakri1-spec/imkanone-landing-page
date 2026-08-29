@@ -17,6 +17,10 @@ import {
   serializePublicWebsiteMedia,
   serializePublicWebsiteText,
 } from "../storefront/publicContent.js";
+import {
+  publicVlogHeroForCompany,
+  publicVlogsForCompany,
+} from "../storefront/vlogsContent.js";
 
 const router = Router();
 const localePattern = /^[a-z]{2}(?:-[a-z]{2})?$/i;
@@ -106,6 +110,8 @@ router.get("/content", async (req, res, next) => {
       products,
       texts,
       media,
+      vlogs: publicVlogsForCompany(req.company, req.storefront.locale),
+      vlogHero: publicVlogHeroForCompany(req.company, req.storefront.locale),
     });
   } catch (error) {
     return next(error);

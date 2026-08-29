@@ -1,6 +1,7 @@
 import React from "react";
 import { ImageOff, ImagePlus, Save, Trash2, Upload, Video, VideoOff } from "lucide-react";
 import { withWebsiteMediaVersion } from "../data/websiteMedia.js";
+import { formatMediaGroupLabel } from "../data/mediaSlots.js";
 import { uploadImage, uploadWebsiteVideo, websiteVideoUploadLimitMb } from "../utils/api.js";
 
 const emptyItem = {
@@ -18,22 +19,6 @@ const emptyItem = {
   isActive: true,
 };
 
-const groupLabels = {
-  homepage: { en: "Homepage Sections", ar: "أقسام الصفحة الرئيسية" },
-  homepage_categories: { en: "Homepage Cards", ar: "بطاقات الصفحة الرئيسية" },
-  products: { en: "Products Page", ar: "صفحة المنتجات" },
-  about: { en: "Static Sections - About", ar: "الأقسام الثابتة - من نحن" },
-  cleanups: { en: "Static Sections - Cleanups", ar: "الأقسام الثابتة - حملات التنظيف" },
-  cleanups_gallery: { en: "Cleanups Gallery", ar: "معرض حملات التنظيف" },
-  cleanups_tabs: { en: "Cleanups Tabs", ar: "تبويبات حملات التنظيف" },
-  eb_points: { en: "Static Sections - EB Points", ar: "الأقسام الثابتة - نقاط EB" },
-  sustainability: { en: "Static Sections - Sustainability", ar: "الأقسام الثابتة - الاستدامة" },
-  how_it_works: { en: "Static Sections - How It Works", ar: "الأقسام الثابتة - كيف يعمل" },
-  ads: { en: "Ads / Banners", ar: "الإعلانات والبنرات" },
-  header_dropdown: { en: "Header Dropdown Images", ar: "صور القوائم المنسدلة في الرأس" },
-  sections: { en: "Other Static Website Images", ar: "صور الموقع الثابتة الأخرى" },
-};
-
 function groupItems(items) {
   return items.reduce((groups, item) => {
     const sectionKey = item.sectionKey || "";
@@ -48,7 +33,7 @@ function groupItems(items) {
   }, {});
 }
 
-export function MediaEditor({ item, language, onDelete, onSave, lockSectionKey = false }) {
+export function MediaEditor({ item, language, onDelete, onSave, lockSectionKey = false, readOnly = false, slotMeta = null }) {
   const [draft, setDraft] = React.useState(item);
   const [message, setMessage] = React.useState("");
   const [uploading, setUploading] = React.useState(false);
@@ -56,14 +41,19 @@ export function MediaEditor({ item, language, onDelete, onSave, lockSectionKey =
   const [videoProgress, setVideoProgress] = React.useState(0);
   const maxVideoMb = websiteVideoUploadLimitMb();
   const isArabic = language === "ar";
+  const displayLabel = slotMeta?.label || draft.sectionLabel || draft.sectionKey;
+  const allowsVideo = !slotMeta || slotMeta.kind === "video" || (slotMeta.acceptedTypes || []).includes("video");
+  const allowsImage = !slotMeta || slotMeta.kind !== "video" || (slotMeta.acceptedTypes || []).includes("image");
 
   React.useEffect(() => setDraft(item), [item]);
 
   function update(name, value) {
+    if (readOnly) return;
     setDraft((current) => ({ ...current, [name]: value }));
   }
 
   async function handleUpload(event) {
+    if (readOnly) return;
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
@@ -81,6 +71,7 @@ export function MediaEditor({ item, language, onDelete, onSave, lockSectionKey =
   }
 
   async function handleSave() {
+    if (readOnly || !onSave) return;
     if (!draft.sectionKey.trim()) {
       setMessage(isArabic ? "أدخل مفتاح القسم." : "Section key is required.");
       return;
@@ -99,6 +90,7 @@ export function MediaEditor({ item, language, onDelete, onSave, lockSectionKey =
   }
 
   async function handleClearImage() {
+    if (readOnly || !onSave) return;
     const nextDraft = { ...draft, imageUrl: "", sortOrder: Number(draft.sortOrder || 0) };
     setDraft(nextDraft);
 
@@ -119,6 +111,7 @@ export function MediaEditor({ item, language, onDelete, onSave, lockSectionKey =
   }
 
   async function handleVideoUpload(event) {
+    if (readOnly) return;
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
@@ -139,6 +132,7 @@ export function MediaEditor({ item, language, onDelete, onSave, lockSectionKey =
   }
 
   async function handleClearVideo() {
+    if (readOnly || !onSave) return;
     setDraft((current) => ({ ...current, videoUrl: "", mediaType: "image" }));
     try {
       setMessage("");
@@ -151,7 +145,7 @@ export function MediaEditor({ item, language, onDelete, onSave, lockSectionKey =
   }
 
   return (
-    <article className="website-media-card">
+    <article className={`website-media-card${readOnly ? " is-readonly" : ""}`}>
       <div className="website-media-preview">
         {draft.videoUrl ? (
           <video
@@ -164,7 +158,7 @@ export function MediaEditor({ item, language, onDelete, onSave, lockSectionKey =
           />
         ) : draft.imageUrl ? (
           <img
-            alt={draft.sectionLabel || draft.sectionKey}
+            alt={displayLabel}
             src={withWebsiteMediaVersion(draft.imageUrl, draft.updatedAt || draft.id)}
           />
         ) : (
@@ -175,100 +169,115 @@ export function MediaEditor({ item, language, onDelete, onSave, lockSectionKey =
 
       <div className="website-media-fields">
         <label>
-          {isArabic ? "اسم القسم" : "Section label"}
-          <input value={draft.sectionLabel} onChange={(event) => update("sectionLabel", event.target.value)} />
+          {isArabic ? "اسم الحقل" : "Field label"}
+          <input disabled={readOnly || lockSectionKey} value={draft.sectionLabel} onChange={(event) => update("sectionLabel", event.target.value)} />
         </label>
         <label>
-          {isArabic ? "مفتاح القسم" : "Section key"}
-          <input readOnly={lockSectionKey} value={draft.sectionKey} onChange={(event) => update("sectionKey", event.target.value)} />
+          {isArabic ? "المفتاح التقني" : "Technical key"}
+          <input readOnly={lockSectionKey || readOnly} value={draft.sectionKey} onChange={(event) => update("sectionKey", event.target.value)} />
         </label>
-        <label className="full-field">
-          {isArabic ? "رابط الصورة" : "Image URL"}
-          <input value={draft.imageUrl} onChange={(event) => update("imageUrl", event.target.value)} />
-        </label>
+        {allowsImage && (
+          <label className="full-field">
+            {isArabic ? "رابط الصورة" : "Image URL"}
+            <input disabled={readOnly} value={draft.imageUrl} onChange={(event) => update("imageUrl", event.target.value)} />
+          </label>
+        )}
         <label className="full-field">
           {isArabic ? "نوع الوسائط" : "Media type"}
-          <input readOnly value={draft.videoUrl ? "video" : (draft.mediaType || "image")} />
+          <input readOnly value={draft.videoUrl ? "video" : (draft.mediaType || slotMeta?.kind || "image")} />
         </label>
-        <label className="full-field">
-          {isArabic ? "رابط الفيديو" : "Video URL"}
-          <input value={draft.videoUrl} onChange={(event) => update("videoUrl", event.target.value)} />
-        </label>
-        <p className="website-media-video-hint">
-          {isArabic ? `MP4 أو WebM - الحد الأقصى ${maxVideoMb} م.ب` : `MP4 or WEBM - max ${maxVideoMb} MB`}
-        </p>
+        {allowsVideo && (
+          <>
+            <label className="full-field">
+              {isArabic ? "رابط الفيديو" : "Video URL"}
+              <input disabled={readOnly} value={draft.videoUrl} onChange={(event) => update("videoUrl", event.target.value)} />
+            </label>
+            <p className="website-media-video-hint">
+              {isArabic ? `MP4 أو WebM - الحد الأقصى ${maxVideoMb} م.ب` : `MP4 or WEBM - max ${maxVideoMb} MB`}
+            </p>
+          </>
+        )}
         <label>
           {isArabic ? "المجموعة" : "Group"}
-          <input value={draft.groupKey} onChange={(event) => update("groupKey", event.target.value)} />
+          <input disabled={readOnly || lockSectionKey} value={draft.groupKey} onChange={(event) => update("groupKey", event.target.value)} />
         </label>
         <label>
           {isArabic ? "الترتيب" : "Sort order"}
-          <input type="number" value={draft.sortOrder} onChange={(event) => update("sortOrder", event.target.value)} />
+          <input disabled={readOnly} type="number" value={draft.sortOrder} onChange={(event) => update("sortOrder", event.target.value)} />
         </label>
         <label>
           {isArabic ? "العنوان الاختياري" : "Optional title"}
-          <input value={draft.title} onChange={(event) => update("title", event.target.value)} />
+          <input disabled={readOnly} value={draft.title} onChange={(event) => update("title", event.target.value)} />
         </label>
         <label>
           {isArabic ? "الوصف الاختياري" : "Optional subtitle"}
-          <input value={draft.subtitle} onChange={(event) => update("subtitle", event.target.value)} />
+          <input disabled={readOnly} value={draft.subtitle} onChange={(event) => update("subtitle", event.target.value)} />
         </label>
         <label>
           {isArabic ? "الرابط الاختياري" : "Optional link"}
-          <input value={draft.linkUrl} onChange={(event) => update("linkUrl", event.target.value)} />
+          <input disabled={readOnly} value={draft.linkUrl} onChange={(event) => update("linkUrl", event.target.value)} />
         </label>
         <label className="website-media-toggle">
           <input
             checked={draft.isActive !== false}
+            disabled={readOnly}
             onChange={(event) => update("isActive", event.target.checked)}
             type="checkbox"
           />
-          {isArabic ? "إظهار الصورة في الموقع" : "Show image on website"}
+          {isArabic ? "إظهار الوسائط في الموقع" : "Show media on website"}
         </label>
       </div>
 
-      <div className="website-media-actions">
-        <label className="admin-upload-button">
-          <Upload size={15} />
-          {uploading ? (isArabic ? "جاري الرفع..." : "Uploading...") : (isArabic ? "رفع صورة" : "Upload image")}
-          <input accept="image/*" disabled={uploading} hidden onChange={handleUpload} type="file" />
-        </label>
-        <label className="admin-upload-button website-media-video-upload">
-          <Video size={15} />
-          {uploadingVideo ? `${isArabic ? "جاري رفع الفيديو..." : "Uploading video..."} ${videoProgress}%` : (isArabic ? "رفع فيديو" : "Upload video")}
-          <input accept="video/mp4,video/webm" disabled={uploadingVideo} hidden onChange={handleVideoUpload} type="file" />
-        </label>
-        {uploadingVideo && (
-          <div className="website-media-upload-progress" role="progressbar" aria-valuenow={videoProgress} aria-valuemin={0} aria-valuemax={100}>
-            <span style={{ width: `${videoProgress}%` }} />
-          </div>
-        )}
-        {draft.videoUrl && (
-          <button className="website-media-clear" disabled={uploadingVideo} onClick={handleClearVideo} type="button">
-            <VideoOff size={15} />
-            {isArabic ? "إزالة الفيديو" : "Remove video"}
+      {!readOnly && (
+        <div className="website-media-actions">
+          {allowsImage && (
+            <label className="admin-upload-button">
+              <Upload size={15} />
+              {uploading ? (isArabic ? "جاري الرفع..." : "Uploading...") : (isArabic ? "رفع / استبدال" : "Upload / Replace")}
+              <input accept="image/*" disabled={uploading} hidden onChange={handleUpload} type="file" />
+            </label>
+          )}
+          {allowsVideo && (
+            <label className="admin-upload-button website-media-video-upload">
+              <Video size={15} />
+              {uploadingVideo ? `${isArabic ? "جاري رفع الفيديو..." : "Uploading video..."} ${videoProgress}%` : (isArabic ? "رفع فيديو" : "Upload video")}
+              <input accept="video/mp4,video/webm" disabled={uploadingVideo} hidden onChange={handleVideoUpload} type="file" />
+            </label>
+          )}
+          {uploadingVideo && (
+            <div className="website-media-upload-progress" role="progressbar" aria-valuenow={videoProgress} aria-valuemin={0} aria-valuemax={100}>
+              <span style={{ width: `${videoProgress}%` }} />
+            </div>
+          )}
+          {allowsVideo && draft.videoUrl && (
+            <button className="website-media-clear" disabled={uploadingVideo} onClick={handleClearVideo} type="button">
+              <VideoOff size={15} />
+              {isArabic ? "إزالة الفيديو" : "Remove video"}
+            </button>
+          )}
+          {allowsImage && (
+            <button
+              className="website-media-clear"
+              disabled={!draft.imageUrl}
+              onClick={handleClearImage}
+              type="button"
+            >
+              <ImageOff size={15} />
+              {isArabic ? "مسح الصورة" : "Clear image"}
+            </button>
+          )}
+          <button className="admin-primary-button" onClick={handleSave} type="button">
+            <Save size={15} />
+            {isArabic ? "حفظ" : "Save"}
           </button>
-        )}
-        <button
-          className="website-media-clear"
-          disabled={!draft.imageUrl}
-          onClick={handleClearImage}
-          type="button"
-        >
-          <ImageOff size={15} />
-          {isArabic ? "مسح الصورة" : "Clear image"}
-        </button>
-        <button className="admin-primary-button" onClick={handleSave} type="button">
-          <Save size={15} />
-          {isArabic ? "حفظ" : "Save"}
-        </button>
-        {draft.id && (
-          <button className="website-media-delete" onClick={() => onDelete(draft.id)} type="button">
-            <Trash2 size={15} />
-            {isArabic ? "حذف" : "Delete"}
-          </button>
-        )}
-      </div>
+          {draft.id && onDelete && (
+            <button className="website-media-delete" onClick={() => onDelete(draft.id)} type="button">
+              <Trash2 size={15} />
+              {isArabic ? "حذف" : "Delete"}
+            </button>
+          )}
+        </div>
+      )}
       {message && <p className="website-media-message">{message}</p>}
     </article>
   );
@@ -336,7 +345,7 @@ function WebsiteMediaManager({ error = "", language = "en", items = [], onDelete
 
       {Object.entries(grouped).map(([group, groupEntries]) => (
         <section className="website-media-group" key={group}>
-          <h3>{groupLabels[group]?.[language] || group.replaceAll("_", " ")}</h3>
+          <h3>{formatMediaGroupLabel(group, language)}</h3>
           <div className="website-media-grid">
             {groupEntries.map((entry) => (
               <MediaEditor

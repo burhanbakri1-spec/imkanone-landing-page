@@ -33,6 +33,7 @@ import {
   X,
 } from "lucide-react";
 import AdminLayout from "../components/AdminLayout.jsx";
+import AdminMediaField from "../components/AdminMediaField.jsx";
 import { AdminUnderDevelopmentContent } from "./AdminPlaceholderPage.jsx";
 import { tenantStorageKey } from "../utils/companyContext.js";
 import {
@@ -281,6 +282,13 @@ function UnsupportedDialog({ labels, onClose, t }) {
   );
 }
 
+function getLocalizedText(value, language = "en") {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return String(value[language] ?? value.en ?? value.ar ?? "");
+  }
+  return String(value ?? "");
+}
+
 function readTenantValue(companyId, key, fallback) {
   if (!companyId || typeof localStorage === "undefined") return fallback;
   try {
@@ -291,18 +299,20 @@ function readTenantValue(companyId, key, fallback) {
   }
 }
 
-function VideosPage({ canManage, company, language, labels, onNavigate, onUnsupported }) {
+function VideosPage({ canManage, language, labels, onNavigate, onUnsupported, vlogs = [], onDeleteVlog, vlogHero, onSaveVlogHero }) {
   const [query, setQuery] = React.useState("");
   const [sort, setSort] = React.useState("newest");
   const [selected, setSelected] = React.useState(() => new Set());
-  const [videos, setVideos] = React.useState(() => readTenantValue(company?.id, "vlogs", []));
+  const [heroDraft, setHeroDraft] = React.useState(vlogHero || { title: { en: "", ar: "" }, imageUrl: "", videoUrl: "", posterUrl: "" });
   React.useEffect(() => {
-    setVideos(readTenantValue(company?.id, "vlogs", []));
     setSelected(new Set());
-  }, [company?.id]);
-  const rows = videos
+  }, [vlogs]);
+  React.useEffect(() => {
+    setHeroDraft(vlogHero || { title: { en: "", ar: "" }, imageUrl: "", videoUrl: "", posterUrl: "" });
+  }, [vlogHero]);
+  const rows = vlogs
     .filter((video) =>
-      [video.title, video.description, video.slug]
+      [getLocalizedText(video.title, language), getLocalizedText(video.description, language), video.slug]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
@@ -327,6 +337,16 @@ function VideosPage({ canManage, company, language, labels, onNavigate, onUnsupp
 
   return (
     <section className="video-list-card video-library-list">
+      {canManage && (
+        <div className="admin-vlog-hero">
+          <AdminMediaField label={language === "ar" ? "فيديو الواجهة" : "Hero video"} language={language} name="videoUrl" value={heroDraft.videoUrl || ""} onChange={(event) => setHeroDraft((current) => ({ ...current, videoUrl: event.target.value }))} allowVideo />
+          <AdminMediaField label={language === "ar" ? "صورة الواجهة" : "Hero image"} language={language} name="imageUrl" value={heroDraft.imageUrl || ""} onChange={(event) => setHeroDraft((current) => ({ ...current, imageUrl: event.target.value }))} />
+          <AdminMediaField label={language === "ar" ? "ملصق الفيديو / صورة بديلة" : "Hero poster / fallback image"} language={language} name="posterUrl" value={heroDraft.posterUrl || ""} onChange={(event) => setHeroDraft((current) => ({ ...current, posterUrl: event.target.value }))} />
+          <label>{language === "ar" ? "عنوان الواجهة بالإنجليزية" : "Hero title — English"}<input dir="ltr" value={heroDraft.title?.en || ""} onChange={(event) => setHeroDraft((current) => ({ ...current, title: { ...current.title, en: event.target.value } }))} /></label>
+          <label>{language === "ar" ? "عنوان الواجهة بالعربية" : "Hero title — Arabic"}<input dir="rtl" value={heroDraft.title?.ar || ""} onChange={(event) => setHeroDraft((current) => ({ ...current, title: { ...current.title, ar: event.target.value } }))} /></label>
+          <button className="admin-primary-button" onClick={() => onSaveVlogHero?.(heroDraft)} type="button">{language === "ar" ? "حفظ الواجهة" : "Save hero"}</button>
+        </div>
+      )}
       <div className="video-list-toolbar">
         <label className="video-select-all">
           <input
@@ -376,15 +396,15 @@ function VideosPage({ canManage, company, language, labels, onNavigate, onUnsupp
                 )}
               </div>
               <div className="tenant-video-copy">
-                <h2>{video.title}</h2>
-                <p>{video.description || (language === "ar" ? "بدون وصف" : "No description")}</p>
+                <h2>{getLocalizedText(video.title, language)}</h2>
+                <p>{getLocalizedText(video.description, language) || (language === "ar" ? "بدون وصف" : "No description")}</p>
               </div>
               <div className="tenant-video-meta">
-                <span>{language === "ar" ? "السعر" : "Pricing"}</span>
-                <strong>{video.price ?? video.pricing ?? "—"}</strong>
+                <span>{language === "ar" ? "النوع" : "Type"}</span>
+                <strong>{video.mediaType === "image" ? (language === "ar" ? "صورة" : "Image") : (language === "ar" ? "فيديو" : "Video")}</strong>
               </div>
-              <span className={`video-status ${video.active === false ? "inactive" : ""}`}>
-                {video.active === false
+              <span className={`video-status ${video.isActive === false ? "inactive" : ""}`}>
+                {video.isActive === false
                   ? language === "ar"
                     ? "غير نشط"
                     : "Inactive"
@@ -402,7 +422,7 @@ function VideosPage({ canManage, company, language, labels, onNavigate, onUnsupp
               <button
                 aria-label={language === "ar" ? "تعديل الفيديو" : "Edit video"}
                 className="video-apps-icon-button"
-                onClick={onUnsupported}
+                onClick={() => onNavigate("admin-vlogs-new", { path: `/admin/vlogs/new?edit=${encodeURIComponent(video.id)}` })}
                 type="button"
               >
                 <Edit3 size={17} />
@@ -1011,6 +1031,10 @@ export default function AdminVideoAppsPage({
   language = "en",
   modules = [],
   onNavigate,
+  onDeleteVlog,
+  onSaveVlogHero,
+  vlogHero,
+  vlogs = [],
   t,
   ...layout
 }) {
@@ -1098,11 +1122,14 @@ export default function AdminVideoAppsPage({
         return (
           <VideosPage
             canManage={canManage}
-            company={company}
             language={language}
             labels={labels}
             onNavigate={onNavigate}
             onUnsupported={unsupported}
+            onDeleteVlog={onDeleteVlog}
+            onSaveVlogHero={onSaveVlogHero}
+            vlogHero={vlogHero}
+            vlogs={vlogs}
           />
         );
       case "admin-tenant-placeholder-video-live-stream":

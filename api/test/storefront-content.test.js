@@ -9,7 +9,7 @@ const now = "2026-08-09T00:00:00.000Z";
 fs.writeFileSync(path.join(dataStoreDir, "store.json"), JSON.stringify({
   version: 2,
   companies: [
-    { id: "kids-velvet", slug: "kids-velvet", name: "i-play", status: "active", domain: "", settings: { currency: "USD", websiteConnection: { siteId: "kids-velvet-storefront", storefrontBaseUrl: "https://feature-preview.vercel.app", defaultLocale: "ar", supportedLocales: ["ar", "en"] } } },
+    { id: "kids-velvet", slug: "kids-velvet", name: "i-play", status: "active", domain: "", settings: { currency: "USD", websiteConnection: { siteId: "kids-velvet-storefront", storefrontBaseUrl: "https://feature-preview.vercel.app", defaultLocale: "ar", supportedLocales: ["ar", "en"] }, websiteContent: { vlogs: [{ id: "v1", slug: "first-story", title: { en: "First story", ar: "القصة الأولى" }, description: { en: "Intro", ar: "مقدمة" }, videoUrl: "https://cdn.example/v1.mp4", posterUrl: "https://cdn.example/v1.jpg", mediaType: "video", sortOrder: 1, isActive: true, featured: true, createdAt: now }], vlogHero: { title: { en: "Care stories", ar: "قصص العناية" }, imageUrl: "https://cdn.example/vlog-hero.jpg" } } } },
     { id: "other-shop", slug: "other-shop", name: "Other", status: "active", domain: "", settings: { websiteConnection: { siteId: "other-shop-storefront", defaultLocale: "en", supportedLocales: ["en"] } } },
   ],
   domains: [
@@ -100,6 +100,17 @@ test("storefront content exposes entity-owned media directly on the entity", asy
 
   assert.equal(body.products[0].usageVideo, "https://cdn.example/play-one-usage.mp4");
   assert.equal(body.products[0].usageVideoPoster, "https://cdn.example/play-one-usage-poster.jpg");
+});
+
+test("storefront content exposes managed vlogs from company website content settings", async () => {
+  const { response, body } = await request("/content?locale=ar");
+  assert.equal(response.status, 200);
+  assert.equal(body.vlogHero.label, "قصص العناية");
+  assert.equal(body.vlogHero.imageUrl, "https://cdn.example/vlog-hero.jpg");
+  assert.deepEqual(body.vlogs.map((item) => item.slug), ["first-story"]);
+  assert.equal(body.vlogs[0].title.ar, "القصة الأولى");
+  assert.equal(body.vlogs[0].videoUrl, "https://cdn.example/v1.mp4");
+  assert.equal(body.vlogs[0].featured, true);
 });
 
 test("product detail is slug-compatible and tenant scoped", async () => {

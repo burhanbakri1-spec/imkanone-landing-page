@@ -3,26 +3,27 @@ import fs from "node:fs";
 import test from "node:test";
 
 import {
-  ABOUT_SECTIONS,
-  NEWS_ITEMS,
-  PARENT_BRAND,
-  SITE_MEDIA_SLOTS,
-  SITE_LOGO_SLOT,
+  MEDIA_SLOT_CATALOGS,
   aboutImageSlotKeys,
-  aboutImageSlots,
+  buildWebsiteMediaWorkspace,
+  formatMediaGroupLabel,
+  groupMediaSlotsByPage,
+  isCatalogOwnedMediaKey,
   newsImageSlotKeys,
-  newsImageSlots,
   resolveMediaSlot,
+  resolveMediaSlots,
   siteLogoSlotKey,
   siteMediaSlotKeys,
 } from "../src/data/mediaSlots.js";
+import { defaultWebsiteMedia, getWebsiteMediaImage } from "../src/data/websiteMedia.js";
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
 const managerSource = read("../src/components/MediaSlotsManager.jsx");
 const editorSource = read("../src/components/WebsiteMediaManager.jsx");
 const slotsSource = read("../src/data/mediaSlots.js");
+const featureSource = read("../src/pages/AdminFeaturePage.jsx");
 
-test("site media slots use the exact dotted keys the storefront consumes", () => {
+test("optional storefront-media-v1 catalog keeps persisted key continuity without Velvet labels", () => {
   assert.deepEqual(siteMediaSlotKeys(), [
     "home.hero.video",
     "home.hero.poster",
@@ -30,43 +31,115 @@ test("site media slots use the exact dotted keys the storefront consumes", () =>
     "about.hero.poster",
     "contact.hero.poster",
   ]);
-  const video = SITE_MEDIA_SLOTS.find((slot) => slot.key === "home.hero.video");
-  assert.equal(video.kind, "video");
-  assert.equal(video.groupKey, "home");
-});
-
-test("parent brand identity is the real VELVET group and uses site.logo", () => {
-  assert.equal(PARENT_BRAND.slug, "velvet");
-  assert.equal(PARENT_BRAND.name.en, "VELVET");
-  assert.equal(SITE_LOGO_SLOT.key, "site.logo");
   assert.equal(siteLogoSlotKey(), "site.logo");
-  assert.match(managerSource, /groupLabels = \{[\s\S]*identity: \{ en: "VELVET"/);
+  assert.deepEqual(aboutImageSlotKeys(), ["about.0.image", "about.1.image", "about.2.image", "about.3.image"]);
+  assert.deepEqual(newsImageSlotKeys(), ["news.0.image", "news.1.image", "news.2.image", "news.3.image", "news.4.image"]);
+  const catalog = MEDIA_SLOT_CATALOGS["storefront-media-v1"];
+  assert.ok(catalog.every((slot) => slot.label && !/velvet|pocket worlds|odd pals|cloud dough/i.test(slot.label)));
+  assert.doesNotMatch(slotsSource, /PARENT_BRAND|ABOUT_SECTIONS|NEWS_ITEMS|VELVET|Pocket Worlds|Odd Pals/i);
 });
 
-test("about image slots use real i-play section titles as labels", () => {
-  assert.deepEqual(aboutImageSlotKeys(), [
-    "about.0.image",
-    "about.1.image",
-    "about.2.image",
-    "about.3.image",
-  ]);
-  assert.equal(ABOUT_SECTIONS.length, 4);
-  assert.equal(aboutImageSlots()[0].labelEn, "Let's Reimagine");
-  assert.equal(aboutImageSlots()[0].labelAr, "لنتخيّل من جديد");
-  assert.equal(aboutImageSlots()[3].labelEn, "Taking a Stand");
+test("empty site does not inject storefront media defaults", () => {
+  const workspace = buildWebsiteMediaWorkspace({ id: "any-tenant", settings: {} }, []);
+  assert.equal(workspace.empty, true);
+  assert.deepEqual(workspace.items, []);
+  assert.equal(resolveMediaSlots({ settings: {} }, []).length, 0);
 });
 
-test("news image slots use real i-play news titles as labels", () => {
-  assert.deepEqual(newsImageSlotKeys(), [
-    "news.0.image",
-    "news.1.image",
-    "news.2.image",
-    "news.3.image",
-    "news.4.image",
+test("configured media slots drive page/section grouping for two sites", () => {
+  const siteA = {
+    settings: {
+      websiteContent: {
+        mediaSlots: [
+          { key: "home.hero.image", page: "Home", section: "Hero", label: "Hero image", kind: "image" },
+          { key: "about.hero.image", page: "About", section: "Hero", label: "About image", kind: "image" },
+        ],
+      },
+    },
+  };
+  const siteB = {
+    settings: {
+      websiteContent: {
+        mediaSlots: [
+          { key: "home.hero.video", page: "Home", section: "Hero", label: "Hero video", kind: "video" },
+          { key: "news.0.image", page: "News", section: "Cards", label: "News image", kind: "image" },
+          { key: "footer.logo", page: "Footer", section: "Identity", label: "Footer logo", kind: "logo" },
+        ],
+      },
+    },
+  };
+
+  const pagesA = groupMediaSlotsByPage(resolveMediaSlots(siteA)).map((entry) => entry.page);
+  const pagesB = groupMediaSlotsByPage(resolveMediaSlots(siteB)).map((entry) => entry.page);
+  assert.deepEqual(pagesA, ["Home", "About"]);
+  assert.deepEqual(pagesB, ["Home", "News", "Footer"]);
+
+  const workspaceA = buildWebsiteMediaWorkspace(siteA, [
+    { sectionKey: "home.hero.image", imageUrl: "/a.jpg", updatedAt: "2026-01-01T00:00:00.000Z" },
   ]);
-  assert.equal(NEWS_ITEMS.length, 5);
-  assert.equal(newsImageSlots()[0].labelEn, "A first look inside our new Pocket Worlds studio");
-  assert.equal(newsImageSlots()[4].labelEn, "Meet the color team behind Cloud Dough");
+  assert.equal(workspaceA.existingCount, 1);
+  assert.equal(workspaceA.missingCount, 1);
+  assert.equal(workspaceA.items.find((item) => item.key === "about.hero.image").status, "missing");
+  assert.equal(workspaceA.items.find((item) => item.key === "home.hero.image").label, "Hero image");
+
+  const workspaceB = buildWebsiteMediaWorkspace(siteB, []);
+  assert.equal(workspaceB.existingCount, 0);
+  assert.equal(workspaceB.missingCount, 3);
+  assert.deepEqual(workspaceB.pages, ["Footer", "Home", "News"]);
+});
+
+test("mediaKey from Website Content slots becomes media workspace fields", () => {
+  const company = {
+    settings: {
+      websiteContent: {
+        slots: [
+          { key: "news.0.title", page: "News", section: "Cards", label: "Card 1 title", mediaKey: "news.0.image" },
+          { key: "home.hero.title", page: "Home", section: "Hero", label: "Hero title", mediaKey: "home.hero.poster" },
+        ],
+      },
+    },
+  };
+  const slots = resolveMediaSlots(company, []);
+  assert.ok(slots.some((slot) => slot.key === "news.0.image" && slot.page === "News"));
+  assert.ok(slots.some((slot) => slot.key === "home.hero.poster" && slot.page === "Home"));
+});
+
+test("existing persisted media fallback keeps records visible without catalog injection for unrelated keys", () => {
+  const workspace = buildWebsiteMediaWorkspace({ settings: {} }, [
+    { sectionKey: "custom.banner", sectionLabel: "Promo banner", imageUrl: "/promo.jpg", groupKey: "Home", updatedAt: "2026-08-01T00:00:00.000Z" },
+  ]);
+  assert.equal(workspace.empty, false);
+  assert.equal(workspace.items[0].key, "custom.banner");
+  assert.equal(workspace.items[0].status, "existing");
+  assert.equal(workspace.items[0].label, "Promo banner");
+});
+
+test("catalog auto-attach only when existing keys match catalog metadata", () => {
+  const blank = resolveMediaSlots({ settings: {} }, []);
+  assert.deepEqual(blank, []);
+
+  const viaCatalogId = resolveMediaSlots({
+    settings: { websiteContent: { mediaSlotCatalog: "storefront-media-v1" } },
+  }, []);
+  assert.ok(viaCatalogId.some((slot) => slot.key === "site.logo"));
+  assert.ok(viaCatalogId.some((slot) => slot.key === "news.0.image"));
+
+  const viaExisting = resolveMediaSlots({ settings: {} }, [{ sectionKey: "home.hero.poster", imageUrl: "/x.jpg" }]);
+  assert.ok(viaExisting.some((slot) => slot.key === "home.hero.poster"));
+  assert.ok(viaExisting.some((slot) => slot.key === "about.0.image"));
+});
+
+test("catalog-owned brand/category/product keys stay out of Website Media", () => {
+  assert.equal(isCatalogOwnedMediaKey("brand.velvet.logo"), true);
+  assert.equal(isCatalogOwnedMediaKey("category.1.heroVideo"), true);
+  assert.equal(isCatalogOwnedMediaKey("product.abc.usageVideo"), true);
+  assert.equal(isCatalogOwnedMediaKey("home.hero.poster"), false);
+  const workspace = buildWebsiteMediaWorkspace({ settings: {} }, [
+    { sectionKey: "brand.x.logo", imageUrl: "/logo.jpg" },
+    { sectionKey: "home.hero.poster", imageUrl: "/poster.jpg" },
+  ]);
+  assert.ok(!workspace.items.some((item) => item.key.startsWith("brand.")));
+  assert.ok(workspace.items.some((item) => item.key === "home.hero.poster"));
 });
 
 test("resolveMediaSlot picks the newest matching item by sectionKey", () => {
@@ -78,14 +151,16 @@ test("resolveMediaSlot picks the newest matching item by sectionKey", () => {
   assert.equal(resolveMediaSlot(items, "missing"), null);
 });
 
-test("slot manager renders only the final site/home/about/news/contact groups collapsed by default", () => {
-  for (const group of ["VELVET", "About", "News", "Contact"]) {
-    assert.match(managerSource, new RegExp(group.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  }
-  assert.match(managerSource, /function Accordion\(\{ summary, count, defaultOpen = false/);
-  assert.match(managerSource, /defaultOpen = false/);
-  assert.match(managerSource, /website-media-accordion/);
-  assert.match(managerSource, /import \{ MediaEditor \}/);
+test("Website Media manager is config-driven with manager UX and no Velvet branding", () => {
+  assert.match(managerSource, /buildWebsiteMediaWorkspace/);
+  assert.match(managerSource, /website-media-workspace/);
+  assert.match(managerSource, /website-media-page-nav/);
+  assert.match(managerSource, /No website media fields are configured for this site/);
+  assert.match(managerSource, /website_media\.manage/);
+  assert.match(managerSource, /View only/);
+  assert.match(managerSource, /dir=\{isArabic \? "rtl" : "ltr"\}/);
+  assert.doesNotMatch(managerSource, /VELVET|PARENT_BRAND|aboutImageSlots\(\)|newsImageSlots\(\)|SITE_MEDIA_SLOTS/);
+  assert.doesNotMatch(managerSource, /kids-velvet|eb-chemical|iPlay|i-play|companyId\s*===|siteId\s*===/i);
 });
 
 test("Website Media no longer owns Brand/Category/Product media editors", () => {
@@ -94,38 +169,44 @@ test("Website Media no longer owns Brand/Category/Product media editors", () => 
   assert.doesNotMatch(managerSource, /CategoryImageEditor/);
   assert.doesNotMatch(managerSource, /categoryHeroMediaSlots/);
   assert.doesNotMatch(managerSource, /productMediaSlots|productQuery|filteredProducts/);
-  assert.doesNotMatch(managerSource, /groupLabels = \{[\s\S]*brands: \{ en: "VELVET Branches"/);
-  assert.doesNotMatch(managerSource, /groupLabels = \{[\s\S]*products: \{ en: "Products"/);
-});
-
-test("media slot model exposes only site/home/about/news/contact keys", () => {
-  assert.doesNotMatch(slotsSource, /VELVET_BRANCHES/);
-  assert.doesNotMatch(slotsSource, /brand\.\$\{/);
-  assert.doesNotMatch(slotsSource, /category\.\$\{/);
-  assert.doesNotMatch(slotsSource, /product\.\$\{/);
   assert.doesNotMatch(slotsSource, /export function brandMediaSlots/);
   assert.doesNotMatch(slotsSource, /export function categoryHeroMediaSlots/);
   assert.doesNotMatch(slotsSource, /export function productMediaSlots/);
 });
 
-test("site logo editor supports preview, upload, replace and remove", () => {
-  assert.match(managerSource, /Upload \/ Replace|رفع \/ استبدال/);
-  assert.match(managerSource, /Remove logo|إزالة الشعار/);
-  assert.match(managerSource, /uploadImage/);
-  assert.match(managerSource, /withWebsiteMediaVersion/);
-  assert.match(managerSource, /SITE_LOGO_SLOT/);
+test("shared media slot registry has no storefront tenant hardcoding", () => {
+  assert.doesNotMatch(slotsSource, /kids-velvet|eb-chemical|iPlay|i-play|Velvet Kids/i);
+  assert.doesNotMatch(slotsSource, /companyId\s*===|siteId\s*===|if\s*\(\s*company\.id/);
+  assert.doesNotMatch(slotsSource, /slug:\s*"velvet"/);
 });
 
-test("about and news image slots render in the About and News groups with real labels", () => {
-  assert.match(managerSource, /aboutImageSlots\(\)/);
-  assert.match(managerSource, /newsImageSlots\(\)/);
-  assert.match(slotsSource, /ABOUT_SECTIONS/);
-  assert.match(slotsSource, /NEWS_ITEMS/);
+test("Website Content links to Website Media with mediaKey focus", () => {
+  assert.match(featureSource, /mediaKey=\$\{encodeURIComponent\(mediaKey\)\}/);
+  assert.match(featureSource, /admin-website-media/);
+  assert.match(managerSource, /mediaKey|media-key/);
 });
 
-test("slot manager reuses the existing video preview / replace / remove editor", () => {
-  assert.match(editorSource, /export function MediaEditor/);
-  assert.match(editorSource, /readOnly=\{lockSectionKey\}/);
-  assert.match(editorSource, /uploadWebsiteVideo/);
+test("MediaEditor supports view-only and upload/replace/remove when editable", () => {
+  assert.match(editorSource, /readOnly = false/);
+  assert.match(editorSource, /Upload \/ Replace|رفع \/ استبدال/);
   assert.match(editorSource, /"Remove video"|"إزالة الفيديو"/);
+  assert.match(editorSource, /readOnly=\{lockSectionKey\}|lockSectionKey/);
+  assert.match(editorSource, /uploadWebsiteVideo/);
+  assert.match(editorSource, /\{!readOnly && \(/);
+});
+
+test("legacy free-form Website Media groups use generic labels without EB Points branding", () => {
+  assert.doesNotMatch(editorSource, /EB Points|نقاط EB|eb_points:\s*\{/);
+  assert.match(editorSource, /formatMediaGroupLabel/);
+  assert.equal(formatMediaGroupLabel("eb_points", "en"), "Eb Points");
+  assert.equal(formatMediaGroupLabel("home", "en"), "Home");
+  assert.equal(formatMediaGroupLabel("sections", "en"), "Other website images");
+});
+
+test("cpanel websiteMedia defaults do not inject storefront assets into shared admin", () => {
+  assert.deepEqual([...defaultWebsiteMedia], []);
+  assert.equal(getWebsiteMediaImage([], "home.hero.poster", ""), "");
+  assert.equal(getWebsiteMediaImage([], "home.hero.poster"), "");
+  const mediaSource = read("../src/data/websiteMedia.js");
+  assert.doesNotMatch(mediaSource, /limescale-remover|ep-chemical-logo|eb_points_lifestyle|homepage-categories/);
 });

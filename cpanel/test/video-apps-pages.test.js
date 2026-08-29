@@ -38,12 +38,17 @@ test("Video and Apps pages render one page heading without duplicating the shell
   assert.equal((pageSource.match(/data-video-apps-page-header/g) || []).length, 1);
 });
 
-test("Videos preserve the existing tenant storage and creation flow", () => {
-  assert.match(pageSource, /readTenantValue\(company\?\.id, "vlogs", \[\]\)/);
-  assert.match(pageSource, /tenantStorageKey\(companyId, key\)/);
+test("Videos use API-backed tenant vlog management and creation flow", () => {
+  assert.match(pageSource, /vlogs = \[\]/);
+  assert.match(pageSource, /vlogHero/);
+  assert.match(pageSource, /onDeleteVlog/);
+  assert.match(pageSource, /onSaveVlogHero/);
   assert.match(pageSource, /onNavigate\("admin-vlogs-new"\)/);
+  assert.match(appSource, /from "\.\/utils\/vlogsApi\.js"/);
+  assert.match(appSource, /fetchVlogs\(\)/);
+  assert.match(appSource, /saveVlogHero\(/);
   assert.match(dashboardSource, /case "admin-vlogs-new":[\s\S]*?renderEntityForm\("vlog"\)/);
-  assert.match(dashboardSource, /saveVlogs\(\[\{ id: form\.slug/);
+  assert.match(dashboardSource, /onSaveVlog\?\./);
 });
 
 test("authorized tenant admins and scoped Super Admins can view setup pages", () => {

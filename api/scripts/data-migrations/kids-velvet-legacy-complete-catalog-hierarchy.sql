@@ -1,15 +1,7 @@
--- Migration 021: complete the Kids Velvet catalog hierarchy.
+-- Optional legacy data script (NOT an automatic platform migration).
+-- Manual use only after kids-velvet-legacy-catalog-hierarchy-backfill.sql on the kids-velvet tenant.
 --
--- Canonical source: i-play src/data/velvetCatalog.js (the complete RAW_BRANDS
--- tree, including branches with zero products). This migration is data-only,
--- tenant-scoped to kids-velvet, and preserves migration 020 entities, products,
--- the seven legacy global categories, and all website_media rows.
---
--- The static source scopes slugs by branch, while company_categories currently
--- enforces unique (company_id, slug). Existing migration 020 slugs are retained;
--- additional colliding slugs receive deterministic branch-qualified storage
--- slugs. canonicalSlug below records the unchanged static source identity used
--- to generate each relationship.
+-- Kids Velvet complete catalog hierarchy seed.
 begin;
 
 do $$

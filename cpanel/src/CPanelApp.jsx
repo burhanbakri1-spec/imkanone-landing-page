@@ -109,6 +109,13 @@ import {
   updateCategory,
 } from "./utils/catalogApi.js";
 import {
+  createVlog,
+  deleteVlog,
+  fetchVlogs,
+  saveVlogHero,
+  updateVlog,
+} from "./utils/vlogsApi.js";
+import {
   applyCompanyDocumentBranding,
   clearTenantCaches,
   getStoredCompanyContext,
@@ -220,6 +227,8 @@ function CPanelApp() {
   const [reviews, setReviews] = React.useState([]);
   const [websiteMedia, setWebsiteMedia] = React.useState([]);
   const [websiteMediaError, setWebsiteMediaError] = React.useState("");
+  const [vlogs, setVlogs] = React.useState([]);
+  const [vlogHero, setVlogHero] = React.useState({ title: { en: "", ar: "" }, imageUrl: "", videoUrl: "", posterUrl: "" });
   const [adminLoginMessage, setAdminLoginMessage] = React.useState("");
   const [adminMessage, setAdminMessage] = React.useState("");
   const [adminMessageType, setAdminMessageType] = React.useState("success");
@@ -293,6 +302,8 @@ function CPanelApp() {
       setHomepageCategoryCards([]);
       setWebsiteMedia([]);
       setWebsiteMediaError("");
+      setVlogs([]);
+      setVlogHero({ title: { en: "", ar: "" }, imageUrl: "", videoUrl: "", posterUrl: "" });
       setAdminLoginMessage("Your session expired. Please sign in again.");
       navigate("admin-login", { preserveLoginMessage: true, replace: true, role: null });
       return;
@@ -472,6 +483,11 @@ function CPanelApp() {
       canAccessAdminPage(currentUser, "admin-website-media")
     )
       void refreshWebsiteMedia(currentUser);
+    if (
+      moduleAllowsPage(modules, "admin-vlogs") &&
+      canAccessAdminPage(currentUser, "admin-vlogs")
+    )
+      void refreshVlogs();
   }, [currentUser, company?.id, isAuthResolving]);
 
   async function refreshProducts() {
@@ -575,6 +591,59 @@ function CPanelApp() {
       setWebsiteMedia([]);
       setWebsiteMediaError(error?.message || "Unable to load website media.");
       handleApiError(error);
+    }
+  }
+
+  async function refreshVlogs() {
+    try {
+      const payload = await fetchVlogs();
+      setVlogs(Array.isArray(payload?.items) ? payload.items : []);
+      setVlogHero(payload?.hero || { title: { en: "", ar: "" }, imageUrl: "", videoUrl: "", posterUrl: "" });
+      return payload;
+    } catch (error) {
+      setVlogs([]);
+      setVlogHero({ title: { en: "", ar: "" }, imageUrl: "", videoUrl: "", posterUrl: "" });
+      handleApiError(error);
+      return { items: [], hero: null };
+    }
+  }
+
+  async function handleSaveVlog(vlog) {
+    const isUpdate = Boolean(vlog.id);
+    try {
+      const saved = isUpdate ? await updateVlog(vlog) : await createVlog(vlog);
+      await refreshVlogs();
+      setAdminMessageType("success");
+      setAdminMessage(isUpdate ? "Vlog updated." : "Vlog created.");
+      return saved;
+    } catch (error) {
+      handleApiError(error);
+      throw error;
+    }
+  }
+
+  async function handleDeleteVlog(vlogId) {
+    if (!window.confirm(t("admin.deleteConfirm"))) return;
+    try {
+      await deleteVlog(vlogId);
+      await refreshVlogs();
+      setAdminMessageType("success");
+      setAdminMessage("Vlog deleted.");
+    } catch (error) {
+      handleApiError(error);
+    }
+  }
+
+  async function handleSaveVlogHero(hero) {
+    try {
+      const saved = await saveVlogHero(hero);
+      setVlogHero(saved);
+      setAdminMessageType("success");
+      setAdminMessage("Vlog hero saved.");
+      return saved;
+    } catch (error) {
+      handleApiError(error);
+      throw error;
     }
   }
 
@@ -1067,6 +1136,8 @@ function CPanelApp() {
               onSaveCategoryCard={handleSaveCategoryCard}
               onSaveBrand={handleSaveBrand}
               onSaveCategory={handleSaveCategory}
+              onSaveVlog={handleSaveVlog}
+              vlogs={vlogs}
               onSaveCompanySettings={handleSaveCompanySettings}
               onSaveEmployee={handleSaveEmployee}
               onSaveOffer={handleSaveOffer}
@@ -1117,7 +1188,14 @@ function CPanelApp() {
           <AdminCatalogPage activePage={activePage} {...sharedLayoutProps} />
         )}
         {videoAppsPageKeys.includes(activePage) && (
-          <AdminVideoAppsPage activePage={activePage} {...sharedLayoutProps} />
+          <AdminVideoAppsPage
+            activePage={activePage}
+            onDeleteVlog={handleDeleteVlog}
+            onSaveVlogHero={handleSaveVlogHero}
+            vlogHero={vlogHero}
+            vlogs={vlogs}
+            {...sharedLayoutProps}
+          />
         )}
         {siteMobilePageKeys.includes(activePage) && (
           <AdminSiteMobilePage activePage={activePage} {...sharedLayoutProps} />

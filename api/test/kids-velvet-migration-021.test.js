@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const migration = readFileSync(
-  new URL("../supabase/migrations/021_kids_velvet_complete_catalog_hierarchy.sql", import.meta.url),
+  new URL("../scripts/data-migrations/kids-velvet-legacy-complete-catalog-hierarchy.sql", import.meta.url),
   "utf8",
 );
 

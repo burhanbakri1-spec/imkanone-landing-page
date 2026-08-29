@@ -42,6 +42,7 @@ import {
   adminWebsiteTextsRouter,
   publicWebsiteTextsRouter,
 } from "./routes/websiteTexts.js";
+import vlogRoutes from "./routes/vlogs.js";
 
 const app = express();
 const port = Number(process.env.PORT || 5000);
@@ -194,6 +195,7 @@ app.use("/api/admin/delivery-zones", deliveryAdminRouter);
 app.use("/api/admin/dropshipping", adminDropshippingRoutes);
 app.use("/api/admin/inbox", inboxRoutes);
 app.use("/api/admin/website-texts", adminWebsiteTextsRouter);
+app.use("/api/admin/vlogs", vlogRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/delivery-zones", deliveryPublicRouter);
 app.use("/api/admin/activity-log", activityLogRoutes);

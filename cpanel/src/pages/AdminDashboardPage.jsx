@@ -28,6 +28,7 @@ import AdminLayout from "../components/AdminLayout.jsx";
 import AdminOrdersTable from "../components/AdminOrdersTable.jsx";
 import CategoriesHierarchy from "../components/CategoriesHierarchy.jsx";
 import MediaSlotsManager from "../components/MediaSlotsManager.jsx";
+import AdminMediaField from "../components/AdminMediaField.jsx";
 import TenantProductFields from "../components/TenantProductFields.jsx";
 import { deleteProductMedia, uploadImage, uploadImages, uploadProductMedia, uploadWebsiteVideo, validateProductMediaFile } from "../utils/api.js";
 import { fieldStateToValues, productFieldApi, valuesToFieldState } from "../utils/productFields.js";
@@ -60,8 +61,6 @@ const storageKeys = {
   movements: "stockMovements",
   settings: "settings",
   stores: "stores",
-  vlogHero: "vlogHero",
-  vlogs: "vlogs",
 };
 
 const pageMeta = {
@@ -72,7 +71,6 @@ const pageMeta = {
   "admin-categories-new": ["New Category", "Create a storefront category"],
   "admin-brands": ["Brands", "Manage brand manufacturers and lines"],
   "admin-brands-new": ["New Brand", "Create a brand profile"],
-  "admin-vlogs": ["Vlogs", "Manage storefront vlog entries"],
   "admin-vlogs-new": ["New Vlog", "Create a storefront vlog entry"],
   "admin-store-locator": ["Store Locator", "Manage physical store locations"],
   "admin-store-locator-new": ["New Store", "Create a retail location"],
@@ -532,61 +530,8 @@ function CardImageUpload({ label, helperText, buttonLabel, language = "en", name
   );
 }
 
-function MediaField({ label, language = "en", name, value, onChange, onUploadingChange, productId, tenantSpecific = false, allowVideo = false }) {
-  const t = React.useMemo(() => createTranslator(language), [language]);
-  const [isUploading, setIsUploading] = React.useState(false);
-  const [uploadError, setUploadError] = React.useState("");
-  const isVideoValue = /\.(mp4|webm|ogg)(\?|$)/i.test(String(value || "")) || String(value || "").includes("/video");
-
-  async function handleUpload(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setIsUploading(true);
-    setUploadError("");
-    onUploadingChange?.(true);
-    try {
-      validateProductMediaFile(file, { allowVideo });
-      const isVideo = String(file.type || "").toLowerCase().startsWith("video/");
-      const uploaded = productId
-        ? await uploadProductMedia(file, productId)
-        : isVideo
-          ? await uploadWebsiteVideo(file)
-          : await uploadImage(file);
-      if (!uploaded?.url && !uploaded?.path) throw new Error(t("productForm.errors.missingUploadUrl"));
-      onChange({ target: { name, value: uploaded.url || uploaded.path } });
-    } catch (error) {
-      setUploadError(error?.message || t("productForm.errors.imageUpload"));
-    } finally {
-      setIsUploading(false);
-      onUploadingChange?.(false);
-      event.target.value = "";
-    }
-  }
-
-  return (
-    <div className="admin-media-field">
-      <label>
-        {label}
-        <input name={name} placeholder="https://..." value={value || ""} onChange={onChange} />
-      </label>
-      <label className="admin-upload-button">
-        <Upload size={14} />
-        {isUploading ? t("productForm.uploading") : tenantSpecific && !productId ? t("productForm.saveFirst") : (allowVideo ? (language === "ar" ? "رفع وسائط" : "Upload media") : t("productForm.uploadImage"))}
-        <input accept={allowVideo ? "image/*,video/mp4,video/webm" : "image/*"} disabled={tenantSpecific && !productId} hidden type="file" onChange={handleUpload} />
-      </label>
-      {uploadError && <div className="message-panel error compact">{uploadError}</div>}
-      {value && (
-        <div className="admin-media-preview">
-          {isVideoValue ? (
-            <video controls preload="metadata" src={resolveProductImageUrl(value)} />
-          ) : (
-            <img alt="" src={resolveProductImageUrl(value)} onError={useProductImagePlaceholder} />
-          )}
-          <button className="text-action danger" disabled={isUploading} onClick={() => onChange({ target: { name, value: "", removeImage: true } })} type="button">{t("productForm.removeImage")}</button>
-        </div>
-      )}
-    </div>
-  );
+function MediaField(props) {
+  return <AdminMediaField {...props} />;
 }
 
 function PermissionNotice({ role }) {
@@ -2407,6 +2352,8 @@ function AdminDashboardPage({
   onSaveProduct,
   onSaveBrand,
   onSaveCategory,
+  onSaveVlog,
+  vlogs: managedVlogs = [],
   onSaveWebsiteMedia,
   onDeleteWebsiteMedia,
   onModerateReview,
@@ -2427,19 +2374,28 @@ function AdminDashboardPage({
   const [editingCategory, setEditingCategory] = React.useState(null);
   const [newCategoryDefaults, setNewCategoryDefaults] = React.useState({ brandId: "", parentId: "" });
   const [editingBrand, setEditingBrand] = React.useState(null);
+  const [editingVlog, setEditingVlog] = React.useState(null);
   const [filters, setFilters] = React.useState({ brand: "all", category: "all", search: "", status: "all" });
   const adminCategories = categories;
   const companyId = company?.id || "";
-  const storageKey = React.useCallback(
-    (key) => tenantStorageKey(companyId, storageKeys[key]),
-    [companyId],
-  );
-  const [vlogs, setVlogs] = React.useState([]);
-  const [vlogHero, setVlogHero] = React.useState({ image: "", title: "" });
+  const vlogs = managedVlogs;
   const [stores, setStores] = React.useState([]);
   const [inventoryRows, setInventoryRows] = React.useState({});
   const [movements, setMovements] = React.useState([]);
   const [stockModalOpen, setStockModalOpen] = React.useState(false);
+  const storageKey = React.useCallback(
+    (key) => tenantStorageKey(companyId, storageKeys[key]),
+    [companyId],
+  );
+
+  React.useEffect(() => {
+    if (activePage !== "admin-vlogs-new") return;
+    const params = new URLSearchParams(window.location.search);
+    const editId = params.get("edit");
+    if (!editId) return;
+    const entry = vlogs.find((item) => String(item.id) === editId || String(item.slug) === editId);
+    if (entry) setEditingVlog(entry);
+  }, [activePage, vlogs]);
 
   React.useEffect(() => {
     if (activePage !== "admin-products-new") return;
@@ -2452,19 +2408,15 @@ function AdminDashboardPage({
 
   React.useEffect(() => {
     if (!companyId) {
-      setVlogs([]);
-      setVlogHero({ image: "", title: "" });
       setStores([]);
       setInventoryRows({});
       setMovements([]);
       return;
     }
-    setVlogs(readStorage(storageKey("vlogs"), []));
-    setVlogHero(readStorage(storageKey("vlogHero"), { image: "", title: `${company.name} care stories` }));
     setStores(readStorage(storageKey("stores"), []));
     setInventoryRows(readStorage(storageKey("inventory"), {}));
     setMovements(readStorage(storageKey("movements"), []));
-  }, [companyId, company?.name, storageKey]);
+  }, [companyId, storageKey]);
 
   const role = currentUser?.role;
   const canEdit = isTenantOperator(role);
@@ -2530,7 +2482,6 @@ function AdminDashboardPage({
     );
   }
 
-  function saveVlogs(next) { setVlogs(next); writeStorage(storageKey("vlogs"), next); }
   function saveStores(next) { setStores(next); writeStorage(storageKey("stores"), next); }
   function saveInventory(next) { setInventoryRows(next); writeStorage(storageKey("inventory"), next); }
   function saveMovements(next) { setMovements(next); writeStorage(storageKey("movements"), next); }
@@ -2539,7 +2490,6 @@ function AdminDashboardPage({
     const config = {
       categories: { rows: adminCategories, add: "admin-categories-new", search: "Search by name...", title: "Add Category" },
       brands: { rows: brands, add: "admin-brands-new", search: "Search by name...", title: "Add Brand" },
-      vlogs: { rows: vlogs, add: "admin-vlogs-new", search: "Search by title...", title: "Add Vlog" },
       stores: { rows: stores, add: "admin-store-locator-new", search: "Search by name, city...", title: "Add Store" },
     }[kind];
     if (kind === "categories" && companyId === "kids-velvet") {
@@ -2552,13 +2502,6 @@ function AdminDashboardPage({
     }
     return (
       <section className="admin-panel-card">
-        {kind === "vlogs" && (
-          <div className="admin-vlog-hero">
-            <MediaField label="Hero Image" name="image" value={vlogHero.image} onChange={(event) => setVlogHero((current) => ({ ...current, image: event.target.value }))} />
-            <label>Hero Title<input value={vlogHero.title} onChange={(event) => setVlogHero((current) => ({ ...current, title: event.target.value }))} /></label>
-            <button className="admin-primary-button" onClick={() => writeStorage(storageKey("vlogHero"), vlogHero)} type="button">Save Hero</button>
-          </div>
-        )}
         <Toolbar addLabel={config.title} onAdd={readOnly && kind !== "categories" && kind !== "brands" ? null : () => {
           if (kind === "categories" && !canCreateCategories) return;
           if (kind === "brands" && !canCreateBrands) return;
@@ -2568,13 +2511,11 @@ function AdminDashboardPage({
         }}>
           <SearchField placeholder={config.search} value="" onChange={() => {}} />
           <div className="admin-segmented"><button className="active" type="button">All</button><button type="button">Active</button><button type="button">Inactive</button></div>
-          {kind === "vlogs" && <div className="admin-segmented"><button className="active" type="button">All</button><button type="button">Featured</button><button type="button">Standard</button></div>}
         </Toolbar>
         <AdminTable>
           <thead>
             {kind === "stores" ? <tr><th>Name</th><th>City</th><th>Country</th><th>Phone</th><th>Status</th><th>Sort</th><th>Actions</th></tr> :
               kind === "brands" ? <tr><th>Icon / Logo</th><th>Name</th><th>Country</th><th>Status</th><th>Created</th><th>Updated</th><th>Actions</th></tr> :
-                kind === "vlogs" ? <tr><th>Thumbnail</th><th>Title</th><th>Type</th><th>Status</th><th>Created</th><th>Actions</th></tr> :
                   <tr><th>Icon</th><th>Name</th><th>Parent</th><th>Status</th><th>Created</th><th>Updated</th><th>Actions</th></tr>}
           </thead>
           <tbody>
@@ -2584,13 +2525,11 @@ function AdminDashboardPage({
                   <><td>{row.name}</td><td>{row.city}</td><td>{row.country}</td><td>{row.phone || "-"}</td><td><Badge>{row.active === false ? "Inactive" : "Active"}</Badge></td><td>{row.sort || index + 1}</td><td>-</td></>
                 ) : kind === "brands" ? (
                   <><td>{row.logoUrl ? <img className="admin-thumb" src={row.logoUrl} alt="" /> : <span className="admin-logo-mini">{getText(row.name, language)?.charAt(0)}</span>}</td><td>{getText(row.name, language)}</td><td>{row.country}</td><td><Badge>{row.isActive === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>{formatDate(row.updatedAt)}</td><td>{(canUpdateBrands || canDeleteBrands) && <div className="row-actions">{canUpdateBrands && <button className="text-action" onClick={() => { setEditingBrand(row); onNavigate("admin-brands-new"); }} type="button">Edit</button>}{canDeleteBrands && <button className="text-action danger" onClick={() => onDeleteBrand(row.id)} type="button">Delete</button>}</div>}</td></>
-                ) : kind === "vlogs" ? (
-                  <><td>{row.thumbnail ? <img className="admin-thumb" src={row.thumbnail} alt="" /> : "-"}</td><td>{row.title}</td><td>{row.featured ? "Featured" : "Standard"}</td><td><Badge>{row.active === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>-</td></>
                 ) : (
                   <><td>{row.imageUrl ? <img className="admin-thumb" src={row.imageUrl} alt="" /> : <span className="admin-logo-mini">C</span>}</td><td>{getText(row.name, language)}</td><td>{row.parentId ? getText(adminCategories.find((category) => String(category.id) === String(row.parentId))?.name, language) || (language === "ar" ? "غير متاح" : "Not available") : "—"}</td><td><Badge>{row.isActive === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>{formatDate(row.updatedAt)}</td><td>{(canUpdateCategories || canDeleteCategories) && <div className="row-actions">{canUpdateCategories && <button className="text-action" onClick={() => { setEditingCategory(row); onNavigate("admin-categories-new"); }} type="button">Edit</button>}{canDeleteCategories && <button className="text-action danger" onClick={() => onDeleteCategory(row.id)} type="button">Delete</button>}</div>}</td></>
                 )}
               </tr>
-            )) : <tr><td colSpan="7"><EmptyState title={kind === "vlogs" ? "No vlogs yet" : "No records yet"} description={kind === "vlogs" ? "Create your first vlog entry for the storefront." : ""} /></td></tr>}
+            )) : <tr><td colSpan="7"><EmptyState title="No records yet" description="" /></td></tr>}
           </tbody>
         </AdminTable>
       </section>
@@ -2613,9 +2552,9 @@ function AdminDashboardPage({
         parentIdField,
         { name: "brandId", label: ar ? "العلامة التجارية *" : "Brand *", type: "select", visibleWhen: (form) => !form?.parentId, options: [{ value: "", label: ar ? "اختر علامة" : "Select a brand" }, ...brands.map((brand) => ({ value: brand.id, label: getText(brand.name, language) || brand.slug }))] },
         { name: "image", label: ar ? "صورة الفئة" : "Category Image", type: "media" },
-        { name: "heroVideo", label: ar ? "فيديو الواجهة" : "Category hero video", type: "media", allowVideo: true, visibleWhen: (form) => !form?.parentId },
+        { name: "heroVideo", label: ar ? "فيديو الواجهة" : "Category hero video", type: "media", allowVideo: true },
         { name: "active", label: ar ? "نشطة" : "Active", type: "checkbox" },
-      ]} onCancel={() => { setEditingCategory(null); setNewCategoryDefaults({ brandId: "", parentId: "" }); onNavigate("admin-categories"); }} onSave={async (form) => { await onSaveCategory({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.nameEn || form.nameAr), name: createLocalizedCopy(form.nameEn, form.nameAr), description: form.descriptionEn || form.descriptionAr ? createLocalizedCopy(form.descriptionEn, form.descriptionAr) : null, imageUrl: form.image || null, brandId: form.parentId ? null : form.brandId || null, heroVideo: form.parentId ? null : form.heroVideo || null, parentId: form.parentId || null, isActive: form.active }); setEditingCategory(null); setNewCategoryDefaults({ brandId: "", parentId: "" }); onNavigate("admin-categories", { preserveStatusMessage: true }); }} />;
+      ]} onCancel={() => { setEditingCategory(null); setNewCategoryDefaults({ brandId: "", parentId: "" }); onNavigate("admin-categories"); }} onSave={async (form) => { await onSaveCategory({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.nameEn || form.nameAr), name: createLocalizedCopy(form.nameEn, form.nameAr), description: form.descriptionEn || form.descriptionAr ? createLocalizedCopy(form.descriptionEn, form.descriptionAr) : null, imageUrl: form.image || null, brandId: form.parentId ? null : form.brandId || null, heroVideo: form.heroVideo || null, parentId: form.parentId || null, isActive: form.active }); setEditingCategory(null); setNewCategoryDefaults({ brandId: "", parentId: "" }); onNavigate("admin-categories", { preserveStatusMessage: true }); }} />;
     }
     if (kind === "brand") {
       const current = editingBrand;
@@ -2637,9 +2576,54 @@ function AdminDashboardPage({
       return <EmptyState title="View-only access" description="You do not have permission to create records." />;
     }
     if (kind === "vlog") {
-      return <GenericEntityForm title="New Vlog" initial={{ active: true, featured: false }} fields={[
-        { name: "title", label: "Title *", required: true }, { name: "slug", label: "Slug" }, { name: "description", label: "Description", type: "textarea" }, { name: "videoUrl", label: "Video URL *", required: true }, { name: "thumbnail", label: "Thumbnail", type: "media" }, { name: "active", label: "Active", type: "checkbox" }, { name: "featured", label: "Featured", type: "checkbox" },
-      ]} onCancel={() => onNavigate("admin-vlogs")} onSave={(form) => { saveVlogs([{ id: form.slug || makeSlug(form.title), ...form, createdAt: new Date().toISOString() }, ...vlogs]); onNavigate("admin-vlogs"); }} />;
+      const current = editingVlog;
+      const ar = language === "ar";
+      return <GenericEntityForm isEditing={Boolean(current)} language={language} title={current ? (ar ? "تعديل الفيديو" : "Edit Vlog") : (ar ? "فيديو جديد" : "New Vlog")} initial={{
+        active: current?.isActive !== false,
+        featured: current?.featured === true,
+        mediaType: current?.mediaType === "image" ? "image" : "video",
+        slug: current?.slug || "",
+        titleEn: getText(current?.title, "en"),
+        titleAr: getText(current?.title, "ar"),
+        descriptionEn: getText(current?.description, "en"),
+        descriptionAr: getText(current?.description, "ar"),
+        videoUrl: current?.videoUrl || "",
+        posterUrl: current?.posterUrl || "",
+        imageUrl: current?.imageUrl || "",
+        linkUrl: current?.linkUrl || "",
+        sortOrder: current?.sortOrder ?? 0,
+      }} fields={[
+        { name: "titleEn", label: ar ? "العنوان بالإنجليزية *" : "Title — English *", required: true, dir: "ltr" },
+        { name: "titleAr", label: ar ? "العنوان بالعربية *" : "Title — Arabic *", required: true, dir: "rtl" },
+        { name: "slug", label: ar ? "الرابط المختصر" : "Slug", dir: "ltr" },
+        { name: "descriptionEn", label: ar ? "الوصف بالإنجليزية" : "Description — English", type: "textarea", dir: "ltr" },
+        { name: "descriptionAr", label: ar ? "الوصف بالعربية" : "Description — Arabic", type: "textarea", dir: "rtl" },
+        { name: "mediaType", label: ar ? "نوع المحتوى" : "Media type", type: "select", options: [{ value: "video", label: ar ? "فيديو" : "Video" }, { value: "image", label: ar ? "صورة" : "Image" }] },
+        { name: "videoUrl", label: ar ? "رابط الفيديو" : "Video URL", type: "media", allowVideo: true, visibleWhen: (form) => form?.mediaType !== "image" },
+        { name: "posterUrl", label: ar ? "ملصق الفيديو" : "Video poster", type: "media", visibleWhen: (form) => form?.mediaType !== "image" },
+        { name: "imageUrl", label: ar ? "صورة المنشور" : "Post image", type: "media", visibleWhen: (form) => form?.mediaType === "image" },
+        { name: "linkUrl", label: ar ? "رابط اختياري" : "Optional link", dir: "ltr" },
+        { name: "sortOrder", label: ar ? "الترتيب" : "Sort order", type: "number" },
+        { name: "active", label: ar ? "نشط" : "Active", type: "checkbox" },
+        { name: "featured", label: ar ? "مميز" : "Featured", type: "checkbox" },
+      ]} onCancel={() => { setEditingVlog(null); onNavigate("admin-vlogs"); }} onSave={async (form) => {
+        await onSaveVlog?.({
+          ...(current?.id ? { id: current.id } : {}),
+          slug: form.slug || makeSlug(form.titleEn || form.titleAr),
+          title: createLocalizedCopy(form.titleEn, form.titleAr),
+          description: form.descriptionEn || form.descriptionAr ? createLocalizedCopy(form.descriptionEn, form.descriptionAr) : { en: "", ar: "" },
+          mediaType: form.mediaType === "image" ? "image" : "video",
+          videoUrl: form.mediaType === "image" ? "" : form.videoUrl || "",
+          posterUrl: form.posterUrl || "",
+          imageUrl: form.imageUrl || "",
+          linkUrl: form.linkUrl || "",
+          sortOrder: Number(form.sortOrder || 0),
+          isActive: form.active,
+          featured: form.featured,
+        });
+        setEditingVlog(null);
+        onNavigate("admin-vlogs", { preserveStatusMessage: true });
+      }} />;
     }
     return <GenericEntityForm title="New Store" initial={{ active: true, country: "Palestine" }} fields={[
       { name: "name", label: "Name *", required: true }, { name: "address", label: "Address *", required: true }, { name: "city", label: "City *", required: true }, { name: "country", label: "Country *", required: true }, { name: "phone", label: "Phone" }, { name: "hours", label: "Hours" }, { name: "latitude", label: "Latitude" }, { name: "longitude", label: "Longitude" }, { name: "active", label: "Active", type: "checkbox" },
@@ -2711,8 +2695,6 @@ function AdminDashboardPage({
         return renderSimpleTable("brands");
       case "admin-brands-new":
         return renderEntityForm("brand");
-      case "admin-vlogs":
-        return renderSimpleTable("vlogs");
       case "admin-vlogs-new":
         return renderEntityForm("vlog");
       case "admin-store-locator":
@@ -2722,6 +2704,8 @@ function AdminDashboardPage({
       case "admin-website-media":
         return (
           <MediaSlotsManager
+            company={company}
+            currentUser={currentUser}
             error={websiteMediaError}
             items={websiteMedia}
             language={language}

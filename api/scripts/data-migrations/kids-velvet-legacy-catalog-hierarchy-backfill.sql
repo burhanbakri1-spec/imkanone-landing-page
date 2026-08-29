@@ -1,7 +1,10 @@
--- Migration 020: restore the canonical Kids Velvet catalog hierarchy.
+-- Optional legacy data script (NOT an automatic platform migration).
+-- Manual use only after 019_media_ownership_entity_fields.sql on the kids-velvet tenant.
+--
+-- Kids Velvet catalog hierarchy backfill.
 --
 -- Canonical source: i-play src/data/velvetCatalog.js REAL_PRODUCT_ATTRIBUTES.
--- This is a data-only, Kids Velvet-only migration. It intentionally preserves
+-- This is a data-only, Kids Velvet-only script. It intentionally preserves
 -- the earlier flat/global category rows and all legacy website_media rows.
 begin;
 

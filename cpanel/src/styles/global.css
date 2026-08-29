@@ -4280,7 +4280,7 @@ html[dir="rtl"] .footer-col nav a:hover {
   animation: fadeUp 180ms ease both;
 }
 
-/* Mobile menu top bar — back / close row */
+/* Mobile menu top bar â back / close row */
 .mobile-menu-top {
   display: flex;
   align-items: center;
@@ -7482,7 +7482,7 @@ html[dir="rtl"] .admin-nav-button.active::before {
   padding: 16px 28px 28px;
 }
 
-/* ── Company cards grid ───────────────────────────────────────── */
+/* ââ Company cards grid âââââââââââââââââââââââââââââââââââââââââ */
 
 .company-search-bar {
   display: flex;
@@ -7563,7 +7563,7 @@ html[dir="rtl"] .admin-nav-button.active::before {
   color: var(--admin-primary);
 }
 
-/* ── Company cards (grid / list) ──────────────────────────────── */
+/* ââ Company cards (grid / list) ââââââââââââââââââââââââââââââââ */
 
 .company-cards-grid {
   display: grid;
@@ -7621,7 +7621,7 @@ html[dir="rtl"] .admin-nav-button.active::before {
   border-color: var(--admin-border-hover, var(--admin-border));
 }
 
-/* ── Preview area (16:9) ──────────────────────────────────── */
+/* ââ Preview area (16:9) ââââââââââââââââââââââââââââââââââââ */
 
 .company-card-preview {
   position: relative;
@@ -7666,7 +7666,7 @@ html[dir="rtl"] .admin-nav-button.active::before {
   color: var(--admin-muted);
 }
 
-/* ── Hover overlay ────────────────────────────────────────── */
+/* ââ Hover overlay ââââââââââââââââââââââââââââââââââââââââââ */
 
 .company-card-overlay {
   position: absolute;
@@ -7718,7 +7718,7 @@ html[dir="rtl"] .admin-nav-button.active::before {
   cursor: default;
 }
 
-/* ── Footer ───────────────────────────────────────────────── */
+/* ââ Footer âââââââââââââââââââââââââââââââââââââââââââââââââ */
 
 .company-card-footer {
   display: flex;
@@ -7767,7 +7767,7 @@ html[dir="rtl"] .admin-nav-button.active::before {
   flex-shrink: 0;
 }
 
-/* ── Three-dot menu ───────────────────────────────────────── */
+/* ââ Three-dot menu âââââââââââââââââââââââââââââââââââââââââ */
 
 .company-card-three-dot {
   position: relative;
@@ -7855,7 +7855,7 @@ html[dir="rtl"] .admin-nav-button.active::before {
   cursor: default;
 }
 
-/* ── Platform overview / Discover page ────────────────────────── */
+/* ââ Platform overview / Discover page ââââââââââââââââââââââââââ */
 
 .platform-overview {
   display: grid;
@@ -8180,7 +8180,7 @@ html[dir="rtl"] .admin-nav-button.active::before {
   min-height: 360px;
 }
 
-/* ── Tenant sidebar (dark) ─────────────────────────────────── */
+/* ââ Tenant sidebar (dark) âââââââââââââââââââââââââââââââââââ */
 
 .admin-tenant .admin-sidebar {
   background: #1b2530;
@@ -8284,7 +8284,7 @@ html[dir="rtl"] .admin-nav-button.active::before {
   margin-top: 2px;
 }
 
-/* ── Tenant Dashboard ─────────────────────────────────────── */
+/* ââ Tenant Dashboard âââââââââââââââââââââââââââââââââââââââ */
 
 .dashboard {
   display: grid;
@@ -10982,7 +10982,7 @@ html[dir="rtl"] .main-nav .nav-menu-wrap > .mega-menu {
   inset-inline-end: 0 !important;
 }
 
-/* Shop mega menu is wider — let it extend to the side */
+/* Shop mega menu is wider â let it extend to the side */
 .main-nav .shop-menu-wrap > .mega-menu {
   width: min(960px, calc(100vw - 80px));
 }
@@ -13799,7 +13799,7 @@ html[dir="rtl"] .shop-hero-banner--shop-all-fix .shop-hero-banner-content p {
   margin: 0;
 }
 
-/* Home Care section 2 — feature card + side image */
+/* Home Care section 2 â feature card + side image */
 .homecare-feature-section {
   background: #374456;
   color: #ffffff;
@@ -15677,7 +15677,7 @@ html[dir="rtl"] .about-image-banner::after {
   opacity: 0.85;
 }
 
-/* === SECTION 6: Impact — full-screen dark breakout, floating stat cards === */
+/* === SECTION 6: Impact â full-screen dark breakout, floating stat cards === */
 .mission-page .mission-impact {
   min-height: 100vh !important;
   width: 100vw !important;
@@ -16456,7 +16456,7 @@ html[dir="rtl"] .cleanups-signup-copy h2 {
   text-shadow: 0 3px 18px rgba(0, 0, 0, 0.38);
 }
 
-/* Hero override — remove ALL overlays from CleanUps hero */
+/* Hero override â remove ALL overlays from CleanUps hero */
 .cleanups-hero-section {
   min-height: auto;
   border-radius: 0;
@@ -21787,7 +21787,7 @@ html[dir="rtl"] .storefront-home > .hero-editorial .hero-content {
   white-space: nowrap;
 }
 
-/* ── Product purchase/details: Kinfill-inspired refresh ── */
+/* ââ Product purchase/details: Kinfill-inspired refresh ââ */
 
 /* Homepage PurchaseExperienceShowcase option cards */
 .purchase-choice {
@@ -21800,7 +21800,7 @@ html[dir="rtl"] .storefront-home > .hero-editorial .hero-content {
   box-shadow: 0 4px 16px rgba(6,31,51,0.08) !important;
 }
 
-/* Homepage add-to-cart → pill-shaped dark button */
+/* Homepage add-to-cart â pill-shaped dark button */
 .purchase-showcase-action .primary-action {
   background: #061f33;
   color: #ffffff;
@@ -21810,7 +21810,7 @@ html[dir="rtl"] .storefront-home > .hero-editorial .hero-content {
   background: #1a3850;
 }
 
-/* ── Product details info panel: stronger Kinfill-matched styling ── */
+/* ââ Product details info panel: stronger Kinfill-matched styling ââ */
 
 .product-detail-info-panel {
   display: flex;
@@ -21819,7 +21819,7 @@ html[dir="rtl"] .storefront-home > .hero-editorial .hero-content {
   background: #ffffff;
 }
 
-/* ── Section header ── */
+/* ââ Section header ââ */
 .pi-section-header {
   display: grid;
   gap: 6px;
@@ -21892,7 +21892,7 @@ html[dir="rtl"] .storefront-home > .hero-editorial .hero-content {
   font-weight: 500;
 }
 
-/* ── Shared label ── */
+/* ââ Shared label ââ */
 .pi-label {
   font-size: 0.78rem;
   font-weight: 600;
@@ -21902,7 +21902,7 @@ html[dir="rtl"] .storefront-home > .hero-editorial .hero-content {
   margin: 0 0 10px;
 }
 
-/* ── Card field (scent/type selector) ── */
+/* ââ Card field (scent/type selector) ââ */
 .pi-card-field {
   margin-bottom: 24px;
 }
@@ -21950,7 +21950,7 @@ html[dir="rtl"] .storefront-home > .hero-editorial .hero-content {
   color: #061f33;
 }
 
-/* ── Segmented control (purchase type) ── */
+/* ââ Segmented control (purchase type) ââ */
 .pi-segmented {
   display: flex;
   gap: 4px;
@@ -21982,7 +21982,7 @@ html[dir="rtl"] .storefront-home > .hero-editorial .hero-content {
   font-weight: 600;
 }
 
-/* ── Color field ── */
+/* ââ Color field ââ */
 .pi-color-field {
   margin-bottom: 24px;
 }
@@ -22047,7 +22047,7 @@ html[dir="rtl"] .storefront-home > .hero-editorial .hero-content {
   letter-spacing: 0.03em;
 }
 
-/* ── Size / Use pill grid ── */
+/* ââ Size / Use pill grid ââ */
 .pi-pill-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -22086,7 +22086,7 @@ html[dir="rtl"] .storefront-home > .hero-editorial .hero-content {
   cursor: not-allowed;
 }
 
-/* ── CTA bar (price + qty + add to cart) ── */
+/* ââ CTA bar (price + qty + add to cart) ââ */
 .pi-cta-bar {
   display: flex;
   align-items: center;
@@ -22163,7 +22163,7 @@ html[dir="rtl"] .storefront-home > .hero-editorial .hero-content {
   cursor: not-allowed;
 }
 
-/* ── Accordion (features / usage) ── */
+/* ââ Accordion (features / usage) ââ */
 .pi-accordion {
   margin-bottom: 28px;
 }
@@ -22238,7 +22238,7 @@ html[dir="rtl"] .storefront-home > .hero-editorial .hero-content {
   font-size: 0.85rem;
 }
 
-/* ── RTL ── */
+/* ââ RTL ââ */
 html[dir="rtl"] .product-detail-info-panel {
   text-align: right;
 }
@@ -22249,7 +22249,7 @@ html[dir="rtl"] .pi-color-card > div > p {
   text-align: right;
 }
 
-/* ── Homepage product info preview (Kinfill-style) ── */
+/* ââ Homepage product info preview (Kinfill-style) ââ */
 .home-product-info-preview {
   background: transparent;
   border-radius: inherit;
@@ -23080,7 +23080,7 @@ html[dir="rtl"] .home-community-card-4 {
   margin-inline: auto;
 }
 
-/* === MISSION HERO — full-viewport breakout, matches reference/about.html + kinfill-static-react === */
+/* === MISSION HERO â full-viewport breakout, matches reference/about.html + kinfill-static-react === */
 .mission-page .mission-hero {
   position: relative;
   width: 100vw;
@@ -23214,7 +23214,7 @@ html[dir="rtl"] .home-community-card-4 {
   width: 100%;
 }
 
-/* === SECTION 3: Rethinking — full-width image with overlay === */
+/* === SECTION 3: Rethinking â full-width image with overlay === */
 .mission-page .mission-rethinking {
   position: relative;
   width: 100vw;
@@ -23268,7 +23268,7 @@ html[dir="rtl"] .home-community-card-4 {
   color: rgba(255,255,255,0.9);
 }
 
-/* === SECTION 4: Forward — dark background card grid, directly connected after section 3 === */
+/* === SECTION 4: Forward â dark background card grid, directly connected after section 3 === */
 .mission-page .mission-forward {
   width: 100vw;
   margin-inline: calc(50% - 50vw);
@@ -24144,7 +24144,7 @@ html[dir="ltr"] .header-mega-panel.open,
 
 /* === MISSING PAGE CSS: HowItWorks tabs, Mission stat thumb, Sustainability inner sections === */
 
-/* HowItWorks tabs section — missing list/layout/progress */
+/* HowItWorks tabs section â missing list/layout/progress */
 .how-page .how-tabs-list {
   display: flex;
   flex-direction: column;
@@ -24198,7 +24198,7 @@ html[dir="ltr"] .header-mega-panel.open,
   object-fit: cover;
 }
 
-/* Sustainability — sections missing section-level layout */
+/* Sustainability â sections missing section-level layout */
 .sustainability-page .sustainability-hero-overlay {
   position: absolute;
   inset: 0;
@@ -27790,7 +27790,7 @@ html[dir="ltr"] .header-mega-panel.open,
 .admin-upload-progress { display: flex; align-items: center; gap: 8px; padding: 8px 12px; margin-top: 8px; border-radius: 8px; background: var(--admin-primary-soft, #e8f7fb); color: var(--admin-primary, #0b2e4e); font-size: 13px; font-weight: 500; }
 .message-panel.error.compact { padding: 8px 12px; margin-top: 8px; font-size: 13px; }
 
-/* CPanel shell scale refinement — tenant and platform variants */
+/* CPanel shell scale refinement â tenant and platform variants */
 .admin-studio-shell {
   --admin-topnav-h: 72px;
   --studio-sidebar-width: 300px;
@@ -28578,7 +28578,7 @@ html[dir="ltr"] .header-mega-panel.open,
   .kv-category-brand-row .row-actions, .kv-category-main-row .row-actions, .kv-category-sub-row .row-actions { justify-content: flex-end; }
 }
 
-/* CRM Contacts Phase 1B — scoped list, detail and form integration */
+/* CRM Contacts Phase 1B â scoped list, detail and form integration */
 .crm-contacts-phase-one .admin-contacts-summary-strip button { align-items: center; display: inline-flex; gap: 7px; }
 .crm-contacts-phase-one .admin-contacts-overview .admin-contacts-audience-grid { padding-block-start: 22px; }
 .crm-contact-filter { align-items: center; border: 1px solid #d5e4fb; border-radius: 10px; display: flex; gap: 8px; min-height: 42px; padding-inline: 11px; }
@@ -31495,7 +31495,7 @@ html[dir="ltr"] .header-mega-panel.open,
   .app-market-grid { grid-template-columns: 1fr; }
 }
 
-/* Tenant Home dashboard â€” Wix-style composition, isolated from other pages. */
+/* Tenant Home dashboard Ã¢â¬â Wix-style composition, isolated from other pages. */
 .admin-studio-shell.admin-tenant .tenant-dashboard-home {
   display: grid;
   width: min(100%, 1500px);
@@ -34050,7 +34050,7 @@ main.admin-panel-main:has(.admin-studio-shell) {
 .loyalty-illustration span { background: #ffe4af; }
 .loyalty-illustration span:nth-child(2) { background: #ffd0c8; }
 
-/* Inbox refinement — compact sizing */
+/* Inbox refinement â compact sizing */
 .admin-inbox-page { padding: 20px 24px 24px; }
 .admin-inbox-workspace { min-height: 500px; }
 .admin-inbox-list-toolbar { min-height: 50px; }
@@ -34243,7 +34243,7 @@ main.admin-panel-main:has(.admin-studio-shell) {
 .tenant-settings-tabs button.active { color: var(--tm-blue); border-bottom-color: var(--tm-blue); }
 .tenant-status-pill { display: inline-flex; align-items: center; min-height: 27px; padding: 0 10px; border-radius: 999px; color: #526078; background: #edf1f6; font-size: 13px; white-space: nowrap; }
 
-/* Tenant Settings hub — full-width vertical reference layout */
+/* Tenant Settings hub â full-width vertical reference layout */
 .tenant-settings-hub-page .tenant-management-header,
 .tenant-settings-hub-page .settings-hub-search,
 .tenant-settings-hub-page .settings-hub-list { width: 100%; max-width: 1240px; }
@@ -34979,3 +34979,369 @@ main.admin-panel-main:has(.admin-studio-shell) {
   .sales-order-detail-grid { grid-template-columns: 1fr; }
   .sales-order-lines > div { grid-template-columns: 1fr; }
 }
+
+/* Website Texts workspace  generic page/section content editor */
+.website-texts-workspace {
+  overflow-x: hidden;
+}
+
+.website-texts-workspace-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-block-end: 16px;
+}
+
+.website-texts-workspace-header h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.website-texts-workspace-header p {
+  margin: 6px 0 0;
+  color: var(--admin-muted, #667085);
+  font-size: 14px;
+  max-width: 52rem;
+}
+
+.website-texts-workspace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.website-texts-banner {
+  margin-block-end: 12px;
+}
+
+.website-texts-toolbar {
+  display: grid;
+  gap: 12px;
+  margin-block-end: 18px;
+}
+
+.website-texts-page-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.website-texts-page-nav button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--admin-border, #d0d5dd);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--admin-text, #101828);
+  font-weight: 600;
+}
+
+.website-texts-page-nav button.active {
+  border-color: var(--admin-primary, #1eabd2);
+  background: rgba(30, 171, 210, 0.1);
+  color: var(--admin-primary, #0b6e8a);
+}
+
+.website-texts-search input {
+  width: min(100%, 360px);
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--admin-border, #d0d5dd);
+  border-radius: 10px;
+}
+
+.website-texts-section {
+  margin-block-end: 22px;
+  border: 1px solid var(--admin-border, #e4e7ec);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.website-texts-section > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--admin-border, #e4e7ec);
+  background: #f8fafc;
+}
+
+.website-texts-section > header h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.website-texts-eyebrow {
+  margin: 0 0 2px;
+  color: var(--admin-muted, #667085);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.website-texts-section > header > span {
+  display: inline-flex;
+  min-width: 28px;
+  min-height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #eef2f6;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.website-texts-cards {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.website-texts-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--admin-border, #e4e7ec);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.website-texts-card.is-missing {
+  border-style: dashed;
+  background: #fcfcfd;
+}
+
+.website-texts-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.website-texts-card-head strong {
+  display: block;
+  font-size: 15px;
+}
+
+.website-texts-status-pill {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.website-texts-status-pill.existing {
+  background: #e8f8ef;
+  color: #067647;
+}
+
+.website-texts-status-pill.missing {
+  background: #fff4e5;
+  color: #b54708;
+}
+
+.website-texts-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.website-texts-values label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--admin-muted, #667085);
+}
+
+.website-texts-values textarea,
+.website-texts-values span {
+  min-height: 72px;
+  padding: 10px 12px;
+  border: 1px solid var(--admin-border, #e4e7ec);
+  border-radius: 10px;
+  color: var(--admin-text, #101828);
+  font-size: 14px;
+  font-weight: 400;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.website-texts-values span {
+  background: #f8fafc;
+}
+
+.website-texts-missing-copy {
+  margin: 0;
+  color: var(--admin-muted, #667085);
+  font-size: 13px;
+}
+
+.website-texts-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.website-texts-active-label {
+  color: var(--admin-muted, #667085);
+  font-size: 13px;
+}
+
+@media (max-width: 760px) {
+  .website-texts-values {
+    grid-template-columns: 1fr;
+  }
+
+  .website-texts-workspace-header {
+    flex-direction: column;
+  }
+
+  .website-texts-page-nav {
+    max-width: 100%;
+    overflow-x: auto;
+    padding-block-end: 4px;
+  }
+}
+
+.website-texts-media-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 0;
+  color: var(--admin-muted, #667085);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Generic Website Media workspace */
+.website-media-workspace {
+  overflow-x: hidden;
+}
+
+.website-media-catalog-note {
+  margin: 8px 0 0;
+  color: var(--admin-muted, #667085);
+  font-size: 13px;
+}
+
+.website-media-page-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block-end: 16px;
+}
+
+.website-media-page-nav button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--admin-border, #d0d5dd);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--admin-text, #101828);
+  font-weight: 600;
+}
+
+.website-media-page-nav button.active {
+  border-color: var(--admin-primary, #1eabd2);
+  background: rgba(30, 171, 210, 0.1);
+  color: var(--admin-primary, #0b6e8a);
+}
+
+.website-media-section {
+  margin-block-end: 18px;
+}
+
+.website-media-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-block-end: 10px;
+}
+
+.website-media-section-head h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.website-media-eyebrow {
+  margin: 0 0 2px;
+  color: var(--admin-muted, #667085);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.website-media-slot-wrap {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.website-media-slot-wrap.is-focused {
+  outline: 2px solid rgba(30, 171, 210, 0.45);
+  outline-offset: 4px;
+  border-radius: 14px;
+}
+
+.website-media-slot-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.website-media-slot-meta strong {
+  font-size: 15px;
+}
+
+.website-media-missing-copy {
+  margin: 0;
+  color: var(--admin-muted, #667085);
+  font-size: 13px;
+}
+
+.website-media-empty {
+  margin-block-start: 12px;
+}
+
+.website-media-card.is-readonly .website-media-fields input {
+  background: #f8fafc;
+}
+
+.website-media-preview img,
+.website-media-preview video {
+  max-width: 100%;
+}
+
+@media (max-width: 760px) {
+  .website-media-page-nav {
+    max-width: 100%;
+    overflow-x: auto;
+    padding-block-end: 4px;
+  }
+
+  .website-media-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .website-media-actions {
+    flex-wrap: wrap;
+  }
+}
+
