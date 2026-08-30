@@ -10,7 +10,6 @@ import { isTenantOperator } from "../utils/roles.js";
 
 const features = {
   "admin-website-texts": { title: "Website Content", endpoint: "/admin/website-texts" },
-  "admin-unit-creator": { title: "Unit creator", endpoint: "/admin/custom-modules" },
 };
 
 const textValue = (value) => value == null ? "" : String(value);

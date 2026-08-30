@@ -182,7 +182,7 @@ const PAGE_PERMISSIONS = {
   "admin-bookings-work-schedule": ["customers.view"],
   "admin-bookings-analytics": ["customers.view"],
   "admin-activity-log": ["activity_log.view"],
-  "admin-unit-creator": null,
+  "admin-unit-creator": ["product_settings.manage"],
   "admin-dropshipping": ["dropshipping.reports.read"],
   "admin-dropshipping-marketers": ["dropshipping.marketers.read"],
   "admin-dropshipping-products": ["dropshipping.products.read"],
