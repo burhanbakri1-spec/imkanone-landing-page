@@ -91,7 +91,7 @@ export function validateNoWritableInput(input) {
 }
 
 export function parseConversationQuery(query = {}) {
-  const allowed = ["q", "status", "assignedTo", "unread", "archived", "cursor", "limit"];
+  const allowed = ["q", "status", "assignedTo", "contactId", "unassigned", "unread", "archived", "cursor", "limit"];
   rejectUnknown(query, allowed);
   const status = query.status == null || query.status === "" ? null : String(query.status);
   if (status && !new Set(["open", "closed"]).has(status)) {
@@ -107,10 +107,17 @@ export function parseConversationQuery(query = {}) {
   if (!Number.isInteger(requestedLimit) || requestedLimit < 1) {
     throw validationError("limit must be a positive integer.");
   }
+  const assignedTo = query.assignedTo ? validateInboxId(String(query.assignedTo), "assignedTo") : null;
+  const unassigned = booleanValue(query.unassigned, "unassigned", false);
+  if (assignedTo && unassigned) {
+    throw validationError("assignedTo and unassigned cannot be used together.");
+  }
   return {
     q: plainText(String(query.q || ""), "q", { limit: 200 }).toLowerCase(),
     status,
-    assignedTo: query.assignedTo ? validateInboxId(String(query.assignedTo), "assignedTo") : null,
+    assignedTo,
+    contactId: query.contactId ? validateInboxId(String(query.contactId), "contactId") : null,
+    unassigned,
     unread: booleanValue(query.unread, "unread"),
     archived: booleanValue(query.archived, "archived", false),
     cursor: query.cursor ? validateInboxId(String(query.cursor), "cursor") : null,

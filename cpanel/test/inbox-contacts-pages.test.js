@@ -14,17 +14,27 @@ test("Inbox and every Customers & Leads page remain wired in navigation", () => 
   for (const key of ["admin-inbox", "admin-customers", "admin-forms", "admin-meetings", "admin-pipelines", "admin-community", "admin-loyalty"]) assert.match(nav, new RegExp(`existing\\("${key}"`));
 });
 
-test("Meta Inbox renders the connection/setup workspace without fabricated conversations", () => {
+test("Inbox uses the tenant inbox API and renders real conversation workspace states", () => {
+  const client = source("utils/inboxApi.js");
   const page = source("pages/AdminInboxPage.jsx");
-  assert.match(page, /admin-inbox-page-header/);
-  assert.match(page, /admin-inbox-setup-banner/);
-  assert.match(page, /inbox-channel-picker/);
-  assert.match(page, /admin-inbox-conversations/);
-  assert.match(page, /admin-inbox-conversation-empty/);
+  assert.match(client, /apiRequest\(`\/admin\/inbox\/conversations\$\{buildInboxQuery\(filters\)\}`/);
+  assert.match(client, /\/admin\/inbox\/conversations\/\$\{encodeURIComponent\(conversationId\)\}/);
+  assert.match(page, /fetchInboxConversations/);
+  assert.match(page, /fetchInboxConversation/);
+  assert.match(page, /replyToInboxConversation/);
+  assert.match(page, /admin-inbox-conversation-item/);
+  assert.match(page, /admin-inbox-thread/);
+  assert.match(page, /admin-inbox-composer/);
+  assert.match(page, /canUseInboxAction/);
+  assert.doesNotMatch(page, /fake message|fabricated conversation|localStorage/i);
+});
+
+test("Inbox keeps Meta connect deferred while internal conversations load from API", () => {
+  const page = source("pages/AdminInboxPage.jsx");
   assert.match(page, /Connect Meta/);
+  assert.match(page, /AdminUnderDevelopmentContent/);
+  assert.match(page, /externalBanner/);
   assert.match(page, /No conversations yet/);
-  assert.match(page, /No Meta account is currently connected/);
-  assert.doesNotMatch(page, /unread|fake message|composer|fabricated/i);
 });
 
 test("Inbox unsupported actions use the shared bilingual flow", () => {
@@ -113,7 +123,8 @@ test("real invoices and orders are filtered for the selected contact", () => {
 test("unsupported contact tabs use distinct honest layouts", () => {
   const page = source("pages/AdminContactDetailPage.jsx");
   for (const component of ["ContactInboxTab", "PipelinesTab", "NotesTab", "SubscriptionsTab", "BookingsTab", "InvoicesTab", "OrdersTab"]) assert.match(page, new RegExp(`function ${component}`));
-  assert.match(page, /No messaging channel is connected/);
+  assert.match(page, /contactId: contact\.id/);
+  assert.match(page, /createInboxConversation/);
   assert.match(page, /No pipeline boards yet/);
   assert.match(page, /No notes yet/);
   assert.match(page, /No bookings yet/);

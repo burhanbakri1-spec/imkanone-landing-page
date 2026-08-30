@@ -128,6 +128,8 @@ router.get("/conversations", canView, asyncRoute(async (req, res) => {
   let conversations = inboxConversationRepository.getByCompany(req.companyId)
     .filter((conversation) => query.archived ? Boolean(conversation.archivedAt) : !conversation.archivedAt)
     .filter((conversation) => !query.status || conversation.status === query.status)
+    .filter((conversation) => !query.contactId || conversation.contactId === query.contactId)
+    .filter((conversation) => !query.unassigned || !conversation.assignedEmployeeId)
     .filter((conversation) => !query.assignedTo || conversation.assignedEmployeeId === query.assignedTo)
     .sort((a, b) => {
       const activity = String(b.lastMessageAt || b.updatedAt).localeCompare(String(a.lastMessageAt || a.updatedAt));

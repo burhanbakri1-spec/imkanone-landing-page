@@ -1,22 +1,24 @@
 import React from "react";
-import { Archive, ArrowLeft, BellRing, CalendarDays, ChevronDown, ClipboardList, Edit3, FileText, Inbox, LoaderCircle, Mail, MessageSquare, Paperclip, ReceiptText, RotateCcw, ShoppingBag, ShoppingCart, Tags, User, Users, Workflow, X } from "lucide-react";
+import { Archive, ArrowLeft, BellRing, CalendarDays, ChevronDown, ClipboardList, Edit3, FileText, Inbox, LoaderCircle, Mail, MessageSquare, Paperclip, ReceiptText, RotateCcw, Send, ShoppingBag, ShoppingCart, Tags, User, Users, Workflow, X } from "lucide-react";
 import AdminLayout from "../components/AdminLayout.jsx";
 import ContactFormDialog from "../components/ContactFormDialog.jsx";
 import { archiveCustomer, fetchCustomer, restoreCustomer, updateCustomer } from "../utils/customersApi.js";
+import { createInboxConversation, fetchInboxConversation, fetchInboxConversations, markInboxConversationRead, replyToInboxConversation } from "../utils/inboxApi.js";
+import { formatInboxWhen, inboxReplyBlocked } from "../utils/inboxUi.js";
 import { invoicesForContact, ordersForContact } from "../utils/contacts.js";
 import { apiRequest } from "../utils/api.js";
 import { formatCompanyCurrency } from "../utils/sales.js";
-import { canUseCustomerAction } from "../utils/roles.js";
+import { canUseCustomerAction, canUseInboxAction } from "../utils/roles.js";
 import { AdminUnderDevelopmentContent } from "./AdminPlaceholderPage.jsx";
 
 const TAB_KEYS = ["overview", "inbox", "pipelines", "notes", "subscriptions", "bookings", "invoices", "orders"];
 
 const COPY = {
   en: {
-    accountType: "Account type", activity: "Timeline", allActivity: "All activities", attachments: "Attachments", back: "Contacts", bookings: "Bookings", contactCreated: "Contact created", contactUnavailable: "Contact details unavailable", contactUnavailableDescription: "Contact details could not be loaded from the company API.", edit: "Edit", email: "Primary email", filter: "Filter", goBooking: "Go to Booking Calendar", goPipelines: "Go to Pipelines", inbox: "Inbox", invoiceEmpty: "No invoices yet", invoiceEmptyDescription: "Real invoices for this contact will appear here.", invoices: "Invoices", labels: "Labels", language: "Language", memberInfo: "Member information", more: "More Actions", newAppointment: "Create New Appointment", newNote: "New Note", noBookings: "No bookings yet", noBookingsDescription: "Bookings will appear here when a supported booking source is available.", noContact: "Contact not found", noContactDescription: "The requested contact could not be found.", noConversation: "No conversation available", noConversationDescription: "No messaging channel is connected for this contact.", noPipelines: "No pipeline boards yet", noPipelinesDescription: "Create a pipeline to organize and track real contact progress.", notes: "Notes", notesEmpty: "No notes yet", notesEmptyDescription: "Notes are private and will appear here when notes storage is available.", orderCreated: "Order placed", orderEmpty: "This contact hasn't placed any orders yet", orderEmptyDescription: "Real orders for this contact will appear here.", orders: "Orders", overview: "Overview", past: "Past", phone: "Primary phone", pipelines: "Pipelines", purchaseStats: "Purchase statistics", purchases: "Purchases", segments: "Segments", send: "Send Message", setup: "Set up", subscriptions: "Subscriptions", subscriptionsEmpty: "Nothing to show yet", subscriptionsEmptyDescription: "Supported plans, subscriptions, or recurring invoices will appear here.", tasks: "Tasks & reminders", tasksEmpty: "No tasks are available for this contact.", totalAmount: "Total amount", upcoming: "Upcoming", unavailable: "Unavailable", workflows: "Workflows",
+    accountType: "Account type", activity: "Timeline", allActivity: "All activities", archived: "Archived", attachments: "Attachments", back: "Contacts", bookings: "Bookings", contactCreated: "Contact created", contactUnavailable: "Contact details unavailable", contactUnavailableDescription: "Contact details could not be loaded from the company API.", edit: "Edit", email: "Primary email", filter: "Filter", goBooking: "Go to Booking Calendar", goPipelines: "Go to Pipelines", inbox: "Inbox", invoiceEmpty: "No invoices yet", invoiceEmptyDescription: "Real invoices for this contact will appear here.", invoices: "Invoices", labels: "Labels", language: "Language", memberInfo: "Member information", more: "More Actions", newAppointment: "Create New Appointment", newNote: "New Note", noBookings: "No bookings yet", noBookingsDescription: "Bookings will appear here when a supported booking source is available.", noContact: "Contact not found", noContactDescription: "The requested contact could not be found.", noConversation: "No conversation available", noConversationDescription: "Start an internal conversation with this contact from the Inbox.", noConversationsYet: "No conversations yet for this contact.", noPipelines: "No pipeline boards yet", noPipelinesDescription: "Create a pipeline to organize and track real contact progress.", notes: "Notes", notesEmpty: "No notes yet", notesEmptyDescription: "Notes are private and will appear here when notes storage is available.", orderCreated: "Order placed", orderEmpty: "This contact hasn't placed any orders yet", orderEmptyDescription: "Real orders for this contact will appear here.", orders: "Orders", overview: "Overview", past: "Past", phone: "Primary phone", pipelines: "Pipelines", purchaseStats: "Purchase statistics", purchases: "Purchases", segments: "Segments", send: "Send Message", setup: "Set up", subject: "Subject", subscriptions: "Subscriptions", subscriptionsEmpty: "Nothing to show yet", subscriptionsEmptyDescription: "Supported plans, subscriptions, or recurring invoices will appear here.", tasks: "Tasks & reminders", tasksEmpty: "No tasks are available for this contact.", totalAmount: "Total amount", upcoming: "Upcoming", unavailable: "Unavailable", workflows: "Workflows",
   },
   ar: {
-    accountType: "نوع الحساب", activity: "الخط الزمني", allActivity: "كل الأنشطة", attachments: "المرفقات", back: "جهات الاتصال", bookings: "الحجوزات", contactCreated: "تم إنشاء جهة الاتصال", contactUnavailable: "تفاصيل جهة الاتصال غير متاحة", contactUnavailableDescription: "تعذر تحميل تفاصيل جهة الاتصال من واجهة الشركة.", edit: "تعديل", email: "البريد الأساسي", filter: "تصفية", goBooking: "الانتقال إلى تقويم الحجوزات", goPipelines: "الانتقال إلى المسارات", inbox: "البريد الوارد", invoiceEmpty: "لا توجد فواتير بعد", invoiceEmptyDescription: "ستظهر الفواتير الحقيقية لجهة الاتصال هنا.", invoices: "الفواتير", labels: "التصنيفات", language: "اللغة", memberInfo: "معلومات العضو", more: "إجراءات أخرى", newAppointment: "موعد جديد", newNote: "ملاحظة جديدة", noBookings: "لا توجد حجوزات بعد", noBookingsDescription: "ستظهر الحجوزات عند توفر مصدر حجوزات مدعوم.", noContact: "لم يتم العثور على جهة الاتصال", noContactDescription: "لم يتم العثور على جهة الاتصال المطلوبة.", noConversation: "لا توجد محادثة متاحة", noConversationDescription: "لا توجد قناة مراسلة متصلة لجهة الاتصال هذه.", noPipelines: "لا توجد لوحات مسارات بعد", noPipelinesDescription: "أنشئ مساراً لتنظيم وتتبع تقدم جهات الاتصال الحقيقي.", notes: "ملاحظات", notesEmpty: "لا توجد ملاحظات بعد", notesEmptyDescription: "الملاحظات خاصة وستظهر عند توفر تخزين للملاحظات.", orderCreated: "تم تقديم طلب", orderEmpty: "لم تقدم جهة الاتصال أي طلبات بعد", orderEmptyDescription: "ستظهر الطلبات الحقيقية لجهة الاتصال هنا.", orders: "الطلبات", overview: "نظرة عامة", past: "السابقة", phone: "الهاتف الأساسي", pipelines: "المسارات", purchaseStats: "إحصاءات الشراء", purchases: "المشتريات", segments: "الشرائح", send: "إرسال رسالة", setup: "إعداد", subscriptions: "الاشتراكات", subscriptionsEmpty: "لا يوجد ما يمكن عرضه بعد", subscriptionsEmptyDescription: "ستظهر الخطط أو الاشتراكات أو الفواتير المتكررة المدعومة هنا.", tasks: "المهام والتذكيرات", tasksEmpty: "لا توجد مهام متاحة لجهة الاتصال.", totalAmount: "المبلغ الإجمالي", upcoming: "القادمة", unavailable: "غير متاح", workflows: "سير العمل",
+    accountType: "نوع الحساب", activity: "الخط الزمني", allActivity: "كل الأنشطة", attachments: "المرفقات", back: "جهات الاتصال", bookings: "الحجوزات", contactCreated: "تم إنشاء جهة الاتصال", contactUnavailable: "تفاصيل جهة الاتصال غير متاحة", contactUnavailableDescription: "تعذر تحميل تفاصيل جهة الاتصال من واجهة الشركة.", edit: "تعديل", email: "البريد الأساسي", filter: "تصفية", goBooking: "الانتقال إلى تقويم الحجوزات", goPipelines: "الانتقال إلى المسارات", inbox: "البريد الوارد", invoiceEmpty: "لا توجد فواتير بعد", invoiceEmptyDescription: "ستظهر الفواتير الحقيقية لجهة الاتصال هنا.", invoices: "الفواتير", labels: "التصنيفات", language: "اللغة", memberInfo: "معلومات العضو", more: "إجراءات أخرى", newAppointment: "موعد جديد", newNote: "ملاحظة جديدة", noBookings: "لا توجد حجوزات بعد", noBookingsDescription: "ستظهر الحجوزات عند توفر مصدر حجوزات مدعوم.", noContact: "لم يتم العثور على جهة الاتصال", noContactDescription: "لم يتم العثور على جهة الاتصال المطلوبة.", noConversation: "لا توجد محادثة متاحة", noConversationDescription: "ابدأ محادثة داخلية مع جهة الاتصال من البريد الوارد.", noConversationsYet: "لا توجد محادثات بعد لجهة الاتصال هذه.", noPipelines: "لا توجد لوحات مسارات بعد", noPipelinesDescription: "أنشئ مساراً لتنظيم وتتبع تقدم جهات الاتصال الحقيقي.", notes: "ملاحظات", notesEmpty: "لا توجد ملاحظات بعد", notesEmptyDescription: "الملاحظات خاصة وستظهر عند توفر تخزين للملاحظات.", orderCreated: "تم تقديم طلب", orderEmpty: "لم تقدم جهة الاتصال أي طلبات بعد", orderEmptyDescription: "ستظهر الطلبات الحقيقية لجهة الاتصال هنا.", orders: "الطلبات", overview: "نظرة عامة", past: "السابقة", phone: "الهاتف الأساسي", pipelines: "المسارات", purchaseStats: "إحصاءات الشراء", purchases: "المشتريات", segments: "الشرائح", send: "إرسال رسالة", setup: "إعداد", subject: "الموضوع", subscriptions: "الاشتراكات", subscriptionsEmpty: "لا يوجد ما يمكن عرضه بعد", subscriptionsEmptyDescription: "ستظهر الخطط أو الاشتراكات أو الفواتير المتكررة المدعومة هنا.", tasks: "المهام والتذكيرات", tasksEmpty: "لا توجد مهام متاحة لجهة الاتصال.", totalAmount: "المبلغ الإجمالي", upcoming: "القادمة", unavailable: "غير متاح", workflows: "سير العمل",
   },
 };
 
@@ -64,8 +66,166 @@ function OverviewTab({ contact, language, labels, money, onUnsupported, orders }
   </aside></div>;
 }
 
-function ContactInboxTab({ labels, onUnsupported }) {
-  return <section className="contact-inbox-tab"><div className="contact-inbox-thread"><EmptyVisual icon={Mail}/><h2>{labels.noConversation}</h2><p>{labels.noConversationDescription}</p></div><aside><Mail size={24}/><h3>{labels.inbox}</h3><p>{labels.noConversationDescription}</p><button className="customers-primary-button" onClick={onUnsupported} type="button"><Send size={15}/>{labels.send}</button></aside></section>;
+function ContactInboxTab({ contact, currentUser, labels, language, onNavigate }) {
+  const [conversations, setConversations] = React.useState([]);
+  const [selectedId, setSelectedId] = React.useState(null);
+  const [activeConversation, setActiveConversation] = React.useState(null);
+  const [messages, setMessages] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [threadLoading, setThreadLoading] = React.useState(false);
+  const [error, setError] = React.useState("");
+  const [draft, setDraft] = React.useState("");
+  const [replyBusy, setReplyBusy] = React.useState(false);
+  const [replyError, setReplyError] = React.useState("");
+  const [createBusy, setCreateBusy] = React.useState(false);
+  const [createSubject, setCreateSubject] = React.useState("");
+  const [createMessage, setCreateMessage] = React.useState("");
+  const canReply = canUseInboxAction(currentUser, "inbox.reply");
+  const canCreate = canUseInboxAction(currentUser, "inbox.create");
+  const blocked = inboxReplyBlocked(activeConversation);
+
+  React.useEffect(() => {
+    if (!contact?.id) return undefined;
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    fetchInboxConversations({ contactId: contact.id, limit: 100, archived: "false" }, { signal: controller.signal }).then((data) => {
+      if (controller.signal.aborted) return;
+      const items = Array.isArray(data?.conversations) ? data.conversations : [];
+      setConversations(items);
+      setSelectedId(items[0]?.id || null);
+      setLoading(false);
+    }).catch((requestError) => {
+      if (requestError?.name === "AbortError") return;
+      setConversations([]);
+      setError(requestError?.message || labels.contactUnavailableDescription);
+      setLoading(false);
+    });
+    return () => controller.abort();
+  }, [contact?.id, labels.contactUnavailableDescription]);
+
+  React.useEffect(() => {
+    if (!selectedId) { setMessages([]); setActiveConversation(null); return undefined; }
+    const controller = new AbortController();
+    setThreadLoading(true);
+    setReplyError("");
+    fetchInboxConversation(selectedId, { signal: controller.signal }).then(async (data) => {
+      if (controller.signal.aborted) return;
+      setActiveConversation(data.conversation || null);
+      setMessages(Array.isArray(data.messages) ? data.messages : []);
+      setThreadLoading(false);
+      if (data.conversation?.unreadCount > 0) {
+        try { await markInboxConversationRead(selectedId); } catch { /* best effort */ }
+      }
+    }).catch((requestError) => {
+      if (requestError?.name === "AbortError") return;
+      setMessages([]);
+      setActiveConversation(null);
+      setReplyError(requestError?.message || labels.contactUnavailableDescription);
+      setThreadLoading(false);
+    });
+    return () => controller.abort();
+  }, [labels.contactUnavailableDescription, selectedId]);
+
+  async function sendReply() {
+    if (!canReply || !selectedId || !draft.trim() || blocked) return;
+    setReplyBusy(true);
+    setReplyError("");
+    try {
+      const message = await replyToInboxConversation(selectedId, draft.trim());
+      setMessages((current) => [...current, message]);
+      setDraft("");
+      setActiveConversation((current) => current ? { ...current, status: "open" } : current);
+    } catch (requestError) {
+      setReplyError(requestError?.message || labels.contactUnavailableDescription);
+    } finally {
+      setReplyBusy(false);
+    }
+  }
+
+  async function startConversation() {
+    if (!canCreate || !createMessage.trim() || contact.isArchived) return;
+    setCreateBusy(true);
+    setReplyError("");
+    try {
+      const created = await createInboxConversation({
+        contactId: contact.id,
+        subject: createSubject.trim(),
+        initialMessage: createMessage.trim(),
+      });
+      setConversations((current) => [created, ...current]);
+      setSelectedId(created.id);
+      setCreateSubject("");
+      setCreateMessage("");
+    } catch (requestError) {
+      setReplyError(requestError?.message || labels.contactUnavailableDescription);
+    } finally {
+      setCreateBusy(false);
+    }
+  }
+
+  if (loading) return <section className="contact-inbox-tab"><div className="contact-inbox-thread"><LoaderCircle className="crm-spin" size={28}/></div></section>;
+  if (error) return <section className="contact-inbox-tab"><div className="contact-inbox-thread" role="alert"><EmptyVisual icon={Mail}/><h2>{labels.contactUnavailable}</h2><p>{error}</p></div></section>;
+
+  const blockedLabel = blocked === "archived" ? labels.archived : blocked === "closed" ? labels.closed : blocked === "contactArchived" ? labels.archived : null;
+
+  return (
+    <section className="contact-inbox-tab">
+      <div className="contact-inbox-thread-panel">
+        {conversations.length > 1 && (
+          <div className="contact-inbox-thread-list">
+            {conversations.map((item) => (
+              <button className={`admin-inbox-conversation-item${selectedId === item.id ? " active" : ""}`} key={item.id} onClick={() => setSelectedId(item.id)} type="button">
+                <span className="admin-inbox-conversation-copy"><strong>{item.subject || labels.inbox}</strong><span className="admin-inbox-conversation-preview">{item.lastMessage?.body || "—"}</span></span>
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="contact-inbox-thread">
+          {threadLoading ? <LoaderCircle className="crm-spin" size={24}/> : selectedId ? (
+            <div className="contact-inbox-thread-panel">
+              {messages.length ? messages.map((message) => (
+                <article className="contact-inbox-message" key={message.id}>
+                  <header><strong>{message.sender?.name || message.sender?.email || "—"}</strong><time>{formatInboxWhen(message.createdAt, language)}</time></header>
+                  <p>{message.body}</p>
+                </article>
+              )) : <p>{labels.noConversationDescription}</p>}
+              {replyError && <p className="admin-inbox-inline-error" role="alert">{replyError}</p>}
+              {canReply && blockedLabel && <p className="admin-inbox-inline-note">{blockedLabel}</p>}
+              {canReply && !blocked && (
+                <div className="contact-inbox-composer">
+                  <textarea aria-label={labels.send} disabled={replyBusy} onChange={(event) => setDraft(event.target.value)} placeholder={labels.send} rows={3} value={draft}/>
+                  <button className="customers-primary-button" disabled={replyBusy || !draft.trim()} onClick={sendReply} type="button"><Send size={15}/>{labels.send}</button>
+                </div>
+              )}
+              {!canReply && <p className="admin-inbox-inline-note">{labels.send}</p>}
+            </div>
+          ) : canCreate && !contact.isArchived ? (
+            <div className="contact-inbox-start">
+              <EmptyVisual icon={Mail}/>
+              <h2>{labels.noConversationsYet}</h2>
+              <p>{labels.noConversationDescription}</p>
+              <label><span>{labels.subject}</span><input disabled={createBusy} maxLength={200} onChange={(event) => setCreateSubject(event.target.value)} type="text" value={createSubject}/></label>
+              <label><span>{labels.send}</span><textarea disabled={createBusy} maxLength={10000} onChange={(event) => setCreateMessage(event.target.value)} rows={4} value={createMessage}/></label>
+              <button className="customers-primary-button" disabled={createBusy || !createMessage.trim()} onClick={startConversation} type="button">{createBusy ? <LoaderCircle className="crm-spin" size={16}/> : <Send size={15}/>}{labels.send}</button>
+            </div>
+          ) : (
+            <>
+              <EmptyVisual icon={Mail}/>
+              <h2>{labels.noConversationsYet}</h2>
+              <p>{labels.noConversationDescription}</p>
+            </>
+          )}
+        </div>
+      </div>
+      <aside>
+        <Mail size={24}/>
+        <h3>{labels.inbox}</h3>
+        <p>{labels.noConversationDescription}</p>
+        <button className="customers-primary-button" onClick={() => onNavigate?.("admin-inbox")} type="button"><Send size={15}/>{language === "ar" ? "فتح في البريد" : "Open in Inbox"}</button>
+      </aside>
+    </section>
+  );
 }
 
 function PipelinesTab({ labels, onNavigate }) {
@@ -154,6 +314,6 @@ export default function AdminContactDetailPage({ language = "en", t: translate, 
     {notice && <div className="crm-contact-notice" role="status"><span>{notice}</span><button aria-label="Close" onClick={() => setNotice("")} type="button"><X size={15}/></button></div>}{actionError && <div className="crm-contact-notice error" role="alert"><span>{actionError}</span><button aria-label="Close" onClick={() => setActionError("")} type="button"><X size={15}/></button></div>}
     <section className="admin-contact-identity-card"><div className="contact-identity-heading"><span className="admin-contact-avatar-lg">{initials(contact)}</span><div><h1>{contact.displayName || contact.name || "—"}</h1><span className={`crm-contact-status ${contact.isArchived ? "archived" : "active"}`}>{contact.isArchived ? labels.archived : labels.active}</span></div></div><div className="contact-identity-actions">{canUpdate && <button aria-label={labels.edit} className="customers-secondary-button" onClick={() => setShowEdit(true)} type="button"><Edit3 size={17}/>{labels.edit}</button>}{canArchive && (contact.isArchived ? <button className="customers-primary-button" disabled={actionBusy} onClick={restore} type="button"><RotateCcw size={16}/>{labels.restore}</button> : <button className="customers-secondary-button crm-danger-outline" disabled={actionBusy} onClick={() => setShowArchive(true)} type="button"><Archive size={16}/>{labels.archive}</button>)}</div><div className="contact-identity-fields"><div><span>{labels.email}</span><strong>{contact.email || "—"}</strong></div><div><span>{labels.phone}</span><strong>{contact.phone || "—"}</strong></div><div><span>{labels.type}</span><strong>{contact.type || "—"}</strong></div><div><span>{labels.source}</span><strong>{contact.source || "—"}</strong></div><div><span>{labels.orders}</span><strong>{contact.orderCount ?? contactOrders.length}</strong></div><div><span>{labels.labelsValue}</span><strong>{contact.labels?.length ? contact.labels.join(", ") : "—"}</strong></div><div><span>{labels.created}</span><strong>{formatDate(contact.createdAt, language)}</strong></div><div><span>{labels.updated}</span><strong>{formatDate(contact.updatedAt, language)}</strong></div><div className="crm-contact-notes-value"><span>{labels.notesValue}</span><strong>{contact.notes || "—"}</strong></div></div></section>
     <div className="admin-contact-tabs" role="tablist">{TAB_KEYS.map((key) => { const Icon = TAB_ICONS[key]; return <button aria-selected={activeTab === key} className={activeTab === key ? "active" : ""} key={key} onClick={() => setActiveTab(key)} role="tab" type="button"><Icon size={15}/>{labels[key]}</button>; })}</div>
-    <div className="admin-contact-tab-content">{activeTab === "overview" && <OverviewTab contact={contact} labels={labels} language={language} money={money} onUnsupported={unsupported} orders={contactOrders}/>} {activeTab === "inbox" && <ContactInboxTab labels={labels} onUnsupported={unsupported}/>} {activeTab === "pipelines" && <PipelinesTab labels={labels} onNavigate={onNavigate}/>} {activeTab === "notes" && <NotesTab labels={labels} onUnsupported={unsupported}/>} {activeTab === "subscriptions" && <SubscriptionsTab labels={labels}/>} {activeTab === "bookings" && <BookingsTab labels={labels} onNavigate={onNavigate} onUnsupported={unsupported}/>} {activeTab === "invoices" && <InvoicesTab error={invoiceError} invoices={invoices} labels={labels} language={language} money={money}/>} {activeTab === "orders" && <OrdersTab labels={labels} language={language} money={money} orders={contactOrders}/>}</div>
+    <div className="admin-contact-tab-content">{activeTab === "overview" && <OverviewTab contact={contact} labels={labels} language={language} money={money} onUnsupported={unsupported} orders={contactOrders}/>} {activeTab === "inbox" && <ContactInboxTab contact={contact} currentUser={currentUser} labels={labels} language={language} onNavigate={onNavigate}/>} {activeTab === "pipelines" && <PipelinesTab labels={labels} onNavigate={onNavigate}/>} {activeTab === "notes" && <NotesTab labels={labels} onUnsupported={unsupported}/>} {activeTab === "subscriptions" && <SubscriptionsTab labels={labels}/>} {activeTab === "bookings" && <BookingsTab labels={labels} onNavigate={onNavigate} onUnsupported={unsupported}/>} {activeTab === "invoices" && <InvoicesTab error={invoiceError} invoices={invoices} labels={labels} language={language} money={money}/>} {activeTab === "orders" && <OrdersTab labels={labels} language={language} money={money} orders={contactOrders}/>}</div>
   </div>{showEdit && <ContactFormDialog contact={contact} language={language} onClose={() => setShowEdit(false)} onSubmit={saveEdit}/>} {showArchive && <ArchiveConfirmDialog busy={actionBusy} contact={contact} language={language} onClose={() => setShowArchive(false)} onConfirm={archive}/>} {showUnsupported && <UnsupportedDialog onClose={() => setShowUnsupported(false)} t={translate}/>}</>);
 }

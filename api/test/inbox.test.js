@@ -358,4 +358,17 @@ test("tenant Inbox API foundation", async (t) => {
       token: staffToken, body: { contactId: "icare-contact", initialMessage: "not allowed" },
     })).response.status, 403);
   });
+  await t.test("51 contactId filter returns only matching conversations", async () => {
+    assert.equal((await request("/admin/inbox/conversations?contactId=icare-contact", { token: icareToken })).body.conversations.length, 1);
+    assert.equal((await request("/admin/inbox/conversations?contactId=icare-contact-two", { token: icareToken })).body.conversations.length, 0);
+  });
+  await t.test("52 unassigned filter works", async () => {
+    await request(`/admin/inbox/conversations/${conversation.id}/assign`, { token: icareToken, body: { employeeId: "icare-assignee" } });
+    assert.equal((await request("/admin/inbox/conversations?unassigned=true", { token: icareToken })).body.conversations.length, 0);
+    await request(`/admin/inbox/conversations/${conversation.id}/assign`, { token: icareToken, body: { employeeId: null } });
+    assert.equal((await request("/admin/inbox/conversations?unassigned=true", { token: icareToken })).body.conversations.length, 1);
+  });
+  await t.test("53 assignedTo and unassigned cannot be combined", async () => {
+    assert.equal((await request("/admin/inbox/conversations?assignedTo=icare-assignee&unassigned=true", { token: icareToken })).response.status, 400);
+  });
 });
