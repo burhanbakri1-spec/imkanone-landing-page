@@ -52,6 +52,16 @@ export function canUseInboxAction(user, permission) {
   return permissions.includes("inbox.manage") || permissions.includes(permission);
 }
 
+export function canUseInvoiceAction(user, permission) {
+  const role = roleFromUser(user);
+  if (isCompanyAdmin(role)) return true;
+  if (role === "super_admin") return user?.isCompanyScope === true && Boolean(user?.activeCompany);
+  if (role === "manager") return true;
+  if (!isStaffRole(role)) return false;
+  const permissions = permissionsFromUser(user);
+  return permissions.includes("invoices.manage") || permissions.includes(permission);
+}
+
 export function canUseDeliveryAction(user, permission) {
   const role = roleFromUser(user);
   if (isCompanyAdmin(role)) return true;
@@ -135,7 +145,7 @@ const PAGE_PERMISSIONS = {
   "admin-settings-bookings-video-conferencing": null,
   "admin-settings-bookings-integrations": null,
   "admin-product-settings": null,
-  "admin-invoices": null,
+  "admin-invoices": ["invoices.view"],
   "admin-delivery": ["delivery.view"],
   "admin-reports": ["reports.view"],
   "admin-analytics-highlights": ["reports.view"],

@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { Router } from "express";
 import { invoiceRepository, persistCompanyStore } from "../data/store.js";
-import { requireAuth, requireAdmin } from "../middleware/auth.js";
+import { requireAuth, requireAnyPermission } from "../middleware/auth.js";
 import { recordActivityLog } from "../activityLog/logger.js";
 import {
   generateInvoiceNumber,
@@ -11,7 +11,8 @@ import {
 } from "../invoices/schema.js";
 
 const router = Router();
-router.use(requireAuth, requireAdmin);
+const invoiceRead = requireAnyPermission("invoices.view", "invoices.manage");
+const invoiceWrite = requireAnyPermission("invoices.manage");
 
 function invoiceError(message, statusCode = 400) {
   const error = new Error(message);
@@ -40,7 +41,7 @@ function sendError(res, error) {
   });
 }
 
-router.get("/", (req, res) => {
+router.get("/", requireAuth, invoiceRead, (req, res) => {
   try {
     const invoices = companyInvoices(req.companyId);
     return res.json(invoices);
@@ -49,7 +50,7 @@ router.get("/", (req, res) => {
   }
 });
 
-router.post("/", async (req, res) => {
+router.post("/", requireAuth, invoiceWrite, async (req, res) => {
   try {
     const data = sanitizeCreateInvoice(req.body);
     const invoices = companyInvoices(req.companyId);
@@ -84,7 +85,7 @@ router.post("/", async (req, res) => {
   }
 });
 
-router.get("/:invoiceId", (req, res) => {
+router.get("/:invoiceId", requireAuth, invoiceRead, (req, res) => {
   try {
     const invoice = findInvoice(req.companyId, req.params.invoiceId);
     return res.json(invoice);
@@ -93,7 +94,7 @@ router.get("/:invoiceId", (req, res) => {
   }
 });
 
-router.patch("/:invoiceId", async (req, res) => {
+router.patch("/:invoiceId", requireAuth, invoiceWrite, async (req, res) => {
   try {
     const current = findInvoice(req.companyId, req.params.invoiceId);
     if (current.status === "void" || current.status === "cancelled") {
@@ -130,7 +131,7 @@ router.patch("/:invoiceId", async (req, res) => {
   }
 });
 
-router.delete("/:invoiceId", async (req, res) => {
+router.delete("/:invoiceId", requireAuth, invoiceWrite, async (req, res) => {
   try {
     const current = findInvoice(req.companyId, req.params.invoiceId);
     if (current.status === "void") {
@@ -164,7 +165,7 @@ router.delete("/:invoiceId", async (req, res) => {
   }
 });
 
-router.post("/:invoiceId/void", async (req, res) => {
+router.post("/:invoiceId/void", requireAuth, invoiceWrite, async (req, res) => {
   try {
     const current = findInvoice(req.companyId, req.params.invoiceId);
     if (current.status === "void") {

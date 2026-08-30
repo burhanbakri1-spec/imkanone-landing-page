@@ -169,7 +169,7 @@ export function sanitizeCreateInvoice(body) {
 }
 
 export function sanitizeUpdateInvoice(body) {
-  rejectUnknownFields(body, ALLOWED_PARTIAL_FIELDS);
+  rejectUnknownFields(body, ALLOWED_FIELDS);
   rejectSensitiveData(body);
 
   const update = {};

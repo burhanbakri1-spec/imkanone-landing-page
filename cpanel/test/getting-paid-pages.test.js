@@ -39,6 +39,8 @@ test("Getting Paid access preserves company scope and the real invoice module ga
   assert.equal(canViewGettingPaid({ role: "super_admin" }, company, [], "admin-invoices"), true);
   assert.equal(canViewGettingPaid({ role: "super_admin" }, null, [], "admin-invoices"), false);
   assert.equal(canViewGettingPaid({ role: "employee", permissions: [] }, company, modules, "admin-invoices"), false);
+  assert.equal(canViewGettingPaid({ role: "employee", permissions: ["invoices.view"] }, company, modules, "admin-invoices"), true);
+  assert.equal(canViewGettingPaid({ role: "employee", permissions: ["invoices.view"] }, company, [], "admin-invoices"), false);
 });
 
 test("Connect & Setup routes to existing pages only when authorized", () => {
@@ -147,7 +149,7 @@ test("Pay Links, Quotes, Proposals, and POS have distinct split compositions", (
 
 test("unsupported payment actions use the shared bilingual under-development flow", () => {
   assert.match(pageSource, /AdminUnderDevelopmentContent/);
-  assert.match(pageSource, /const unsupported = \(\) => setShowUnsupported\(true\)/);
+  assert.match(pageSource, /const unsupported = \(\) => setUnsupportedKind\("generic"\)/);
   assert.match(pageSource, /else fallback\(\)/);
 });
 
@@ -177,5 +179,6 @@ test("Getting Paid CSS remains in one named scoped section", () => {
   assert.match(cssSource, /\.getting-paid-invoice-totals/);
   assert.match(cssSource, /\.getting-paid-invoice-modal/);
   assert.match(cssSource, /\.getting-paid-invoice-detail/);
-  assert.match(cssSource, /\.getting-paid-invoice-confirm/);
+  assert.match(cssSource, /\.getting-paid-invoice-list-rows/);
+  assert.match(cssSource, /\.getting-paid-invoice-row/);
 });

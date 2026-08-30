@@ -30826,6 +30826,28 @@ html[dir="ltr"] .header-mega-panel.open,
 .getting-paid-invoice-list > header { align-items: center; border-bottom: 1px solid #e5ebf1; display: flex; justify-content: space-between; padding: 24px 28px; }
 .getting-paid-invoice-list h2 { font-size: 21px; margin: 0 0 5px; }
 .getting-paid-invoice-list header p { color: #6c788a; font-size: 12px; margin: 0; }
+.getting-paid-invoice-list-rows { min-width: 0; overflow: hidden; }
+.getting-paid-invoice-list-head,
+.getting-paid-invoice-row {
+  align-items: start;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(0, 0.9fr) minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(0, 0.7fr) minmax(0, 1.6fr);
+  padding: 12px 20px;
+}
+.getting-paid-invoice-list-head {
+  background: #f6f8fa;
+  color: #647184;
+  font-size: 11px;
+  font-weight: 700;
+}
+.getting-paid-invoice-row {
+  border-bottom: 1px solid #e7ecf1;
+  font-size: 12px;
+  min-width: 0;
+}
+.getting-paid-invoice-row > span { min-width: 0; overflow-wrap: anywhere; }
+.getting-paid-invoice-row .getting-paid-dual-actions { align-items: center; }
 .getting-paid-table-wrap { overflow-x: auto; }
 .getting-paid-table-wrap table { border-collapse: collapse; min-width: 760px; width: 100%; }
 .getting-paid-table-wrap th, .getting-paid-table-wrap td { border-bottom: 1px solid #e7ecf1; font-size: 12px; padding: 15px 20px; text-align: start; }
@@ -31129,6 +31151,22 @@ html[dir="ltr"] .header-mega-panel.open,
   .getting-paid-invoice-form { grid-template-columns: 1fr; }
   .getting-paid-invoice-modal { width: 100%; border-radius: 0 0 14px 14px; max-height: calc(100vh - 48px); }
   .getting-paid-invoice-detail { padding: 16px; gap: 16px; }
+  .getting-paid-invoice-list-head { display: none; }
+  .getting-paid-invoice-row {
+    gap: 8px;
+    grid-template-columns: 1fr;
+    padding: 16px;
+  }
+  .getting-paid-invoice-row > span {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: minmax(0, 120px) minmax(0, 1fr);
+  }
+  .getting-paid-invoice-row > span::before {
+    color: #647184;
+    content: attr(data-label);
+    font-weight: 700;
+  }
 }
 
 @media (max-width: 620px) {

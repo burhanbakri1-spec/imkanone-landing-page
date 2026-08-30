@@ -34,10 +34,12 @@ export function gettingPaidDirection(language) {
 
 export function canViewGettingPaid(currentUser, company, modules = [], pageKey) {
   const companyId = company?.id || currentUser?.activeCompany?.id || currentUser?.active_company?.id;
-  if (!companyId || !(isTenantOperator(currentUser?.role) || isPlatformAdmin(currentUser?.role))) return false;
-  if (pageKey === "admin-invoices" && !isPlatformAdmin(currentUser?.role)) {
+  if (!companyId) return false;
+  if (pageKey === "admin-invoices") {
+    if (isPlatformAdmin(currentUser?.role)) return true;
     return canAccessAdminPage(currentUser, pageKey) && moduleAllowsPage(modules, pageKey);
   }
+  if (!(isTenantOperator(currentUser?.role) || isPlatformAdmin(currentUser?.role))) return false;
   return true;
 }
 

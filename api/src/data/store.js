@@ -176,6 +176,7 @@ export const allPermissions = [
   "site_editor.connection.manage",
   "site_editor.manifest.sync",
   "invoices.view",
+  "invoices.manage",
   "delivery.view",
   "delivery.manage",
   "activity_log.view",

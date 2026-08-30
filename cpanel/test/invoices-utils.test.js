@@ -116,6 +116,7 @@ test("invoiceListRow maps snake_case API fields for list display and search", ()
   assert.equal(mapped.customer_name, "Jane Doe");
   assert.equal(mapped.customer_email, "jane@example.com");
   assert.equal(mapped.issue_date, "2026-08-18");
+  assert.equal(mapped.due_date, "");
   assert.equal(mapped.statusLabel, "Draft");
 });
 

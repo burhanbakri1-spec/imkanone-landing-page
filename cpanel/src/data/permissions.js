@@ -40,6 +40,8 @@ export const permissionGroups = [
       { key: "orders.updateStatus", labelKey: "permissions.ordersUpdateStatus" },
       { key: "delivery.view", labelKey: "Delivery zones: view" },
       { key: "delivery.manage", labelKey: "Delivery zones: manage" },
+      { key: "invoices.view", labelKey: "Invoices: view" },
+      { key: "invoices.manage", labelKey: "Invoices: manage" },
     ],
   },
   {

@@ -52,6 +52,7 @@ import {
   normalizeInvoiceRows,
   resolveGettingPaidDestination,
 } from "../utils/gettingPaid.js";
+import { canUseInvoiceAction } from "../utils/roles.js";
 import {
   buildInvoicePayload,
   computeInvoiceTotals,
@@ -104,13 +105,26 @@ function PaymentIllustration({ type }) {
   return <div aria-hidden="true" className={`getting-paid-illustration getting-paid-illustration-${type}`}><span className="getting-paid-illustration-orbit"/><span className="getting-paid-illustration-document"><i/><b/><em/><small/></span><span className="getting-paid-illustration-card"><CreditCard size={24}/><i/><i/></span><span className="getting-paid-illustration-check"><Check size={19}/></span></div>;
 }
 
-function UnsupportedDialog({ onClose, t }) {
+function UnsupportedDialog({ message, onClose, t }) {
   React.useEffect(() => {
     const close = (event) => event.key === "Escape" && onClose();
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
   }, [onClose]);
-  return <div className="getting-paid-modal-backdrop" onMouseDown={onClose} role="presentation"><div aria-modal="true" className="getting-paid-modal" onMouseDown={(event) => event.stopPropagation()} role="dialog"><button aria-label="Close" onClick={onClose} type="button"><X size={18}/></button><AdminUnderDevelopmentContent t={t}/></div></div>;
+  return (
+    <div className="getting-paid-modal-backdrop" onMouseDown={onClose} role="presentation">
+      <div aria-modal="true" className="getting-paid-modal" onMouseDown={(event) => event.stopPropagation()} role="dialog">
+        <button aria-label="Close" onClick={onClose} type="button"><X size={18} /></button>
+        {message ? (
+          <div className="getting-paid-error" role="status">
+            <strong>{message}</strong>
+          </div>
+        ) : (
+          <AdminUnderDevelopmentContent t={t} />
+        )}
+      </div>
+    </div>
+  );
 }
 
 function SetupPage({ company, go, language, l, payment, unsupported }) {
@@ -140,23 +154,25 @@ function formatInvoiceDate(value, language) {
   return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleDateString(language);
 }
 
-function InvoiceEmptyState({ copy, onCreate }) {
+function InvoiceEmptyState({ copy, onCreate, canManage }) {
   return (
     <section className="getting-paid-invoice-list">
       <div className="getting-paid-loading">
         <FileText size={35} />
         <h2>{copy.noInvoicesTitle}</h2>
         <p>{copy.noInvoicesText}</p>
+        {canManage && (
         <button className="admin-primary-button" onClick={onCreate} type="button">
           <Plus size={16} />
           {copy.newInvoice}
         </button>
+        )}
       </div>
     </section>
   );
 }
 
-function InvoiceList({ company, copy, filters, language, onCancelInvoice, onCreate, onEditInvoice, onFiltersChange, onViewInvoice, onVoidInvoice, rows }) {
+function InvoiceList({ canManage, company, copy, filters, language, onCancelInvoice, onCreate, onEditInvoice, onFiltersChange, onMarkPaid, onUnsupported, onViewInvoice, onVoidInvoice, rows }) {
   return (
     <section className="getting-paid-invoice-list">
       <header>
@@ -186,47 +202,57 @@ function InvoiceList({ company, copy, filters, language, onCancelInvoice, onCrea
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
+        {canManage && (
         <button className="admin-primary-button" onClick={onCreate} type="button">
           <Plus size={16} />
           {copy.newInvoice}
         </button>
+        )}
       </div>
       {rows.length ? (
-        <div className="getting-paid-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>{copy.number}</th>
-                <th>{copy.customer}</th>
-                <th>{copy.issued}</th>
-                <th>{copy.total}</th>
-                <th>{copy.status}</th>
-                <th>{bi(language, "Actions", "الإجراءات")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, index) => {
+        <div className="getting-paid-invoice-list-rows">
+          <div className="getting-paid-invoice-list-head">
+            <span>{copy.number}</span>
+            <span>{copy.customer}</span>
+            <span>{copy.issued}</span>
+            <span>{copy.due}</span>
+            <span>{copy.total}</span>
+            <span>{copy.status}</span>
+            <span>{bi(language, "Actions", "الإجراءات")}</span>
+          </div>
+          {rows.map((row, index) => {
                 const invoice = invoiceListRow(row, language);
                 const editable = invoiceEditable(invoice.status);
                 return (
-                  <tr key={invoice.id || index}>
-                    <td>{invoice.number || "—"}</td>
-                    <td>{invoice.customer || "—"}</td>
-                    <td>{formatInvoiceDate(invoice.issue_date, language)}</td>
-                    <td><bdi dir="ltr">{gettingPaidCurrency(invoice.total, company, language)}</bdi></td>
-                    <td><StatusPill>{invoiceStatusLabel(language, invoice.status)}</StatusPill></td>
-                    <td>
+                  <div className="getting-paid-invoice-row" key={invoice.id || index}>
+                    <span data-label={copy.number}>{invoice.number || "—"}</span>
+                    <span data-label={copy.customer}>{invoice.customer || "—"}</span>
+                    <span data-label={copy.issued}>{formatInvoiceDate(invoice.issue_date, language)}</span>
+                    <span data-label={copy.due}>{formatInvoiceDate(invoice.due_date, language)}</span>
+                    <span data-label={copy.total}><bdi dir="ltr">{gettingPaidCurrency(invoice.total, company, language)}</bdi></span>
+                    <span data-label={copy.status}><StatusPill>{invoiceStatusLabel(language, invoice.status)}</StatusPill></span>
+                    <span data-label={bi(language, "Actions", "الإجراءات")}>
                       <div className="getting-paid-dual-actions">
                         <button className="getting-paid-help-action" onClick={() => onViewInvoice(invoice.id)} type="button">
                           <Eye size={15} />
                           {copy.view}
                         </button>
-                        {editable && (
+                        {canManage && editable && (
                           <>
                             <button className="getting-paid-help-action" onClick={() => onEditInvoice(invoice.id)} type="button">
                               <Pencil size={15} />
                               {copy.edit}
                             </button>
+                            {invoice.status !== "paid" && (
+                              <button className="getting-paid-help-action" onClick={() => onMarkPaid(invoice.id, "paid")} type="button">
+                                {copy.markPaid}
+                              </button>
+                            )}
+                            {invoice.status === "paid" && (
+                              <button className="getting-paid-help-action" onClick={() => onMarkPaid(invoice.id, "issued")} type="button">
+                                {copy.markUnpaid}
+                              </button>
+                            )}
                             <button className="getting-paid-help-action" onClick={() => onCancelInvoice(invoice.id, invoice.number)} type="button">
                               {copy.cancelInvoice}
                             </button>
@@ -235,13 +261,12 @@ function InvoiceList({ company, copy, filters, language, onCancelInvoice, onCrea
                             </button>
                           </>
                         )}
+                        <button className="getting-paid-help-action" onClick={() => onUnsupported("send")} type="button">{copy.send}</button>
                       </div>
-                    </td>
-                  </tr>
+                    </span>
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
         </div>
       ) : (
         <div className="getting-paid-loading">
@@ -314,12 +339,15 @@ function InvoiceConfirmDialog({ action, invoiceId, invoiceNumber, language, onCl
 }
 
 function InvoiceDetailModal({
+  canManage,
   company,
   invoiceId,
   language,
   onCancel,
   onClose,
   onEdit,
+  onMarkPaid,
+  onUnsupported,
   onVoid,
   refreshToken = 0,
 }) {
@@ -327,6 +355,7 @@ function InvoiceDetailModal({
   const [invoice, setInvoice] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState("");
+  const [errorStatus, setErrorStatus] = React.useState(0);
   const requestRef = React.useRef(0);
   const editable = invoice ? invoiceEditable(invoice.status) : false;
   const lineItems = Array.isArray(invoice?.line_items) ? invoice.line_items : [];
@@ -337,6 +366,8 @@ function InvoiceDetailModal({
       quantity: item.quantity,
       unit_price: item.unit_price,
     }))).subtotal;
+  const detailTax = Number.isFinite(Number(invoice?.tax_total)) ? Number(invoice.tax_total) : 0;
+  const detailDiscount = Number.isFinite(Number(invoice?.discount_total)) ? Number(invoice.discount_total) : 0;
   const detailTotal = Number.isFinite(Number(invoice?.total)) ? Number(invoice.total) : detailSubtotal;
 
   React.useEffect(() => {
@@ -351,6 +382,7 @@ function InvoiceDetailModal({
     const requestId = ++requestRef.current;
     setLoading(true);
     setError("");
+    setErrorStatus(0);
     fetchInvoice(invoiceId)
       .then((data) => {
         if (requestRef.current !== requestId) return;
@@ -360,7 +392,8 @@ function InvoiceDetailModal({
       .catch((requestError) => {
         if (requestRef.current !== requestId) return;
         setInvoice(null);
-        setError(requestError?.message || copy.requestFailed);
+        setErrorStatus(Number(requestError?.status) || 0);
+        setError(requestError?.status === 404 ? copy.notFound : (requestError?.message || copy.requestFailed));
         setLoading(false);
       });
     return () => { requestRef.current += 1; };
@@ -389,7 +422,7 @@ function InvoiceDetailModal({
         )}
         {error && (
           <div className="getting-paid-error" role="alert">
-            <strong>{copy.loadFailed}</strong>
+            <strong>{errorStatus === 404 ? copy.notFound : copy.loadFailed}</strong>
             <span>{error}</span>
           </div>
         )}
@@ -402,6 +435,7 @@ function InvoiceDetailModal({
                 <div><dt>{copy.issueDate}</dt><dd>{formatInvoiceDate(invoice.issue_date, language)}</dd></div>
                 <div><dt>{copy.dueDate}</dt><dd>{formatInvoiceDate(invoice.due_date, language)}</dd></div>
                 <div><dt>{copy.currency}</dt><dd>{invoice.currency || "—"}</dd></div>
+                <div><dt>{copy.paymentStatus}</dt><dd><StatusPill>{invoiceStatusLabel(language, invoice.status)}</StatusPill></dd></div>
               </dl>
               <section>
                 <h3>{copy.customerDetails}</h3>
@@ -445,26 +479,40 @@ function InvoiceDetailModal({
                 </div>
                 <footer className="getting-paid-invoice-totals">
                   <div><span>{copy.subtotal}</span><strong><bdi dir="ltr">{gettingPaidCurrency(detailSubtotal, company, language)}</bdi></strong></div>
+                  <div><span>{copy.discount}</span><strong><bdi dir="ltr">{gettingPaidCurrency(detailDiscount, company, language)}</bdi></strong></div>
+                  <div><span>{copy.tax}</span><strong><bdi dir="ltr">{gettingPaidCurrency(detailTax, company, language)}</bdi></strong></div>
                   <div><span>{copy.totalLabel}</span><strong><bdi dir="ltr">{gettingPaidCurrency(detailTotal, company, language)}</bdi></strong></div>
                 </footer>
               </section>
             </div>
-            {!editable && (
+            {!canManage && (
+              <div className="message-panel warning" role="status">{copy.readOnly}</div>
+            )}
+            {canManage && !editable && (
               <div className="message-panel warning" role="status">
                 {bi(language, "This invoice cannot be edited.", "لا يمكن تعديل هذه الفاتورة.")}
               </div>
             )}
             <footer className="getting-paid-dual-actions">
-              {editable && (
+              {canManage && editable && (
                 <>
                   <button className="admin-primary-button" onClick={() => onEdit(invoice.id)} type="button">
                     <Pencil size={16} />
                     {copy.edit}
                   </button>
+                  {invoice.status !== "paid" && (
+                    <button className="secondary-action" onClick={() => onMarkPaid(invoice.id, "paid")} type="button">{copy.markPaid}</button>
+                  )}
+                  {invoice.status === "paid" && (
+                    <button className="secondary-action" onClick={() => onMarkPaid(invoice.id, "issued")} type="button">{copy.markUnpaid}</button>
+                  )}
                   <button className="secondary-action" onClick={() => onCancel(invoice)} type="button">{copy.cancelInvoice}</button>
                   <button className="secondary-action" onClick={() => onVoid(invoice)} type="button">{copy.voidInvoice}</button>
                 </>
               )}
+              <button className="getting-paid-help-action" onClick={() => window.print()} type="button">{copy.print}</button>
+              <button className="getting-paid-help-action" onClick={() => onUnsupported("send")} type="button">{copy.send}</button>
+              <button className="getting-paid-help-action" onClick={() => onUnsupported("download")} type="button">{copy.download}</button>
               <button className="getting-paid-help-action" onClick={onClose} type="button">{copy.close}</button>
             </footer>
           </>
@@ -823,7 +871,23 @@ function InvoiceFormModal({ company, invoiceId = null, language, mode = "create"
   );
 }
 
-function InvoicesPage({ company, language, notice, onCancelInvoice, onCreate, onDismissNotice, onEditInvoice, onRetry, onViewInvoice, onVoidInvoice, state }) {
+function InvoicesPage({
+  canManage,
+  company,
+  language,
+  notice,
+  noticeError,
+  onCancelInvoice,
+  onCreate,
+  onDismissNotice,
+  onEditInvoice,
+  onMarkPaid,
+  onRetry,
+  onUnsupported,
+  onViewInvoice,
+  onVoidInvoice,
+  state,
+}) {
   const copy = invoiceCopy(language);
   const [filters, setFilters] = React.useState({ query: "", status: "all" });
   const filteredRows = filterInvoiceRows(state.rows, filters);
@@ -836,6 +900,14 @@ function InvoicesPage({ company, language, notice, onCancelInvoice, onCreate, on
         </section>
       );
     }
+    if (state.forbidden) {
+      return (
+        <section className="getting-paid-access-denied" role="alert">
+          <ShieldCheck size={35} />
+          <h2>{copy.forbidden}</h2>
+        </section>
+      );
+    }
     if (state.error) {
       return (
         <section className="getting-paid-error" role="alert">
@@ -845,9 +917,10 @@ function InvoicesPage({ company, language, notice, onCancelInvoice, onCreate, on
         </section>
       );
     }
-    if (!state.rows.length) return <InvoiceEmptyState copy={copy} onCreate={onCreate} />;
+    if (!state.rows.length) return <InvoiceEmptyState canManage={canManage} copy={copy} onCreate={onCreate} />;
     return (
       <InvoiceList
+        canManage={canManage}
         company={company}
         copy={copy}
         filters={filters}
@@ -856,6 +929,8 @@ function InvoicesPage({ company, language, notice, onCancelInvoice, onCreate, on
         onCreate={onCreate}
         onEditInvoice={onEditInvoice}
         onFiltersChange={setFilters}
+        onMarkPaid={onMarkPaid}
+        onUnsupported={onUnsupported}
         onViewInvoice={onViewInvoice}
         onVoidInvoice={onVoidInvoice}
         rows={filteredRows}
@@ -864,8 +939,11 @@ function InvoicesPage({ company, language, notice, onCancelInvoice, onCreate, on
   })();
   return (
     <>
+      {canManage === false && !state.loading && !state.forbidden && !state.error && (
+        <div className="message-panel warning" role="status">{copy.readOnly}</div>
+      )}
       {notice && (
-        <div className="message-panel success" role="status">
+        <div className={`message-panel ${noticeError ? "error" : "success"}`} role={noticeError ? "alert" : "status"}>
           <span>{notice}</span>
           <button aria-label={copy.close} className="getting-paid-help-action" onClick={onDismissNotice} type="button">
             <X size={15} />
@@ -891,10 +969,11 @@ function PosPage({ company, language, l, products, unsupported }) {
 }
 
 export default function AdminGettingPaidPage({ activePage, company, currentUser, language = "en", modules = [], onNavigate, products = [], t, ...layout }) {
-  const [showUnsupported, setShowUnsupported] = React.useState(false);
-  const [invoiceState, setInvoiceState] = React.useState({ error: "", loading: activePage === "admin-invoices", rows: [] });
+  const [unsupportedKind, setUnsupportedKind] = React.useState("");
+  const [invoiceState, setInvoiceState] = React.useState({ error: "", forbidden: false, loading: activePage === "admin-invoices", rows: [] });
   const [invoiceModal, setInvoiceModal] = React.useState(null);
   const [invoiceNotice, setInvoiceNotice] = React.useState("");
+  const [invoiceNoticeError, setInvoiceNoticeError] = React.useState(false);
   const [invoiceDetailId, setInvoiceDetailId] = React.useState(null);
   const [selectedInvoiceId, setSelectedInvoiceId] = React.useState(null);
   const [detailRefreshToken, setDetailRefreshToken] = React.useState(0);
@@ -904,17 +983,26 @@ export default function AdminGettingPaidPage({ activePage, company, currentUser,
   const meta = pageMeta[activePage] || pageMeta["admin-tenant-placeholder-getting-paid-setup"];
   const title = language === "ar" ? meta[2] : meta[0];
   const description = language === "ar" ? meta[3] : meta[1];
-  const unsupported = () => setShowUnsupported(true);
+  const unsupported = () => setUnsupportedKind("generic");
+  const openInvoiceUnsupported = React.useCallback((kind = "generic") => {
+    setUnsupportedKind(kind || "generic");
+  }, []);
   const payment = confirmedPaymentConfiguration(company);
   const canView = canViewGettingPaid(currentUser, company, modules, activePage);
+  const canManageInvoices = canUseInvoiceAction(currentUser, "invoices.manage");
   const requestFailed = invoiceCopy(language).requestFailed;
   const go = (action, fallback = unsupported) => {
     const page = resolveGettingPaidDestination(action, { currentUser, modules });
     if (page) onNavigate(page); else fallback();
   };
-  const openCreateInvoice = React.useCallback(() => {
-    setInvoiceModal("create");
+  const setNotice = React.useCallback((text, isError = false) => {
+    setInvoiceNotice(text);
+    setInvoiceNoticeError(isError);
   }, []);
+  const openCreateInvoice = React.useCallback(() => {
+    if (!canManageInvoices) return;
+    setInvoiceModal("create");
+  }, [canManageInvoices]);
   const closeInvoiceForm = React.useCallback(() => {
     setInvoiceModal(null);
     setSelectedInvoiceId(null);
@@ -926,21 +1014,28 @@ export default function AdminGettingPaidPage({ activePage, company, currentUser,
     setInvoiceDetailId(null);
   }, []);
   const openEditInvoice = React.useCallback((invoiceId) => {
+    if (!canManageInvoices) return;
     setSelectedInvoiceId(invoiceId);
     setInvoiceDetailId(null);
     setInvoiceModal("edit");
-  }, []);
+  }, [canManageInvoices]);
   const reloadInvoices = React.useCallback(() => {
     const requestId = ++invoiceRequestRef.current;
-    setInvoiceState({ error: "", loading: true, rows: [] });
+    setInvoiceState({ error: "", forbidden: false, loading: true, rows: [] });
     fetchInvoices()
       .then((data) => {
         if (invoiceRequestRef.current !== requestId) return;
-        setInvoiceState({ error: "", loading: false, rows: normalizeInvoiceRows(data) });
+        setInvoiceState({ error: "", forbidden: false, loading: false, rows: normalizeInvoiceRows(data) });
       })
       .catch((error) => {
         if (invoiceRequestRef.current !== requestId) return;
-        setInvoiceState({ error: error?.message || requestFailed, loading: false, rows: [] });
+        const forbidden = error?.status === 403;
+        setInvoiceState({
+          error: forbidden ? "" : (error?.message || requestFailed),
+          forbidden,
+          loading: false,
+          rows: [],
+        });
       });
   }, [requestFailed]);
   const handleInvoiceStaleState = React.useCallback(() => {
@@ -948,32 +1043,47 @@ export default function AdminGettingPaidPage({ activePage, company, currentUser,
     setDetailRefreshToken((value) => value + 1);
   }, [reloadInvoices]);
   const openCancelConfirm = React.useCallback((invoiceId, invoiceNumber) => {
+    if (!canManageInvoices) return;
     setConfirmDialog({ action: "cancel", invoiceId, invoiceNumber });
-  }, []);
+  }, [canManageInvoices]);
   const openVoidConfirm = React.useCallback((invoiceId, invoiceNumber) => {
+    if (!canManageInvoices) return;
     setConfirmDialog({ action: "void", invoiceId, invoiceNumber });
-  }, []);
+  }, [canManageInvoices]);
   const closeConfirmDialog = React.useCallback(() => {
     setConfirmDialog(null);
   }, []);
   const handleConfirmSuccess = React.useCallback((action, invoiceId) => {
     setConfirmDialog(null);
     if (invoiceDetailId === invoiceId) setInvoiceDetailId(null);
-    setInvoiceNotice(invoiceCopy(language)[action === "void" ? "voidedNotice" : "cancelledNotice"]);
+    setNotice(invoiceCopy(language)[action === "void" ? "voidedNotice" : "cancelledNotice"]);
     reloadInvoices();
-  }, [invoiceDetailId, language, reloadInvoices]);
+  }, [invoiceDetailId, language, reloadInvoices, setNotice]);
   const handleCreateSuccess = React.useCallback(() => {
     setInvoiceModal(null);
     setSelectedInvoiceId(null);
-    setInvoiceNotice(invoiceCopy(language).createdNotice);
+    setNotice(invoiceCopy(language).createdNotice);
     reloadInvoices();
-  }, [language, reloadInvoices]);
+  }, [language, reloadInvoices, setNotice]);
   const handleEditSuccess = React.useCallback(() => {
     setInvoiceModal(null);
     setSelectedInvoiceId(null);
-    setInvoiceNotice(invoiceCopy(language).savedNotice);
+    setNotice(invoiceCopy(language).savedNotice);
     reloadInvoices();
-  }, [language, reloadInvoices]);
+  }, [language, reloadInvoices, setNotice]);
+  const handleMarkPaid = React.useCallback(async (invoiceId, status) => {
+    if (!canManageInvoices) return;
+    try {
+      await updateInvoice(invoiceId, { status });
+      const copy = invoiceCopy(language);
+      setNotice(status === "paid" ? copy.paidNotice : copy.unpaidNotice);
+      setDetailRefreshToken((value) => value + 1);
+      reloadInvoices();
+    } catch (error) {
+      if (error?.status === 400) handleInvoiceStaleState();
+      setNotice(error?.message || invoiceCopy(language).requestFailed, true);
+    }
+  }, [canManageInvoices, handleInvoiceStaleState, language, reloadInvoices, setNotice]);
 
   React.useEffect(() => {
     if (activePage !== "admin-invoices" || !canView) return undefined;
@@ -988,14 +1098,18 @@ export default function AdminGettingPaidPage({ activePage, company, currentUser,
       case "admin-tenant-placeholder-getting-paid-pay-links": return <PayLinksPage company={company} language={language} l={l} payment={payment} unsupported={unsupported}/>;
       case "admin-invoices": return (
         <InvoicesPage
+          canManage={canManageInvoices}
           company={company}
           language={language}
           notice={invoiceNotice}
+          noticeError={invoiceNoticeError}
           onCancelInvoice={openCancelConfirm}
           onCreate={openCreateInvoice}
-          onDismissNotice={() => setInvoiceNotice("")}
+          onDismissNotice={() => { setInvoiceNotice(""); setInvoiceNoticeError(false); }}
           onEditInvoice={openEditInvoice}
+          onMarkPaid={handleMarkPaid}
           onRetry={reloadInvoices}
+          onUnsupported={openInvoiceUnsupported}
           onViewInvoice={openViewInvoice}
           onVoidInvoice={openVoidConfirm}
           state={invoiceState}
@@ -1008,5 +1122,11 @@ export default function AdminGettingPaidPage({ activePage, company, currentUser,
     }
   }
 
-  return <AdminLayout activePage={activePage} company={company} currentUser={currentUser} hideHeader language={language} modules={modules} onNavigate={onNavigate} subtitle={description} t={t} title={title} {...layout}><div className="tenant-getting-paid-page" data-getting-paid-direction={gettingPaidDirection(language)} dir={gettingPaidDirection(language)}><PageHeader description={description} title={title}/>{content()}</div>{invoiceModal === "create" && <InvoiceFormModal company={company} key="create-invoice" language={language} mode="create" onClose={closeInvoiceForm} onSuccess={handleCreateSuccess} />}{invoiceModal === "edit" && selectedInvoiceId && <InvoiceFormModal company={company} invoiceId={selectedInvoiceId} key={`edit-invoice-${selectedInvoiceId}`} language={language} mode="edit" onClose={closeInvoiceForm} onStaleState={handleInvoiceStaleState} onSuccess={handleEditSuccess} />}{invoiceDetailId && <InvoiceDetailModal company={company} invoiceId={invoiceDetailId} key={`detail-invoice-${invoiceDetailId}`} language={language} onCancel={(invoice) => openCancelConfirm(invoice.id, invoice.invoice_number || invoice.id)} onClose={closeDetailInvoice} onEdit={openEditInvoice} onVoid={(invoice) => openVoidConfirm(invoice.id, invoice.invoice_number || invoice.id)} refreshToken={detailRefreshToken} />}{confirmDialog && <InvoiceConfirmDialog action={confirmDialog.action} invoiceId={confirmDialog.invoiceId} invoiceNumber={confirmDialog.invoiceNumber} key={`confirm-${confirmDialog.action}-${confirmDialog.invoiceId}`} language={language} onClose={closeConfirmDialog} onStaleState={handleInvoiceStaleState} onSuccess={() => handleConfirmSuccess(confirmDialog.action, confirmDialog.invoiceId)} />}{showUnsupported && <UnsupportedDialog onClose={() => setShowUnsupported(false)} t={t}/>}</AdminLayout>;
+  const unsupportedMessage = unsupportedKind === "send"
+    ? invoiceCopy(language).sendUnsupported
+    : unsupportedKind === "download"
+      ? invoiceCopy(language).downloadUnsupported
+      : "";
+
+  return <AdminLayout activePage={activePage} company={company} currentUser={currentUser} hideHeader language={language} modules={modules} onNavigate={onNavigate} subtitle={description} t={t} title={title} {...layout}><div className="tenant-getting-paid-page" data-getting-paid-direction={gettingPaidDirection(language)} dir={gettingPaidDirection(language)}><PageHeader description={description} title={title}/>{content()}</div>{invoiceModal === "create" && canManageInvoices && <InvoiceFormModal company={company} key="create-invoice" language={language} mode="create" onClose={closeInvoiceForm} onSuccess={handleCreateSuccess} />}{invoiceModal === "edit" && selectedInvoiceId && canManageInvoices && <InvoiceFormModal company={company} invoiceId={selectedInvoiceId} key={`edit-invoice-${selectedInvoiceId}`} language={language} mode="edit" onClose={closeInvoiceForm} onStaleState={handleInvoiceStaleState} onSuccess={handleEditSuccess} />}{invoiceDetailId && <InvoiceDetailModal canManage={canManageInvoices} company={company} invoiceId={invoiceDetailId} key={`detail-invoice-${invoiceDetailId}`} language={language} onCancel={(invoice) => openCancelConfirm(invoice.id, invoice.invoice_number || invoice.id)} onClose={closeDetailInvoice} onEdit={openEditInvoice} onMarkPaid={handleMarkPaid} onUnsupported={openInvoiceUnsupported} onVoid={(invoice) => openVoidConfirm(invoice.id, invoice.invoice_number || invoice.id)} refreshToken={detailRefreshToken} />}{confirmDialog && <InvoiceConfirmDialog action={confirmDialog.action} invoiceId={confirmDialog.invoiceId} invoiceNumber={confirmDialog.invoiceNumber} key={`confirm-${confirmDialog.action}-${confirmDialog.invoiceId}`} language={language} onClose={closeConfirmDialog} onStaleState={handleInvoiceStaleState} onSuccess={() => handleConfirmSuccess(confirmDialog.action, confirmDialog.invoiceId)} />}{unsupportedKind && <UnsupportedDialog message={unsupportedMessage} onClose={() => setUnsupportedKind("")} t={t}/>}</AdminLayout>;
 }
