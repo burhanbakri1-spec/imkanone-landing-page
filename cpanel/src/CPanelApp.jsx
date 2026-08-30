@@ -1114,6 +1114,7 @@ function CPanelApp() {
           !marketingPageKeys.includes(activePage) &&
           !gettingPaidPageKeys.includes(activePage) &&
           !analyticsPageKeys.includes(activePage) &&
+          activePage !== "admin-reports" &&
           !bookingPageKeys.includes(activePage) &&
           activePage !== "admin-automations" &&
           activePage !== "admin-settings" &&
@@ -1222,12 +1223,9 @@ function CPanelApp() {
         {gettingPaidPageKeys.includes(activePage) && (
           <AdminGettingPaidPage activePage={activePage} products={products} {...sharedLayoutProps} />
         )}
-        {analyticsPageKeys.includes(activePage) && (
+        {(analyticsPageKeys.includes(activePage) || activePage === "admin-reports") && (
           <AdminAnalyticsPage
             activePage={activePage}
-            employees={employees}
-            orders={orders}
-            products={products}
             {...sharedLayoutProps}
           />
         )}

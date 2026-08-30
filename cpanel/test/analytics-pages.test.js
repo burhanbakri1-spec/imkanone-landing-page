@@ -128,11 +128,20 @@ test("operational summary uses only supplied tenant arrays", () => {
   assert.deepEqual(buildVerifiedOperationalSummary({ customers: [{ id: 1 }], employees: [{ id: 2 }], orders: [{ total: 12 }, { total: "8" }], products: [{ id: 3 }] }), { customers: 1, employees: 1, orders: 2, products: 1, revenue: 20 });
 });
 
-test("All Reports is a static catalog and unsupported results use the shared flow", () => {
+test("All Reports uses the reports summary API and keeps unsupported visitor templates honest", () => {
   const page = source("pages/AdminAnalyticsPage.jsx");
+  const workspace = source("components/AnalyticsReportsWorkspace.jsx");
   assert.equal(reportCatalog.length, 13);
+  assert.match(page, /AnalyticsReportsWorkspace/);
+  assert.match(workspace, /fetchReportsSummary/);
+  assert.match(workspace, /dateFrom: appliedRange.date_from/);
+  assert.match(workspace, /copy.forbidden/);
+  assert.match(workspace, /copy.retry/);
+  assert.match(workspace, /copy.emptyPeriod/);
+  assert.match(workspace, /copy.readOnly/);
+  assert.match(workspace, /unsupportedCatalog/);
+  assert.doesNotMatch(workspace, /Math\.random|fakeRevenue|sampleReport|localStorage/);
   assert.match(page, /AdminUnderDevelopmentContent/);
-  assert.match(page, /setExpanded/);
   assert.match(page, /setUnsupported\(true\)/);
 });
 

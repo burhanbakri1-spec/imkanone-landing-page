@@ -4,7 +4,6 @@ import {
   AlertCircle,
   ArrowUpRight,
   BarChart3,
-  Bookmark,
   CalendarDays,
   ChevronDown,
   Clock3,
@@ -26,12 +25,11 @@ import {
 } from "lucide-react";
 import AdminLayout from "../components/AdminLayout.jsx";
 import { AdminUnderDevelopmentContent } from "./AdminPlaceholderPage.jsx";
+import AnalyticsReportsWorkspace from "../components/AnalyticsReportsWorkspace.jsx";
 import {
   analyticsDirection,
-  buildVerifiedOperationalSummary,
   reportCatalog,
 } from "../utils/analytics.js";
-import { fetchCustomers } from "../utils/customersApi.js";
 
 const COPY = {
   en: {
@@ -79,7 +77,7 @@ const PAGE_COPY = {
   "admin-analytics-session-recordings": ["Understand every visitor journey", "Session recordings can reveal friction only after consented recording is configured.", "افهم رحلة كل زائر", "يمكن لتسجيلات الجلسات إظهار نقاط التعثر بعد إعداد التسجيل الموافق عليه."],
   "admin-analytics-insights": ["Insights", "Recommended findings appear only after significant verified patterns are available.", "الرؤى", "تظهر النتائج المقترحة فقط بعد توفر أنماط موثّقة وذات دلالة."],
   "admin-analytics-benchmarks": ["Benchmarks", "Compare performance only when a verified and eligible benchmark dataset exists.", "المعايير", "قارن الأداء فقط عند توفر مجموعة بيانات معيارية موثّقة ومؤهلة."],
-  "admin-analytics-reports": ["All Reports", "Browse available report templates. Results open only when supported data exists.", "كل التقارير", "استعرض قوالب التقارير المتاحة. لا تفتح النتائج إلا عند توفر بيانات مدعومة."],
+  "admin-analytics-reports": ["All Reports", "Operational reports from this company’s orders, invoices, catalog, delivery zones, and activity log.", "كل التقارير", "تقارير تشغيلية من طلبات هذه الشركة والفواتير والكتالوج ومناطق التوصيل وسجل النشاط."],
 };
 
 function PageHeader({ activePage, ar, labels, onUnsupported }) {
@@ -111,11 +109,11 @@ function StatusRows({ items, labels }) {
   return <div className="tenant-analytics-status-rows">{items.map(([name, icon]) => { const Icon = icon; return <div key={name}><span><Icon size={17}/>{name}</span><b>{labels.noVerified}</b></div>; })}</div>;
 }
 
-function HighlightsPage({ customerCount, labels, summary }) {
+function HighlightsPage({ labels, onOpenReports }) {
   return <div className="analytics-highlights-page">
     <div className="tenant-analytics-top-grid"><DataPanel className="analytics-live-card" title="Live visitors"><div className="analytics-live-value"><Radio size={27}/><strong>0</strong><span>{labels.noVerified}</span></div></DataPanel><QuestionPanel labels={labels}/></div>
-    <div className="tenant-analytics-section-heading"><div><h2>Key statistics</h2><p>Operational counters are labeled separately from unavailable visitor analytics.</p></div><RangeControl labels={labels}/></div>
-    <div className="tenant-analytics-metrics four"><MetricCard icon={Globe2} label="Site sessions" status={labels.unavailable}/><MetricCard icon={Users} label="Unique visitors" status={labels.unavailable}/><MetricCard icon={BarChart3} label="Orders" value={summary.orders} status="Verified order records"/><MetricCard icon={Users} label="Customers" value={customerCount ?? "—"} status={customerCount == null ? labels.unavailable : "Verified customer records"}/></div>
+    <div className="tenant-analytics-section-heading"><div><h2>Key statistics</h2><p>Visitor analytics stay empty. Company operational reports are on All Reports.</p></div><button className="tenant-analytics-range" onClick={onOpenReports} type="button"><FileBarChart size={16}/>{labels.reports}</button></div>
+    <div className="tenant-analytics-metrics four"><MetricCard icon={Globe2} label="Site sessions" status={labels.unavailable}/><MetricCard icon={Users} label="Unique visitors" status={labels.unavailable}/><MetricCard icon={BarChart3} label="Orders" status={labels.unavailableDetail}/><MetricCard icon={Users} label="Customers" status={labels.unavailableDetail}/></div>
     <div className="tenant-analytics-section-heading"><div><h2>Get to know your visitors</h2><p>Visitor trends remain empty until a verified event source is connected.</p></div></div>
     <div className="tenant-analytics-grid three"><DataPanel title="Sessions over time"><EmptyChart label={labels.noVerified} detail={labels.unavailableDetail}/></DataPanel><DataPanel title="Top traffic sources"><StatusRows labels={labels} items={[["Direct", Globe2],["Search", Search],["Referrals", ArrowUpRight]]}/></DataPanel><DataPanel title="Sessions by location"><EmptyChart icon={Map} label={labels.noVerified} detail={labels.unavailableDetail} variant="map"/></DataPanel></div>
     <div className="tenant-analytics-section-heading"><div><h2>Explore visitor engagement</h2><p>Engagement and click tracking have not been verified.</p></div></div>
@@ -154,26 +152,27 @@ function BenchmarksPage({ labels }) {
   return <div className="analytics-benchmarks-page"><div className="analytics-period-note"><CalendarDays size={18}/><div><strong>Current period</strong><p>No eligible comparison period is available.</p></div></div><div className="analytics-benchmark-layout"><DataPanel title="Benchmark metrics"><div className="analytics-benchmark-table"><header><span>Metric</span><span>Your business</span><span>Benchmark</span></header>{metrics.map(metric=><div key={metric}><strong>{metric}</strong><span>{labels.unavailable}</span><span>{labels.unavailable}</span></div>)}</div></DataPanel><DataPanel title="Competition radar"><div className="analytics-radar"><span/><span/><span/><span/><i>{labels.noVerified}</i></div><p className="analytics-panel-note">No claim is made about competitor performance because an eligible benchmark dataset is unavailable.</p></DataPanel></div></div>;
 }
 
-function ReportsPage({ labels, onUnsupported }) {
-  const [expanded, setExpanded] = React.useState(false);
-  const [query, setQuery] = React.useState("");
-  const visible = reportCatalog.filter(([category, description, reports]) => `${category} ${description} ${reports.join(" ")}`.toLowerCase().includes(query.toLowerCase()));
-  const rows = expanded ? visible : visible.slice(0, 7);
-  return <div className="analytics-reports-page"><div className="analytics-report-search"><Search size={17}/><input aria-label="Search reports" onChange={(event)=>setQuery(event.target.value)} placeholder="Search reports" value={query}/></div><div className="analytics-report-catalog">{rows.map(([category,description,reports])=><section className="analytics-report-category" key={category}><div><h2>{category}</h2><p>{description}</p></div><div>{reports.map(report=><button key={report} onClick={onUnsupported} type="button"><span><FileBarChart size={18}/><b>{report}</b></span><span><Bookmark size={17}/><ArrowUpRight size={16}/></span><small>{labels.openReport}</small></button>)}</div></section>)}</div>{visible.length>7&&<button className="analytics-report-more" onClick={()=>setExpanded(value=>!value)} type="button">{expanded?labels.showLess:labels.showMore}<ChevronDown className={expanded?"open":""} size={16}/></button>}</div>;
+function ReportsPage({ company, currentUser, language, onUnsupported }) {
+  const unsupportedCatalog = reportCatalog.filter(([category]) => !["Sales", "Accounting", "People"].includes(category));
+  return (
+    <div className="analytics-reports-page">
+      <AnalyticsReportsWorkspace
+        company={company}
+        currentUser={currentUser}
+        language={language}
+        onUnsupported={onUnsupported}
+        unsupportedCatalog={unsupportedCatalog}
+      />
+    </div>
+  );
 }
 
-export default function AdminAnalyticsPage({ activePage, company, currentUser, employees = [], language = "en", modules = [], onNavigate, orders = [], products = [], t, ...layout }) {
+export default function AdminAnalyticsPage({ activePage, company, currentUser, language = "en", modules = [], onNavigate, t, ...layout }) {
   const ar = language === "ar";
   const labels = COPY[ar ? "ar" : "en"];
-  const [customers, setCustomers] = React.useState(null);
   const [unsupported, setUnsupported] = React.useState(false);
-  React.useEffect(() => {
-    let active = true;
-    fetchCustomers().then((data) => { if (active) setCustomers(Array.isArray(data) ? data : []); }).catch(() => { if (active) setCustomers(null); });
-    return () => { active = false; };
-  }, [company?.id]);
-  const summary = React.useMemo(() => buildVerifiedOperationalSummary({ customers: customers || [], employees, orders, products }), [customers, employees, orders, products]);
   const common = { labels, onUnsupported: () => setUnsupported(true) };
+  const reportPage = activePage === "admin-analytics-reports" || activePage === "admin-reports";
   let content;
   switch (activePage) {
     case "admin-analytics-realtime": content = <RealtimePage labels={labels}/>; break;
@@ -183,8 +182,10 @@ export default function AdminAnalyticsPage({ activePage, company, currentUser, e
     case "admin-analytics-session-recordings": content = <RecordingsPage {...common}/>; break;
     case "admin-analytics-insights": content = <InsightsPage {...common}/>; break;
     case "admin-analytics-benchmarks": content = <BenchmarksPage labels={labels}/>; break;
-    case "admin-analytics-reports": content = <ReportsPage {...common}/>; break;
-    default: content = <HighlightsPage customerCount={customers?.length ?? null} labels={labels} summary={summary}/>;
+    case "admin-analytics-reports":
+    case "admin-reports":
+      content = <ReportsPage company={company} currentUser={currentUser} language={language} onUnsupported={() => setUnsupported(true)}/>; break;
+    default: content = <HighlightsPage labels={labels} onOpenReports={() => onNavigate?.("admin-analytics-reports")}/>;
   }
-  return <AdminLayout activePage={activePage} company={company} currentUser={currentUser} hideHeader language={language} modules={modules} onNavigate={onNavigate} t={t} {...layout}><div className="tenant-analytics-page" dir={analyticsDirection(language)}><PageHeader activePage={activePage} ar={ar} labels={labels} onUnsupported={() => setUnsupported(true)}/>{content}{unsupported&&<div className="tenant-analytics-modal" role="dialog" aria-modal="true"><button aria-label="Close" onClick={()=>setUnsupported(false)} type="button"><X size={18}/></button><AdminUnderDevelopmentContent language={language} title={ar?"الميزة غير متاحة":"Feature unavailable"}/></div>}</div></AdminLayout>;
+  return <AdminLayout activePage={reportPage ? "admin-analytics-reports" : activePage} company={company} currentUser={currentUser} hideHeader language={language} modules={modules} onNavigate={onNavigate} t={t} {...layout}><div className="tenant-analytics-page" dir={analyticsDirection(language)}><PageHeader activePage={reportPage ? "admin-analytics-reports" : activePage} ar={ar} labels={labels} onUnsupported={() => setUnsupported(true)}/>{content}{unsupported&&<div className="tenant-analytics-modal" role="dialog" aria-modal="true"><button aria-label="Close" onClick={()=>setUnsupported(false)} type="button"><X size={18}/></button><AdminUnderDevelopmentContent language={language} title={ar?"الميزة غير متاحة":"Feature unavailable"}/></div>}</div></AdminLayout>;
 }

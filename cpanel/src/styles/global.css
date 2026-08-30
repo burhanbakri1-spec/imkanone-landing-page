@@ -28839,6 +28839,7 @@ html[dir="ltr"] .header-mega-panel.open,
   color: var(--analytics-ink);
   margin: -24px;
   min-height: calc(100vh - var(--studio-topbar-height));
+  overflow-x: hidden;
   padding: 32px clamp(24px, 3vw, 52px) 64px;
 }
 .tenant-analytics-page button,
@@ -29004,6 +29005,41 @@ html[dir="ltr"] .header-mega-panel.open,
 .analytics-report-category button small { display: none; }
 .analytics-report-more { display: flex; gap: 8px; margin: 22px auto 0; }
 .analytics-report-more svg.open { transform: rotate(180deg); }
+.analytics-reports-workspace { display: grid; gap: 16px; min-width: 0; }
+.analytics-reports-banner,
+.analytics-reports-hint,
+.analytics-reports-state { color: var(--analytics-muted); font-size: 13px; line-height: 1.5; }
+.analytics-reports-banner { background: #edf4ff; border-radius: 10px; color: #1d4f9c; padding: 12px 14px; }
+.analytics-reports-state { align-items: center; background: #fff; border: 1px solid var(--analytics-border); border-radius: 12px; display: grid; gap: 10px; justify-items: center; padding: 22px 16px; text-align: center; }
+.analytics-reports-state.is-error { background: #fdebed; border-color: #f3c4ca; color: #ac2f3b; }
+.analytics-reports-filters { align-items: end; display: flex; flex-wrap: wrap; gap: 12px; }
+.analytics-reports-presets { display: flex; flex-wrap: wrap; gap: 8px; }
+.analytics-reports-presets button { background: #fff; border: 1px solid #ccd9eb; border-radius: 999px; color: #526077; min-height: 38px; padding: 7px 14px; }
+.analytics-reports-presets button.active { background: #101a35; border-color: #101a35; color: #fff; }
+.analytics-reports-custom { display: flex; flex-wrap: wrap; gap: 10px; }
+.analytics-reports-custom label { display: grid; gap: 4px; font-size: 12px; color: var(--analytics-muted); }
+.analytics-reports-custom input { border: 1px solid #ccd9eb; border-radius: 10px; min-height: 38px; padding: 0 10px; }
+.analytics-reports-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.analytics-reports-metric { min-width: 0; }
+.analytics-reports-metric strong { overflow-wrap: anywhere; }
+.analytics-reports-bars { display: grid; gap: 10px; list-style: none; margin: 0; padding: 0; }
+.analytics-reports-bars li { align-items: center; display: grid; gap: 10px; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.6fr) auto; }
+.analytics-reports-bars span { min-width: 0; overflow-wrap: anywhere; }
+.analytics-reports-bar-track { background: #edf2f8; border-radius: 999px; height: 8px; min-width: 0; overflow: hidden; }
+.analytics-reports-bar-track > span { background: var(--analytics-blue); display: block; height: 100%; max-width: 100%; }
+.analytics-reports-empty-copy { color: var(--analytics-muted); font-size: 13px; margin: 0; }
+.analytics-reports-table { display: grid; gap: 0; min-width: 0; }
+.analytics-reports-table-head,
+.analytics-reports-table-row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); padding: 12px 0; }
+.analytics-reports-table-head { border-bottom: 1px solid #dfe6ef; color: var(--analytics-muted); font-size: 12px; font-weight: 600; }
+.analytics-reports-table-row { border-bottom: 1px solid #edf1f6; }
+.analytics-reports-table-row span { min-width: 0; overflow-wrap: anywhere; }
+.analytics-reports-unsupported-list { display: grid; gap: 0; list-style: none; margin: 0; padding: 0; }
+.analytics-reports-unsupported-list li { align-items: center; border-top: 1px solid #edf1f6; display: flex; gap: 12px; justify-content: space-between; padding: 14px 0; }
+.analytics-reports-unsupported-list li:first-child { border-top: 0; }
+.analytics-reports-unsupported-list span { color: var(--analytics-muted); display: block; font-size: 12px; }
+.analytics-reports-unsupported-list button { background: #fff; border: 1px solid #ccd9eb; border-radius: 999px; color: #526077; padding: 7px 12px; white-space: nowrap; }
+
 .tenant-analytics-modal { background: #fff; border: 1px solid #cad7e8; border-radius: 14px; box-shadow: 0 24px 70px #16233d38; inset: 50% auto auto 50%; max-width: min(520px, calc(100vw - 30px)); padding: 38px; position: fixed; transform: translate(-50%, -50%); width: 100%; z-index: 1300; }
 .tenant-analytics-modal > button { background: transparent; border: 0; cursor: pointer; inset: 12px 12px auto auto; position: absolute; }
 [dir="rtl"] .tenant-analytics-modal > button { inset: 12px auto auto 12px; }
@@ -29011,6 +29047,7 @@ html[dir="ltr"] .header-mega-panel.open,
 @media (max-width: 1180px) {
   .tenant-analytics-metrics.four,
   .tenant-analytics-grid.three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .analytics-reports-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .analytics-realtime-layout { grid-template-columns: minmax(0, 1fr) 300px; }
   .analytics-recordings-page { grid-template-columns: 1fr 1fr; }
 }
@@ -29029,7 +29066,17 @@ html[dir="ltr"] .header-mega-panel.open,
   .analytics-benchmark-layout,
   .analytics-performance-columns,
   .analytics-recordings-page,
-  .analytics-report-category { grid-template-columns: 1fr; }
+  .analytics-report-category,
+  .analytics-reports-kpis,
+  .analytics-reports-bars li,
+  .analytics-reports-table-head,
+  .analytics-reports-table-row,
+  .analytics-reports-unsupported-list li { grid-template-columns: 1fr; }
+  .analytics-reports-table-head { display: none; }
+  .analytics-reports-table-row span { display: flex; justify-content: space-between; gap: 12px; }
+  .analytics-reports-table-row span::before { color: var(--analytics-muted); content: attr(data-label); font-size: 12px; }
+  .analytics-reports-filters { align-items: stretch; flex-direction: column; }
+  .analytics-reports-custom { flex-direction: column; }
   .analytics-recordings-visual { min-height: 430px; padding: 32px; }
   .analytics-report-category { gap: 16px; }
 }
@@ -29047,6 +29094,7 @@ html[dir="ltr"] .header-mega-panel.open,
   .recording-browser { min-height: 280px; }
   .analytics-insights-empty { min-height: 470px; padding: 32px 20px; }
   .analytics-report-category { padding: 22px 18px; }
+  .analytics-reports-kpis { grid-template-columns: 1fr; }
 }
 
 /* Tenant Booking Calendar module */
