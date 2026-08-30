@@ -18,6 +18,9 @@ import { normalizeCatalogHierarchyInput, validateCatalogHierarchy } from "./cata
 const router = Router();
 const placeholderImage = "/images/products/product-placeholder.svg";
 const emptyImage = "";
+// Brand-only products (Main/Sub omitted) are limited to Kids Velvet workbook
+// outside-tree rows. Other tenants keep requireFullHierarchy unchanged.
+const KIDS_VELVET_COMPANY_ID = "kids-velvet";
 
 function isRealImageUrl(value) {
   return typeof value === "string"
@@ -280,6 +283,7 @@ async function applyCatalogHierarchyAndFilters(companyId, product) {
     categories,
     product,
     requireFullHierarchy: true,
+    allowBrandOnly: companyId === KIDS_VELVET_COMPANY_ID,
   });
   return { ...product, ...validated };
 }

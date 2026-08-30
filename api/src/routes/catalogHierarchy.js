@@ -83,6 +83,10 @@ export function validateCatalogHierarchy({
   product = {},
   requireMainCategory = false,
   requireFullHierarchy = false,
+  // Brand-only products are allowed when Main/Sub are both omitted (e.g. Velvet
+  // workbook outside-tree rows). Providing either Main or Sub still requires a
+  // complete Brand → Main → Sub chain under requireFullHierarchy.
+  allowBrandOnly = false,
 }) {
   const categoryById = new Map(categories.map((category) => [category.id, category]));
   const brandById = new Map(brands.map((brand) => [brand.id, brand]));
@@ -100,11 +104,17 @@ export function validateCatalogHierarchy({
 
   const mainCategoryId = nullOrTrimmed(product.mainCategoryId);
   const subcategoryId = nullOrTrimmed(product.subcategoryId ?? product.categoryId ?? product.category_id);
+  const brandOnly =
+    allowBrandOnly
+    && requireFullHierarchy
+    && Boolean(brandId)
+    && !mainCategoryId
+    && !subcategoryId;
 
-  if (requireHierarchy && !mainCategoryId) {
+  if (requireHierarchy && !mainCategoryId && !brandOnly) {
     throw catalogHierarchyError("Main Category is required.");
   }
-  if (requireFullHierarchy && !subcategoryId) {
+  if (requireFullHierarchy && !subcategoryId && !brandOnly) {
     throw catalogHierarchyError("Subcategory is required.");
   }
 

@@ -89,7 +89,7 @@ test("validateCatalogHierarchy rejects unknown/inactive brand and category refer
   );
 });
 
-test("requireFullHierarchy rejects missing Brand, Main Category, or Subcategory", () => {
+test("requireFullHierarchy rejects missing Brand or incomplete Main/Sub chains", () => {
   assert.throws(
     () => validateCatalogHierarchy({ brands, categories, product: {}, requireFullHierarchy: true }),
     /Brand is required/,
@@ -125,6 +125,29 @@ test("requireFullHierarchy rejects missing Brand, Main Category, or Subcategory"
   assert.equal(result.subcategoryId, "sub-dresses");
 });
 
+test("requireFullHierarchy with allowBrandOnly accepts brand-only products", () => {
+  const result = validateCatalogHierarchy({
+    brands,
+    categories,
+    product: { brandId: "velvet" },
+    requireFullHierarchy: true,
+    allowBrandOnly: true,
+  });
+  assert.equal(result.brandId, "velvet");
+  assert.equal(result.mainCategoryId, null);
+  assert.equal(result.subcategoryId, null);
+  assert.throws(
+    () => validateCatalogHierarchy({
+      brands,
+      categories,
+      product: { brandId: "velvet", mainCategoryId: "main-clothing" },
+      requireFullHierarchy: true,
+      allowBrandOnly: true,
+    }),
+    /Subcategory is required/,
+  );
+});
+
 test("backward compatible: a lone legacy categoryId validates without a Main Category", () => {
   const result = validateCatalogHierarchy({ brands, categories, product: { categoryId: "flat-category" } });
   assert.equal(result.subcategoryId, "flat-category");
@@ -139,6 +162,8 @@ test("products route wires hierarchy normalization and validation into create/up
   assert.match(productsSource, /normalizeCatalogHierarchyInput\(req\.body\)/);
   assert.match(productsSource, /applyCatalogHierarchyAndFilters\(req\.companyId/);
   assert.match(productsSource, /requireFullHierarchy:\s*true/);
+  assert.match(productsSource, /allowBrandOnly:\s*companyId\s*===\s*KIDS_VELVET_COMPANY_ID/);
+  assert.match(productsSource, /KIDS_VELVET_COMPANY_ID\s*=\s*"kids-velvet"/);
   assert.match(productsSource, /requirePermission\("products\.create"\)/);
   assert.match(productsSource, /requirePermission\("products\.update"\)/);
   assert.match(productsSource, /category_id and brand_id are not accepted/);
