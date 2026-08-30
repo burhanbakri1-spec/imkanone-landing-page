@@ -4,7 +4,7 @@ import {
   companyRepository,
   persistCompanyStore,
 } from "../data/store.js";
-import { optionalAuth, requireAdmin, requireAuth } from "../middleware/auth.js";
+import { optionalAuth, requireAnyPermission, requireAuth } from "../middleware/auth.js";
 import { isProductSettingsModuleEnabled } from "../tenancy/company.js";
 import {
   defaultProductSchema,
@@ -35,13 +35,17 @@ function requireProductSettingsModule(req, res, next) {
   return next();
 }
 
-adminProductSchemaRouter.use(requireAuth, requireAdmin, requireProductSettingsModule);
+const schemaRead = requireAnyPermission("product_settings.view", "product_settings.manage");
+const schemaWrite = requireAnyPermission("product_settings.manage");
 
-adminProductSchemaRouter.get("/", (req, res) => {
+adminProductSchemaRouter.use(requireAuth, requireProductSettingsModule);
+
+adminProductSchemaRouter.get("/", schemaRead, (req, res) => {
   res.json(schemaForCompany(req.companyId));
 });
 
-adminProductSchemaRouter.patch("/", async (req, res) => {
+adminProductSchemaRouter.patch("/", schemaWrite, async (req, res) => {
+
   try {
     const schema = sanitizeProductSchema(req.body);
     const current = companyProductSchemaRepository.findByCompany(req.companyId, () => true);

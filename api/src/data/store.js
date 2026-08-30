@@ -139,6 +139,7 @@ export const allPermissions = [
   "products.manage",
   "product_media.manage",
   "product_content.manage",
+  "product_settings.view",
   "product_settings.manage",
   "categories.view",
   "categories.create",

@@ -16,6 +16,8 @@ export const permissionGroups = [
       { key: "products.manage", labelKey: "Products: manage tenant fields" },
       { key: "product_media.manage", labelKey: "Product media: manage" },
       { key: "product_content.manage", labelKey: "Product content: manage" },
+      { key: "product_settings.view", labelKey: "Product settings: view schema" },
+      { key: "product_settings.manage", labelKey: "Product settings: manage schema" },
       { key: "inventory.view", labelKey: "Inventory: view" },
       { key: "inventory.manage", labelKey: "Inventory: manage stock" },
       { key: "categories.view", labelKey: "Categories: view" },

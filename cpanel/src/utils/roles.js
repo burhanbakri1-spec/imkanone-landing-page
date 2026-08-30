@@ -72,6 +72,16 @@ export function canUseReviewAction(user, permission) {
   return permissions.includes("reviews.manage") || permissions.includes(permission);
 }
 
+export function canUseProductSettingsAction(user, permission) {
+  const role = roleFromUser(user);
+  if (isCompanyAdmin(role)) return true;
+  if (role === "super_admin") return user?.isCompanyScope === true && Boolean(user?.activeCompany);
+  if (role === "manager") return true;
+  if (!isStaffRole(role)) return false;
+  const permissions = permissionsFromUser(user);
+  return permissions.includes("product_settings.manage") || permissions.includes(permission);
+}
+
 export function canUseDeliveryAction(user, permission) {
   const role = roleFromUser(user);
   if (isCompanyAdmin(role)) return true;
@@ -154,7 +164,7 @@ const PAGE_PERMISSIONS = {
   "admin-settings-bookings-forms": null,
   "admin-settings-bookings-video-conferencing": null,
   "admin-settings-bookings-integrations": null,
-  "admin-product-settings": null,
+  "admin-product-settings": ["product_settings.view"],
   "admin-invoices": ["invoices.view"],
   "admin-delivery": ["delivery.view"],
   "admin-reports": ["reports.view"],
