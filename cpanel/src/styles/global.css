@@ -35870,6 +35870,26 @@ main.admin-panel-main:has(.admin-studio-shell) {
   flex-wrap: wrap;
 }
 .product-schema-showcase-card code { display: block; margin-top: 4px; color: #65738a; font-size: 12px; }
+.product-schema-showcase-fields {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid #edf2f8;
+  padding-top: 14px;
+}
+.product-schema-showcase-fields-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.product-schema-showcase-fields-header strong { color: #15223b; }
+.product-schema-table--nested { min-width: 560px; }
+.product-schema-empty.is-compact {
+  padding: 16px 12px;
+  justify-items: start;
+  text-align: start;
+}
 .product-schema-nested-fields {
   margin: 0;
   padding: 0;

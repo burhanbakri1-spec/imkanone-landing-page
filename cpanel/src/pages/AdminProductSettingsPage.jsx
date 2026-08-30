@@ -1,5 +1,5 @@
 import React from "react";
-import { LoaderCircle, Plus, RefreshCw, Save, Search, Settings2, X } from "lucide-react";
+import { ChevronDown, ChevronUp, LoaderCircle, Plus, RefreshCw, Save, Search, Settings2, X } from "lucide-react";
 import AdminLayout from "../components/AdminLayout.jsx";
 import { canAccessAdminPage, canUseProductSettingsAction } from "../utils/roles.js";
 import { fetchProductSchema, saveProductSchema } from "../utils/productSchemaApi.js";
@@ -10,6 +10,7 @@ import {
   canRemoveField,
   cloneSchema,
   emptyCustomField,
+  emptyShowcaseField,
   fieldLabel,
   filterSchemaFields,
   isBuiltInField,
@@ -17,6 +18,7 @@ import {
   optionsToText,
   schemaCopy,
   schemaSummary,
+  sortedShowcaseFields,
   tabLabel,
   textToOptions,
   validateSchemaDraft,
@@ -52,7 +54,7 @@ function FieldEditorDialog({
   const [optionsText, setOptionsText] = React.useState(() => optionsToText(field?.options));
   const [error, setError] = React.useState("");
   const protectedField = isProtectedField(draft);
-  const builtIn = isBuiltInField(draft, bucket);
+  const builtIn = bucket === "showcaseField" ? false : isBuiltInField(draft, bucket);
 
   function handleSubmit(event) {
     event.preventDefault();
@@ -72,6 +74,7 @@ function FieldEditorDialog({
         setError(language === "ar" ? "المفتاح غير صالح." : "Field key is invalid.");
         return;
       }
+      if (bucket === "showcaseField") next.tab = "showcase";
       onSave(next);
     } catch (requestError) {
       setError(requestError.message || copy.saveFailed);
@@ -307,6 +310,53 @@ export default function AdminProductSettingsPage({
       const list = bucketList(current, bucket).filter((item) => item.key !== key);
       return updateBucketList(current, bucket, list);
     });
+  }
+
+  function removeShowcaseField(sectionKey, key) {
+    if (!window.confirm(copy.confirmRemove)) return;
+    setDraft((current) => ({
+      ...current,
+      showcaseSections: (current?.showcaseSections || []).map((section) => (
+        section.key === sectionKey
+          ? { ...section, fields: (section.fields || []).filter((item) => item.key !== key) }
+          : section
+      )),
+    }));
+  }
+
+  function upsertShowcaseField(sectionKey, field, originalKey = "") {
+    setDraft((current) => ({
+      ...current,
+      showcaseSections: (current?.showcaseSections || []).map((section) => {
+        if (section.key !== sectionKey) return section;
+        const fields = [...(section.fields || [])];
+        const normalized = { ...field, tab: "showcase" };
+        const index = fields.findIndex((item) => item.key === (originalKey || field.key));
+        if (index >= 0) fields[index] = normalized;
+        else fields.push(normalized);
+        return { ...section, fields: sortedShowcaseFields(fields) };
+      }),
+    }));
+    setEditorState(null);
+  }
+
+  function moveShowcaseField(sectionKey, key, direction) {
+    setDraft((current) => ({
+      ...current,
+      showcaseSections: (current?.showcaseSections || []).map((section) => {
+        if (section.key !== sectionKey) return section;
+        const fields = sortedShowcaseFields(section.fields);
+        const index = fields.findIndex((item) => item.key === key);
+        if (index < 0) return section;
+        const targetIndex = direction === "up" ? index - 1 : index + 1;
+        if (targetIndex < 0 || targetIndex >= fields.length) return section;
+        const currentOrder = Number(fields[index].sortOrder ?? index * 10);
+        const targetOrder = Number(fields[targetIndex].sortOrder ?? targetIndex * 10);
+        fields[index] = { ...fields[index], sortOrder: targetOrder };
+        fields[targetIndex] = { ...fields[targetIndex], sortOrder: currentOrder };
+        return { ...section, fields: sortedShowcaseFields(fields) };
+      }),
+    }));
   }
 
   function updateTab(tabKey, patch) {
@@ -602,17 +652,114 @@ export default function AdminProductSettingsPage({
                         />
                       </label>
                     </div>
-                    {(section.fields || []).length > 0 && (
-                      <ul className="product-schema-nested-fields">
-                        {(section.fields || []).map((field) => (
-                          <li key={field.key}>
-                            <span>{fieldLabel(field, language)}</span>
-                            <code>{field.key}</code>
-                            <span>{field.type}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+                    <div className="product-schema-showcase-fields">
+                      <header className="product-schema-showcase-fields-header">
+                        <strong>{copy.sectionFields}</strong>
+                        {canManage && (section.fields || []).length < BUCKET_LIMITS.showcaseField && (
+                          <button
+                            className="secondary-action"
+                            onClick={() => setEditorState({
+                              bucket: "showcaseField",
+                              sectionKey: section.key,
+                              field: emptyShowcaseField(),
+                              isNew: true,
+                            })}
+                            type="button"
+                          >
+                            <Plus size={14} /> {copy.addField}
+                          </button>
+                        )}
+                      </header>
+                      {!sortedShowcaseFields(section.fields).length ? (
+                        <div className="product-schema-empty is-compact">
+                          <span>{copy.emptySectionFields}</span>
+                        </div>
+                      ) : (
+                        <div className="product-schema-table-wrap">
+                          <table className="product-schema-table product-schema-table--nested">
+                            <thead>
+                              <tr>
+                                <th>{copy.key}</th>
+                                <th>{language === "ar" ? copy.labelAr : copy.labelEn}</th>
+                                <th>{copy.type}</th>
+                                <th>{copy.sortOrder}</th>
+                                <th>{copy.enabled}</th>
+                                <th>{copy.actions}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {sortedShowcaseFields(section.fields).map((field, fieldIndex, fieldRows) => (
+                                <tr className={field.enabled === false ? "is-disabled" : ""} key={field.key}>
+                                  <td>
+                                    <strong>{field.key}</strong>
+                                    {isProtectedField(field) && (
+                                      <div className="product-schema-badges">
+                                        <span className="is-protected">{copy.protected}</span>
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td>{fieldLabel(field, language)}</td>
+                                  <td>{field.type}</td>
+                                  <td>{field.sortOrder ?? 0}</td>
+                                  <td>
+                                    <span className={`product-schema-status ${field.enabled !== false ? "is-enabled" : "is-disabled"}`}>
+                                      {field.enabled !== false ? copy.enabled : copy.disabled}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <div className="product-schema-row-actions">
+                                      {canManage && (
+                                        <>
+                                          <button
+                                            aria-label={copy.moveUp}
+                                            className="text-action"
+                                            disabled={fieldIndex === 0}
+                                            onClick={() => moveShowcaseField(section.key, field.key, "up")}
+                                            type="button"
+                                          >
+                                            <ChevronUp size={14} />
+                                          </button>
+                                          <button
+                                            aria-label={copy.moveDown}
+                                            className="text-action"
+                                            disabled={fieldIndex === fieldRows.length - 1}
+                                            onClick={() => moveShowcaseField(section.key, field.key, "down")}
+                                            type="button"
+                                          >
+                                            <ChevronDown size={14} />
+                                          </button>
+                                        </>
+                                      )}
+                                      <button
+                                        className="text-action"
+                                        onClick={() => setEditorState({
+                                          bucket: "showcaseField",
+                                          sectionKey: section.key,
+                                          field,
+                                          isNew: false,
+                                        })}
+                                        type="button"
+                                      >
+                                        {copy.editField}
+                                      </button>
+                                      {canManage && canRemoveField(field, "showcaseField") && (
+                                        <button
+                                          className="text-action is-danger"
+                                          onClick={() => removeShowcaseField(section.key, field.key)}
+                                          type="button"
+                                        >
+                                          {copy.removeField}
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
                   </article>
                 ))}
               </section>
@@ -696,7 +843,17 @@ export default function AdminProductSettingsPage({
             isNew={editorState.isNew}
             language={language}
             onCancel={() => setEditorState(null)}
-            onSave={(field) => upsertField(editorState.bucket, field, editorState.isNew ? "" : editorState.field.key)}
+            onSave={(field) => {
+              if (editorState.bucket === "showcaseField") {
+                upsertShowcaseField(
+                  editorState.sectionKey,
+                  field,
+                  editorState.isNew ? "" : editorState.field.key,
+                );
+                return;
+              }
+              upsertField(editorState.bucket, field, editorState.isNew ? "" : editorState.field.key);
+            }}
             readOnly={!canManage}
           />
         )}

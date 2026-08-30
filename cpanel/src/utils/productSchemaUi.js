@@ -91,6 +91,10 @@ export function schemaCopy(language = "en") {
     confirmRemove: "إزالة هذا الحقل من المخطط؟",
     newFieldTitle: "حقل مخصص جديد",
     editFieldTitle: "تعديل الحقل",
+    sectionFields: "حقول القسم",
+    emptySectionFields: "لا توجد حقول مخصصة في هذا القسم بعد.",
+    moveUp: "تحريك لأعلى",
+    moveDown: "تحريك لأسفل",
   } : {
     title: "Product schema",
     subtitle: "Configure product, media, variant, and showcase fields for this tenant.",
@@ -146,6 +150,10 @@ export function schemaCopy(language = "en") {
     confirmRemove: "Remove this field from the schema?",
     newFieldTitle: "New custom field",
     editFieldTitle: "Edit field",
+    sectionFields: "Section fields",
+    emptySectionFields: "No custom fields in this section yet.",
+    moveUp: "Move up",
+    moveDown: "Move down",
   };
 }
 
@@ -183,8 +191,15 @@ export function isBuiltInField(field, bucket) {
 
 export function canRemoveField(field, bucket) {
   if (isProtectedField(field)) return false;
+  if (bucket === "showcaseField") return true;
   if (isBuiltInField(field, bucket)) return false;
   return true;
+}
+
+export function sortedShowcaseFields(fields = []) {
+  return [...(Array.isArray(fields) ? fields : [])].sort(
+    (a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0),
+  );
 }
 
 export function filterSchemaFields(fields, { query = "", tab = "all", enabled = "all" } = {}) {
@@ -220,6 +235,22 @@ export function textToOptions(text) {
       if (!value) throw new Error(`Option ${index + 1} is missing a value.`);
       return { value, label: { en: en || value, ar: ar || en || value } };
     });
+}
+
+export function emptyShowcaseField() {
+  return {
+    key: "",
+    tab: "showcase",
+    label: { en: "", ar: "" },
+    type: "text",
+    required: false,
+    enabled: true,
+    storefrontVisible: false,
+    protected: false,
+    sortOrder: 999,
+    defaultValue: "",
+    options: [],
+  };
 }
 
 export function emptyCustomField(bucket) {

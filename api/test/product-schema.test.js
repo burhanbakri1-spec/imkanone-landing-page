@@ -147,6 +147,42 @@ test("product schema admin API", async (t) => {
     assert.equal(read.body.fields.find((field) => field.key === "skinTypes").label.en, "Skin types updated");
   });
 
+  await t.test("manager can patch showcase nested fields and reload persists them", async () => {
+    const base = savedSchema || defaultProductSchema();
+    const next = JSON.parse(JSON.stringify(base));
+    const section = next.showcaseSections.find((item) => item.key === "how_it_works");
+    assert.ok(section);
+    section.fields.push({
+      key: "customHighlight",
+      tab: "showcase",
+      label: { en: "Custom highlight", ar: "تمييز مخصص" },
+      type: "textarea",
+      required: false,
+      enabled: true,
+      storefrontVisible: true,
+      sortOrder: 15,
+      options: [],
+    });
+    const patch = await request("/admin/product-schema", {
+      token: managerToken,
+      method: "PATCH",
+      body: next,
+    });
+    assert.equal(patch.response.status, 200);
+    const nested = patch.body.showcaseSections
+      .find((item) => item.key === "how_it_works")
+      .fields.find((field) => field.key === "customHighlight");
+    assert.equal(nested.label.en, "Custom highlight");
+    assert.equal(nested.tab, "showcase");
+    const read = await request("/admin/product-schema", { token: adminToken });
+    assert.equal(read.response.status, 200);
+    const persisted = read.body.showcaseSections
+      .find((item) => item.key === "how_it_works")
+      .fields.find((field) => field.key === "customHighlight");
+    assert.equal(persisted.label.ar, "تمييز مخصص");
+    savedSchema = read.body;
+  });
+
   await t.test("invalid schema patch is rejected", async () => {
     const bad = JSON.parse(JSON.stringify(savedSchema));
     bad.fields.push({

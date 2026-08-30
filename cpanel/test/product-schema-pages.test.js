@@ -7,9 +7,11 @@ import { canUseProductSettingsAction } from "../src/utils/roles.js";
 import {
   canRemoveField,
   cloneSchema,
+  emptyShowcaseField,
   filterSchemaFields,
   isProtectedField,
   schemaCopy,
+  sortedShowcaseFields,
   validateSchemaDraft,
 } from "../src/utils/productSchemaUi.js";
 
@@ -100,4 +102,55 @@ test("schema helpers protect hierarchy fields and validate select options", () =
   assert.equal(filterSchemaFields(schema.fields, { query: "category" }).length, 1);
   assert.ok(schemaCopy("ar").title.length > 0);
   assert.ok(schemaCopy("en").title.length > 0);
+});
+
+test("showcase nested field editor supports add, edit, remove, and reorder wiring", () => {
+  const page = read("src/pages/AdminProductSettingsPage.jsx");
+  assert.match(page, /upsertShowcaseField\(/);
+  assert.match(page, /removeShowcaseField\(/);
+  assert.match(page, /moveShowcaseField\(/);
+  assert.match(page, /emptyShowcaseField\(/);
+  assert.match(page, /sortedShowcaseFields\(/);
+  assert.match(page, /bucket: "showcaseField"/);
+  assert.match(page, /copy\.emptySectionFields/);
+  assert.match(page, /copy\.moveUp/);
+  assert.match(page, /copy\.moveDown/);
+  assert.match(page, /copy\.confirmRemove/);
+  assert.doesNotMatch(page, /product-schema-nested-fields/);
+});
+
+test("showcase field helpers validate nested fields and protect hierarchy keys", () => {
+  const field = emptyShowcaseField();
+  assert.equal(field.tab, "showcase");
+  const schema = cloneSchema({
+    version: 1,
+    tabs: [],
+    fields: [],
+    variantAttributes: [],
+    mediaFields: [],
+    showcaseSections: [{
+      key: "how_it_works",
+      title: { en: "How it Works", ar: "طريقة الاستخدام" },
+      enabled: true,
+      storefrontVisible: true,
+      sortOrder: 10,
+      fields: [{
+        key: "customNote",
+        tab: "showcase",
+        label: { en: "Note", ar: "ملاحظة" },
+        type: "select",
+        required: false,
+        enabled: true,
+        sortOrder: 10,
+        options: [{ value: "a", label: { en: "A", ar: "أ" } }],
+      }],
+    }],
+    storefrontVisibility: { customFields: true, customSections: true },
+  });
+  assert.equal(validateSchemaDraft(schema).valid, true);
+  assert.equal(sortedShowcaseFields(schema.showcaseSections[0].fields)[0].key, "customNote");
+  assert.equal(canRemoveField(schema.showcaseSections[0].fields[0], "showcaseField"), true);
+  const protectedField = { key: "categoryId", protected: true, label: { en: "Cat", ar: "فئة" }, type: "select" };
+  assert.equal(canRemoveField(protectedField, "showcaseField"), false);
+  assert.equal(isProtectedField(protectedField), true);
 });
