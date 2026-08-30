@@ -1,9 +1,32 @@
 import { Router } from "express";
 import { activityLogRepository } from "../data/store.js";
-import { requireAuth, requireAdmin } from "../middleware/auth.js";
+import { requireAuth, requireAnyPermission } from "../middleware/auth.js";
+import { sanitizeLogData } from "../activityLog/logger.js";
 
 const router = Router();
-router.use(requireAuth, requireAdmin);
+router.use(requireAuth, requireAnyPermission("activity_log.view"));
+
+function publicActivityLog(log) {
+  if (!log) return null;
+  return {
+    id: log.id,
+    actor_user_id: log.actor_user_id || log.actor_id || "",
+    actor_email: log.actor_email || "",
+    actor_name: log.actor_name || "",
+    actor_role: log.actor_role || "",
+    action: log.action || "",
+    entity_type: log.entity_type || "",
+    entity_id: log.entity_id || "",
+    entity_label: log.entity_label || "",
+    summary: log.summary || "",
+    before_data: sanitizeLogData(log.before_data),
+    after_data: sanitizeLogData(log.after_data),
+    metadata: sanitizeLogData(log.metadata),
+    ip_address: log.ip_address || "",
+    user_agent: log.user_agent || "",
+    created_at: log.created_at || log.createdAt || "",
+  };
+}
 
 function safeNumber(value, fallback) {
   const parsed = Number(value);
@@ -62,7 +85,7 @@ router.get("/", (req, res) => {
     const paginated = logs.slice(start, start + limit);
 
     return res.json({
-      logs: paginated,
+      logs: paginated.map(publicActivityLog),
       total: logs.length,
       page,
       limit,
@@ -79,7 +102,7 @@ router.get("/:logId", (req, res) => {
     if (!log || log.deleted_at) {
       return res.status(404).json({ message: "Activity log not found." });
     }
-    return res.json(log);
+    return res.json(publicActivityLog(log));
   } catch (error) {
     return res.status(500).json({ message: "Unable to fetch activity log." });
   }

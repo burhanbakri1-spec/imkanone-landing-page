@@ -74,7 +74,10 @@ export const permissionGroups = [
   },
   {
     titleKey: "admin.analytics",
-    permissions: [{ key: "reports.view", labelKey: "Analytics and reports: view" }],
+    permissions: [
+      { key: "reports.view", labelKey: "Analytics and reports: view" },
+      { key: "activity_log.view", labelKey: "Activity log: view" },
+    ],
   },
   {
     titleKey: "Dropshipping",
