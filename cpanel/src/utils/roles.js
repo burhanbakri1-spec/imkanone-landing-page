@@ -182,7 +182,7 @@ const PAGE_PERMISSIONS = {
   "admin-bookings-work-schedule": ["customers.view"],
   "admin-bookings-analytics": ["customers.view"],
   "admin-activity-log": ["activity_log.view"],
-  "admin-unit-creator": ["product_settings.manage"],
+  "admin-unit-creator": null,
   "admin-dropshipping": ["dropshipping.reports.read"],
   "admin-dropshipping-marketers": ["dropshipping.marketers.read"],
   "admin-dropshipping-products": ["dropshipping.products.read"],
@@ -203,6 +203,19 @@ function permissionsFromUser(user) {
 
 function userHasPagePermission(user, page) {
   const role = roleFromUser(user);
+  if (page === "admin-unit-creator") {
+    if (role === "super_admin") {
+      return user?.isCompanyScope === true && Boolean(user?.activeCompany);
+    }
+    return isCompanyAdmin(role);
+  }
+  if (typeof page === "string" && (page === "admin-custom-module" || page.startsWith("admin-custom-module:"))) {
+    if (role === "super_admin") {
+      return user?.isCompanyScope === true && Boolean(user?.activeCompany);
+    }
+    if (isCompanyAdmin(role)) return true;
+    return isStaffRole(role);
+  }
   if (page === "admin-site-editor") {
     if (role === "super_admin") {
       return user?.isCompanyScope === true && Boolean(user?.activeCompany);

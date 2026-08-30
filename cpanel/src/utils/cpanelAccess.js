@@ -34,6 +34,11 @@ import {
   developerToolsRoutes,
   resolveDeveloperToolsPage,
 } from "./developerTools.js";
+import {
+  customModulePageKey,
+  isCustomModulePage,
+  parseCustomModuleKeyFromPath,
+} from "./customModulesUi.js";
 
 export function isValidCpanelUser(user) {
   if (!user) return false;
@@ -139,6 +144,7 @@ function canOpenCustomerLeadPage(user, page, navigationModules) {
 }
 
 export function canonicalAdminPageKey(page) {
+  if (isCustomModulePage(page)) return page;
   return canonicalDeveloperToolsPageKey(
     canonicalWebsiteContentPageKey(
       canonicalTenantManagementPageKey(
@@ -154,6 +160,11 @@ export function resolvePage(pathname, user, navigationModules) {
     return canAccessAdminPage(user, "admin-site-editor")
       ? "admin-site-editor"
       : unauthorizedPage(user);
+  }
+  const customModuleKey = parseCustomModuleKeyFromPath(normalizedPath);
+  if (customModuleKey) {
+    const page = customModulePageKey(customModuleKey);
+    return canAccessAdminPage(user, page) ? page : unauthorizedPage(user);
   }
   if (/^\/admin\/products\/[^/]+\/edit$/.test(normalizedPath)) {
     return canAccessAdminPage(user, "admin-products-edit")

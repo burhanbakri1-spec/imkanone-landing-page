@@ -53,6 +53,7 @@ import {
   toggleExclusivePopover,
 } from "../data/adminNavigation.js";
 import { groupCompanyModules, normalizedModulePage } from "../utils/moduleRegistry.js";
+import { customModuleNavItems } from "../utils/customModulesUi.js";
 import { canonicalAdminPageKey } from "../utils/cpanelAccess.js";
 import { canAccessAdminPage, isScopedPlatformSuperAdmin } from "../utils/roles.js";
 
@@ -68,6 +69,8 @@ const iconMap = {
   chartSpline: ChartNoAxesCombined,
   contact: Users,
   contactRound: Users,
+  cuboid: Blocks,
+  folder: Blocks,
   gitBranch: GitBranch,
   heartHandshake: HeartHandshake,
   listTodo: ListTodo,
@@ -210,6 +213,7 @@ function AdminLayout({
   currentUser,
   language = "en",
   modules = [],
+  customModules = [],
   onLogout,
   onNavigate,
   onLanguageChange,
@@ -243,8 +247,19 @@ function AdminLayout({
       icon: item.icon_key,
       existing: true,
     }));
-    return customItems.length ? [...filtered, { id: "tenant-custom", label: { en: "Custom", ar: "مخصص" }, icon: "blocks", children: customItems }] : filtered;
-  }, [configuredPageKeys, currentUser, isSuperAdmin, isTenant, modulePages, modules]);
+    const dynamicCustomModules = customModuleNavItems(customModules, currentUser);
+    const withRegistryCustom = customItems.length
+      ? [...filtered, { id: "tenant-custom", label: { en: "Custom", ar: "مخصص" }, icon: "blocks", children: customItems }]
+      : filtered;
+    return dynamicCustomModules.length
+      ? [...withRegistryCustom, {
+        id: "tenant-custom-modules",
+        label: { en: "Custom modules", ar: "وحدات مخصصة" },
+        icon: "blocks",
+        children: dynamicCustomModules,
+      }]
+      : withRegistryCustom;
+  }, [configuredPageKeys, currentUser, customModules, isSuperAdmin, isTenant, modulePages, modules]);
   const quickActions = React.useMemo(() => [
     { pageKey: "admin-products-new", label: { en: "Add product", ar: "إضافة منتج" }, description: { en: "Create a catalog product", ar: "إنشاء منتج في الكتالوج" }, icon: "package" },
     { pageKey: "admin-products", label: { en: "Manage products", ar: "إدارة المنتجات" }, description: { en: "Review the current catalog", ar: "مراجعة الكتالوج الحالي" }, icon: "package" },
@@ -335,9 +350,11 @@ function AdminLayout({
     backToPlatform: ar ? "العودة إلى المنصة" : "Back to Platform",
   };
 
-  const go = (pageKey) => {
+  const go = (pageKey, item = null) => {
     closeMobileSidebar();
-    if (typeof onNavigate === "function") onNavigate(pageKey);
+    if (typeof onNavigate !== "function") return;
+    if (item?.path) onNavigate(pageKey, { path: item.path });
+    else onNavigate(pageKey);
   };
 
   const toggleMobileSidebar = () => setMobileOpen((open) => !open);
@@ -347,7 +364,7 @@ function AdminLayout({
     const active = item.pageKey === activeKey;
     const branchActive = navigationContainsPage(item, activeKey);
     if (!item.children && item.newTab) return <a className={`admin-nav-button ${active ? "active" : ""}`} href={item.path} key={item.id} rel="noopener noreferrer" target="_blank" title={sidebarCollapsed ? localized(item.label, language) : undefined} style={{ "--nav-depth": level }}><Icon size={16} /><span>{localized(item.label, language)}</span></a>;
-    if (!item.children) return <button className={`admin-nav-button ${active ? "active" : ""}`} key={item.id} onClick={() => go(item.pageKey)} type="button" title={sidebarCollapsed ? localized(item.label, language) : undefined} style={{ "--nav-depth": level }}><Icon size={16} /><span>{localized(item.label, language)}</span>{item.placeholder && <small>{ar ? "قريباً" : "Soon"}</small>}</button>;
+    if (!item.children) return <button className={`admin-nav-button ${active ? "active" : ""}`} key={item.id} onClick={() => go(item.pageKey, item)} type="button" title={sidebarCollapsed ? localized(item.label, language) : undefined} style={{ "--nav-depth": level }}><Icon size={16} /><span>{localized(item.label, language)}</span>{item.placeholder && <small>{ar ? "قريباً" : "Soon"}</small>}</button>;
     const open = level === 0 ? openMain === item.id : Boolean(openNested[item.id] || branchActive);
     return <div className={`admin-nav-group admin-nav-depth-${level}`} key={item.id}>
       <button className={`admin-nav-section ${branchActive ? "active" : ""}`} onClick={() => {

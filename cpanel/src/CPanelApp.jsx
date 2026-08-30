@@ -8,6 +8,7 @@ import AdminInventoryPage from "./pages/AdminInventoryPage.jsx";
 import AdminReviewsPage from "./pages/AdminReviewsPage.jsx";
 import AdminProductSettingsPage from "./pages/AdminProductSettingsPage.jsx";
 import AdminUnitCreatorPage from "./pages/AdminUnitCreatorPage.jsx";
+import AdminCustomModulePage from "./pages/AdminCustomModulePage.jsx";
 import AdminDeliveryPage from "./pages/AdminDeliveryPage.jsx";
 import AdminActivityLogPage from "./pages/AdminActivityLogPage.jsx";
 import AdminEmployeesPage from "./pages/AdminEmployeesPage.jsx";
@@ -61,6 +62,13 @@ import {
   setCurrentUser as persistCurrentUser,
 } from "./utils/auth.js";
 import { moduleAllowsPage } from "./utils/moduleRegistry.js";
+import { fetchCustomModules } from "./utils/customModulesApi.js";
+import {
+  customModulePath,
+  isCustomModulePage,
+  isCustomModulePath,
+  parseCustomModuleKeyFromPage,
+} from "./utils/customModulesUi.js";
 import { performSecureCompanySwitch } from "./utils/companySwitcher.js";
 import { protectedApiErrorEvent } from "./utils/api.js";
 import { assignOrderEmployee, createOrder, deleteOrder, getOrders, updateOrderStatus } from "./utils/orders.js";
@@ -221,6 +229,7 @@ function CPanelApp() {
   const [currentUser, setUser] = React.useState(storedUser);
   const [isAuthResolving, setIsAuthResolving] = React.useState(true);
   const modules = company?.modules || [];
+  const [customModules, setCustomModules] = React.useState([]);
   const [products, setProducts] = React.useState([]);
   const [categories, setCategories] = React.useState([]);
   const [brands, setBrands] = React.useState([]);
@@ -260,9 +269,11 @@ function CPanelApp() {
       ? options.company
       : company;
     const navigationModules = options.modules || modules;
-    const routeRecognized = Boolean(pagePaths[requestedPage]);
+    const isCustom = isCustomModulePage(requestedPage);
+    const routeRecognized = Boolean(pagePaths[requestedPage]) || isCustom;
     const roleAllowed = routeRecognized && canAccessAdminPage(authorizationUser, requestedPage);
     const moduleAllowed =
+      isCustom ||
       !navigationModules.length ||
       !navigationCompany ||
       requestedPage === "admin-platform-companies" ||
@@ -280,10 +291,13 @@ function CPanelApp() {
     if (!options.preserveStatusMessage) setAdminMessage("");
     if (!options.preserveLoginMessage) setAdminLoginMessage("");
     setActivePage(safePage);
+    const customKey = parseCustomModuleKeyFromPage(safePage);
     const destinationPath = safePage === requestedPage && options.path
       ? options.path
-      : pagePaths[safePage];
-    if (window.location.pathname !== destinationPath) {
+      : customKey
+        ? customModulePath(customKey)
+        : pagePaths[safePage];
+    if (destinationPath && window.location.pathname !== destinationPath) {
       window.history[options.replace ? "replaceState" : "pushState"]({}, "", destinationPath);
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -326,10 +340,38 @@ function CPanelApp() {
     const isCustomerDetailPath =
       activePage === "admin-customers-detail" &&
       /^\/admin\/customers\/[^/]+$/.test(window.location.pathname);
-    if (canonicalPath && canonicalPath !== window.location.pathname && !isProductEditPath && !isCustomerDetailPath) {
+    if (
+      canonicalPath
+      && canonicalPath !== window.location.pathname
+      && !isProductEditPath
+      && !isCustomerDetailPath
+      && !isCustomModulePath(window.location.pathname)
+    ) {
       window.history.replaceState({}, "", canonicalPath);
     }
   }, []);
+
+  const refreshCustomModules = React.useCallback(() => {
+    if (isAuthResolving || sessionInvalidatingRef.current) return Promise.resolve([]);
+    if (!isAdminPortalRole(currentUser?.role) || isPlatformAdmin(currentUser.role) || !company) {
+      setCustomModules([]);
+      return Promise.resolve([]);
+    }
+    return fetchCustomModules()
+      .then((data) => {
+        const rows = Array.isArray(data) ? data : [];
+        setCustomModules(rows);
+        return rows;
+      })
+      .catch(() => {
+        setCustomModules([]);
+        return [];
+      });
+  }, [company, currentUser, isAuthResolving]);
+
+  React.useEffect(() => {
+    void refreshCustomModules();
+  }, [refreshCustomModules]);
 
   React.useEffect(() => {
     function onPopState() {
@@ -426,6 +468,7 @@ function CPanelApp() {
     if (!company || !currentUser || activePage === "admin-login") return;
     if (currentUser.role === "manager") return;
     if (["company_admin", "admin"].includes(currentUser.role)) return;
+    if (isCustomModulePage(activePage)) return;
     const allowedByModule =
       !modules.length ||
       isNavigationPlaceholderPage(activePage) ||
@@ -1050,6 +1093,7 @@ function CPanelApp() {
   const sharedLayoutProps = {
     company,
     currentUser,
+    customModules,
     isDarkMode,
     language,
     modules,
@@ -1132,6 +1176,7 @@ function CPanelApp() {
           activePage !== "admin-reviews" &&
           activePage !== "admin-product-settings" &&
           activePage !== "admin-unit-creator" &&
+          !isCustomModulePage(activePage) &&
           activePage !== "admin-delivery" &&
           activePage !== "admin-activity-log" &&
           !customerPageKeys.includes(activePage) && (
@@ -1189,7 +1234,14 @@ function CPanelApp() {
         )}
 
         {activePage === "admin-unit-creator" && (
-          <AdminUnitCreatorPage {...sharedLayoutProps} />
+          <AdminUnitCreatorPage
+            onCustomModulesChange={refreshCustomModules}
+            {...sharedLayoutProps}
+          />
+        )}
+
+        {isCustomModulePage(activePage) && (
+          <AdminCustomModulePage activePage={activePage} {...sharedLayoutProps} />
         )}
 
         {activePage === "admin-delivery" && (

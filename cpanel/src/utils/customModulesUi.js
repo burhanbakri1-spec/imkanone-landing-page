@@ -6,6 +6,94 @@ export const CUSTOM_FIELD_TYPES = [
 ];
 
 const KEY_PATTERN = /^[a-z][a-z0-9_]{1,49}$/;
+export const CUSTOM_MODULE_PAGE_PREFIX = "admin-custom-module:";
+export const CUSTOM_MODULE_PAGE = "admin-custom-module";
+export const CUSTOM_MODULE_PATH_PREFIX = "/admin/custom-modules/";
+
+export function isCustomModulePage(page) {
+  return page === CUSTOM_MODULE_PAGE || String(page || "").startsWith(CUSTOM_MODULE_PAGE_PREFIX);
+}
+
+export function customModulePageKey(moduleKey) {
+  return `${CUSTOM_MODULE_PAGE_PREFIX}${String(moduleKey || "").trim()}`;
+}
+
+export function customModulePath(moduleKey) {
+  return `${CUSTOM_MODULE_PATH_PREFIX}${encodeURIComponent(String(moduleKey || "").trim())}`;
+}
+
+export function parseCustomModuleKeyFromPage(page) {
+  if (!String(page || "").startsWith(CUSTOM_MODULE_PAGE_PREFIX)) return "";
+  return String(page).slice(CUSTOM_MODULE_PAGE_PREFIX.length);
+}
+
+export function parseCustomModuleKeyFromPath(pathname) {
+  const match = String(pathname || "").match(/^\/admin\/custom-modules\/([^/]+)$/);
+  if (!match) return "";
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+export function isCustomModulePath(pathname) {
+  return Boolean(parseCustomModuleKeyFromPath(pathname));
+}
+
+export function moduleDisplayLabel(module) {
+  return String(module?.label || module?.key || "").trim();
+}
+
+export function isEnabledCustomModule(module) {
+  return Boolean(module) && module.enabled !== false;
+}
+
+export function navVisibleCustomModules(modules, user) {
+  return (Array.isArray(modules) ? modules : [])
+    .filter((module) => isEnabledCustomModule(module) && canViewCustomModule(user, module))
+    .sort((a, b) => Number(a.sidebarOrder || 0) - Number(b.sidebarOrder || 0)
+      || moduleDisplayLabel(a).localeCompare(moduleDisplayLabel(b)));
+}
+
+export function customModuleNavItems(modules, user) {
+  return navVisibleCustomModules(modules, user).map((module) => {
+    const title = moduleDisplayLabel(module);
+    return {
+      id: `custom-module-${module.key}`,
+      pageKey: customModulePageKey(module.key),
+      path: customModulePath(module.key),
+      label: { en: title, ar: title },
+      icon: module.icon || "folder",
+      existing: true,
+    };
+  });
+}
+
+export function isSupportedCustomFieldType(type) {
+  return CUSTOM_FIELD_TYPES.includes(type);
+}
+
+export function customModuleWorkspaceCopy(language = "en") {
+  const ar = language === "ar";
+  return ar ? {
+    loading: "جاري تحميل الوحدة…",
+    loadFailed: "تعذر تحميل الوحدة.",
+    notFound: "هذه الوحدة غير موجودة.",
+    unavailable: "هذه الوحدة غير متاحة.",
+    forbidden: "ليست لديك صلاحية عرض هذه الوحدة.",
+    retry: "إعادة المحاولة",
+    openWorkspace: "فتح مساحة العمل",
+  } : {
+    loading: "Loading module…",
+    loadFailed: "Unable to load this module.",
+    notFound: "This module was not found.",
+    unavailable: "This module is not available.",
+    forbidden: "You do not have permission to view this module.",
+    retry: "Retry",
+    openWorkspace: "Open workspace",
+  };
+}
 
 export function unitCreatorCopy(language = "en") {
   const ar = language === "ar";
