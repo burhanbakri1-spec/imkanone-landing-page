@@ -28546,6 +28546,58 @@ html[dir="ltr"] .header-mega-panel.open,
 @media (max-width: 980px) { .inventory-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .inventory-toolbar { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 620px) { .inventory-summary, .inventory-toolbar { grid-template-columns: 1fr; } }
 
+/* Reviews workspace */
+.reviews-page { display: grid; gap: 16px; min-width: 0; }
+.reviews-panel { background: #fff; border: 1px solid #dbe5f4; border-radius: 12px; overflow: hidden; }
+.reviews-toolbar { display: flex; flex-wrap: wrap; gap: 10px; padding: 16px; border-block-end: 1px solid #e4eaf3; }
+.reviews-toolbar > * { min-width: 0; }
+.reviews-search { align-items: center; background: #fff; border: 1px solid #cbd8eb; border-radius: 8px; display: flex; flex: 1 1 220px; gap: 8px; min-height: 42px; padding-inline: 12px; }
+.reviews-search input { background: transparent; border: 0; outline: 0; width: 100%; }
+.reviews-toolbar select { border: 1px solid #cbd8eb; border-radius: 8px; min-height: 42px; padding-inline: 12px; }
+.reviews-list-head,
+.reviews-list-row {
+  align-items: start;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, .7fr) minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, .8fr) minmax(0, .8fr) minmax(0, 1.4fr);
+  padding: 12px 16px;
+}
+.reviews-list-head { background: #f7f9fc; color: #59677c; font-size: 12px; font-weight: 650; }
+.reviews-list-row { border-block-start: 1px solid #edf1f6; color: #26354d; font-size: 13px; }
+.reviews-list-row > span { min-width: 0; overflow-wrap: anywhere; }
+.reviews-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.reviews-text-action { background: transparent; border: 0; color: #2169ca; cursor: pointer; font-weight: 700; padding: 4px 0; }
+.reviews-text-action.danger { color: #a32935; }
+.reviews-status { border-radius: 999px; display: inline-flex; font-size: 12px; font-weight: 650; padding: 4px 9px; }
+.reviews-status.is-approved { background: #e8f7ef; color: #167a4a; }
+.reviews-status.is-pending { background: #fff5dd; color: #966100; }
+.reviews-status.is-rejected,
+.reviews-status.is-hidden { background: #fdebed; color: #ac2f3b; }
+.reviews-state { align-items: center; display: flex; flex-direction: column; gap: 10px; justify-content: center; min-height: 320px; padding: 32px; text-align: center; }
+.reviews-state.compact { min-height: 160px; }
+.reviews-modal-backdrop { align-items: center; background: rgba(17, 28, 45, .45); display: flex; inset: 0; justify-content: center; padding: 20px; position: fixed; z-index: 80; }
+.reviews-modal { background: #fff; border-radius: 14px; display: grid; gap: 14px; max-height: calc(100vh - 40px); max-width: 560px; overflow: auto; padding: 20px; position: relative; width: min(100%, 560px); }
+.reviews-modal > button[aria-label] { inset-block-start: 12px; inset-inline-end: 12px; position: absolute; }
+.reviews-modal label { display: grid; gap: 6px; font-size: 13px; font-weight: 650; }
+.reviews-modal input,
+.reviews-modal select,
+.reviews-modal textarea { border: 1px solid #cbd8eb; border-radius: 8px; font: inherit; min-height: 40px; padding: 8px 12px; }
+.reviews-modal textarea { min-height: 88px; resize: vertical; }
+.reviews-detail { display: grid; gap: 10px; margin: 0; }
+.reviews-detail > div { display: grid; gap: 4px; grid-template-columns: minmax(0, 120px) minmax(0, 1fr); }
+.reviews-detail dt { color: #65738a; margin: 0; }
+.reviews-detail dd { margin: 0; }
+[dir="rtl"] .reviews-list-head,
+[dir="rtl"] .reviews-list-row,
+[dir="rtl"] .reviews-detail { text-align: right; }
+@media (max-width: 960px) {
+  .reviews-list-head { display: none; }
+  .reviews-list-row { grid-template-columns: 1fr; gap: 8px; }
+  .reviews-list-row > span { display: grid; gap: 8px; grid-template-columns: minmax(0, 110px) minmax(0, 1fr); }
+  .reviews-list-row > span::before { color: #65738a; content: attr(data-label); font-weight: 700; }
+  .reviews-detail > div { grid-template-columns: 1fr; }
+}
+
 /* Delivery zones workspace */
 .delivery-zones-page { display: grid; gap: 20px; }
 .delivery-zones-page.is-compact { gap: 16px; }

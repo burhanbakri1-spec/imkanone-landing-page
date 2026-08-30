@@ -42,6 +42,8 @@ export const permissionGroups = [
       { key: "delivery.manage", labelKey: "Delivery zones: manage" },
       { key: "invoices.view", labelKey: "Invoices: view" },
       { key: "invoices.manage", labelKey: "Invoices: manage" },
+      { key: "reviews.view", labelKey: "Reviews: view" },
+      { key: "reviews.manage", labelKey: "Reviews: moderate" },
     ],
   },
   {

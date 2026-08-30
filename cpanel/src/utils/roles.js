@@ -62,6 +62,16 @@ export function canUseInvoiceAction(user, permission) {
   return permissions.includes("invoices.manage") || permissions.includes(permission);
 }
 
+export function canUseReviewAction(user, permission) {
+  const role = roleFromUser(user);
+  if (isCompanyAdmin(role)) return true;
+  if (role === "super_admin") return user?.isCompanyScope === true && Boolean(user?.activeCompany);
+  if (role === "manager") return true;
+  if (!isStaffRole(role)) return false;
+  const permissions = permissionsFromUser(user);
+  return permissions.includes("reviews.manage") || permissions.includes(permission);
+}
+
 export function canUseDeliveryAction(user, permission) {
   const role = roleFromUser(user);
   if (isCompanyAdmin(role)) return true;
@@ -101,7 +111,7 @@ const PAGE_PERMISSIONS = {
   "admin-website-content-multilingual": null,
   "admin-site-editor": ["site_editor.access"],
   "admin-orders": ["orders.view"],
-  "admin-reviews": null,
+  "admin-reviews": ["reviews.view"],
   "admin-inventory": ["inventory.view", "inventory.manage", "products.view", "products.manage"],
   "admin-customers": ["customers.view"],
   "admin-customers-detail": ["customers.view"],

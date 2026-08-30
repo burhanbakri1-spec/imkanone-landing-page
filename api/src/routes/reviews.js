@@ -1,12 +1,10 @@
 import { Router } from "express";
 import { orderRepository, persistCompanyStore, reviewRepository } from "../data/store.js";
-import { effectiveTenantRole, optionalAuth, requireAuth } from "../middleware/auth.js";
+import { optionalAuth, requireAuth, requireAnyPermission } from "../middleware/auth.js";
 
 const router = Router();
-
-function isStaffRole(role) {
-  return role === "employee" || role === "staff";
-}
+const reviewRead = requireAnyPermission("reviews.view", "reviews.manage");
+const reviewWrite = requireAnyPermission("reviews.manage");
 
 function visibleReviews(items) {
   return items
@@ -51,12 +49,8 @@ router.get("/employee/:employeeId", optionalAuth, (req, res) => {
   );
 });
 
-router.get("/all", requireAuth, (req, res) => {
-  const reviews = reviewRepository.getByCompany(req.companyId);
-  if (isStaffRole(effectiveTenantRole(req))) {
-    return res.json(reviews.filter((review) => review.employeeId === req.user.id));
-  }
-  return res.json(reviews);
+router.get("/all", requireAuth, reviewRead, (req, res) => {
+  return res.json(reviewRepository.getByCompany(req.companyId));
 });
 
 router.post("/", requireAuth, async (req, res) => {
@@ -106,12 +100,8 @@ router.post("/", requireAuth, async (req, res) => {
   }
 });
 
-router.put("/:id/status", requireAuth, async (req, res) => {
+router.put("/:id/status", requireAuth, reviewWrite, async (req, res) => {
   try {
-    if (!["admin", "company_admin", "super_admin"].includes(effectiveTenantRole(req))) {
-      return res.status(403).json({ message: "Admin access required." });
-    }
-
     const review = reviewRepository.findByCompany(req.companyId, req.params.id);
     if (!review) return res.status(404).json({ message: "Review not found." });
 
@@ -129,11 +119,7 @@ router.put("/:id/status", requireAuth, async (req, res) => {
   }
 });
 
-router.put("/:id", requireAuth, async (req, res) => {
-  if (!["admin", "company_admin", "super_admin"].includes(effectiveTenantRole(req))) {
-    return res.status(403).json({ message: "Admin access required." });
-  }
-
+router.put("/:id", requireAuth, reviewWrite, async (req, res) => {
   const existing = reviewRepository.findByCompany(req.companyId, req.params.id);
   if (!existing) return res.status(404).json({ message: "Review not found." });
 
@@ -150,12 +136,8 @@ router.put("/:id", requireAuth, async (req, res) => {
   return res.json(updated);
 });
 
-router.delete("/:id", requireAuth, async (req, res) => {
+router.delete("/:id", requireAuth, reviewWrite, async (req, res) => {
   try {
-    if (!["admin", "company_admin", "super_admin"].includes(effectiveTenantRole(req))) {
-      return res.status(403).json({ message: "Admin access required." });
-    }
-
     const removed = reviewRepository.deleteForCompany(req.companyId, req.params.id);
     if (!removed) return res.status(404).json({ message: "Review not found." });
 
