@@ -5,6 +5,7 @@ import AdminDomainsPage from "./pages/AdminDomainsPage.jsx";
 import AdminPlatformOverview from "./pages/AdminPlatformOverview.jsx";
 import AdminDashboardPage from "./pages/AdminDashboardPage.jsx";
 import AdminInventoryPage from "./pages/AdminInventoryPage.jsx";
+import AdminDeliveryPage from "./pages/AdminDeliveryPage.jsx";
 import AdminEmployeesPage from "./pages/AdminEmployeesPage.jsx";
 import AdminLoginPage from "./pages/AdminLoginPage.jsx";
 import AdminDropshippingPage from "./pages/AdminDropshippingPage.jsx";
@@ -1167,6 +1168,10 @@ function CPanelApp() {
 
         {activePage === "admin-inventory" && (
           <AdminInventoryPage brands={brands} categories={categories} {...sharedLayoutProps} />
+        )}
+
+        {activePage === "admin-delivery" && (
+          <AdminDeliveryPage {...sharedLayoutProps} />
         )}
 
         {activePage === "admin-platform-overview" && <AdminPlatformOverview {...sharedLayoutProps} />}

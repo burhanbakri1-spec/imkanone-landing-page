@@ -38,6 +38,8 @@ export const permissionGroups = [
       { key: "orders.update", labelKey: "permissions.ordersUpdate" },
       { key: "orders.delete", labelKey: "permissions.ordersDelete" },
       { key: "orders.updateStatus", labelKey: "permissions.ordersUpdateStatus" },
+      { key: "delivery.view", labelKey: "Delivery zones: view" },
+      { key: "delivery.manage", labelKey: "Delivery zones: manage" },
     ],
   },
   {

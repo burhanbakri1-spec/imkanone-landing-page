@@ -11,7 +11,6 @@ import { isTenantOperator } from "../utils/roles.js";
 const features = {
   "admin-website-texts": { title: "Website Content", endpoint: "/admin/website-texts" },
   "admin-invoices": { title: "Invoices", endpoint: "/admin/invoices" },
-  "admin-delivery": { title: "Delivery zones", endpoint: "/admin/delivery-zones" },
   "admin-product-settings": { title: "Product settings", endpoint: "/admin/product-schema" },
   "admin-reports": { title: "Reports", endpoint: "/admin/reports/summary" },
   "admin-activity-log": { title: "Activity log", endpoint: "/admin/activity-log" },

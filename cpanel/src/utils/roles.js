@@ -52,6 +52,16 @@ export function canUseInboxAction(user, permission) {
   return permissions.includes("inbox.manage") || permissions.includes(permission);
 }
 
+export function canUseDeliveryAction(user, permission) {
+  const role = roleFromUser(user);
+  if (isCompanyAdmin(role)) return true;
+  if (role === "super_admin") return user?.isCompanyScope === true && Boolean(user?.activeCompany);
+  if (role === "manager") return true;
+  if (!isStaffRole(role)) return false;
+  const permissions = permissionsFromUser(user);
+  return permissions.includes("delivery.manage") || permissions.includes(permission);
+}
+
 export function isPlatformPage(page) {
   return platformPageKeys.has(page) || page?.startsWith("admin-platform-placeholder-");
 }
@@ -126,7 +136,7 @@ const PAGE_PERMISSIONS = {
   "admin-settings-bookings-integrations": null,
   "admin-product-settings": null,
   "admin-invoices": null,
-  "admin-delivery": null,
+  "admin-delivery": ["delivery.view"],
   "admin-reports": ["reports.view"],
   "admin-analytics-highlights": ["reports.view"],
   "admin-analytics-realtime": ["reports.view"],

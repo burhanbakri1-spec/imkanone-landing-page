@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { Router } from "express";
 import { deliveryZoneRepository, persistCompanyStore } from "../data/store.js";
-import { optionalAuth, requireAuth, requireAdmin } from "../middleware/auth.js";
+import { optionalAuth, requireAuth, requireAnyPermission } from "../middleware/auth.js";
 import { sanitizeCreateZone, sanitizeUpdateZone } from "../delivery/schema.js";
 import { recordActivityLog } from "../activityLog/logger.js";
 
@@ -46,9 +46,10 @@ publicRouter.get("/", optionalAuth, (req, res) => {
 
 // --- Admin routes: full CRUD ---
 const adminRouter = Router();
-adminRouter.use(requireAuth, requireAdmin);
+const deliveryRead = requireAnyPermission("delivery.view", "delivery.manage");
+const deliveryWrite = requireAnyPermission("delivery.manage");
 
-adminRouter.get("/", (req, res) => {
+adminRouter.get("/", requireAuth, deliveryRead, (req, res) => {
   try {
     return res.json(companyZones(req.companyId));
   } catch (error) {
@@ -56,7 +57,7 @@ adminRouter.get("/", (req, res) => {
   }
 });
 
-adminRouter.post("/", async (req, res) => {
+adminRouter.post("/", requireAuth, deliveryWrite, async (req, res) => {
   try {
     const data = sanitizeCreateZone(req.body);
     const duplicate = deliveryZoneRepository.findByCompany(
@@ -92,7 +93,7 @@ adminRouter.post("/", async (req, res) => {
   }
 });
 
-adminRouter.get("/:zoneId", (req, res) => {
+adminRouter.get("/:zoneId", requireAuth, deliveryRead, (req, res) => {
   try {
     return res.json(findZone(req.companyId, req.params.zoneId));
   } catch (error) {
@@ -100,7 +101,7 @@ adminRouter.get("/:zoneId", (req, res) => {
   }
 });
 
-adminRouter.patch("/:zoneId", async (req, res) => {
+adminRouter.patch("/:zoneId", requireAuth, deliveryWrite, async (req, res) => {
   try {
     const current = findZone(req.companyId, req.params.zoneId);
     const updates = sanitizeUpdateZone(req.body);
@@ -132,7 +133,7 @@ adminRouter.patch("/:zoneId", async (req, res) => {
   }
 });
 
-adminRouter.delete("/:zoneId", async (req, res) => {
+adminRouter.delete("/:zoneId", requireAuth, deliveryWrite, async (req, res) => {
   try {
     const current = findZone(req.companyId, req.params.zoneId);
     const now = new Date().toISOString();

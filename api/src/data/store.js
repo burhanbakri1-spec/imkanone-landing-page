@@ -177,6 +177,7 @@ export const allPermissions = [
   "site_editor.manifest.sync",
   "invoices.view",
   "delivery.view",
+  "delivery.manage",
   "activity_log.view",
   "reports.view",
   "dropshipping.marketers.read",

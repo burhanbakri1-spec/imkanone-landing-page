@@ -13,7 +13,6 @@ import {
   Search,
   Settings,
   ShoppingCart,
-  Truck,
   WalletCards,
 } from "lucide-react";
 import { formatCompanyCurrency } from "../utils/sales.js";
@@ -33,6 +32,7 @@ import {
   UnsupportedDialog,
   ml,
 } from "./AdminManagementShared.jsx";
+import DeliveryZonesWorkspace from "../components/DeliveryZonesWorkspace.jsx";
 
 const financeTabs = [
   { page: "admin-settings-getting-paid-general", en: "General", ar: "عام" },
@@ -120,7 +120,7 @@ function TaxSettings({ language, onUnsupported }) {
   return <><HonestNotice language={language} title={ml(language, "Automated tax is not connected", "الضريبة الآلية غير متصلة")}>{ml(language, "Tax values are not calculated or saved by this page.", "لا يتم حساب أو حفظ قيم الضريبة من هذه الصفحة.")}</HonestNotice><section className="tenant-management-card settings-detail-card"><div className="tenant-section-heading"><div><h2>{ml(language, "Tax locations", "مواقع الضريبة")}</h2><p>{ml(language, "No verified tax locations exist.", "لا توجد مواقع ضريبية موثّقة.")}</p></div><button className="tenant-primary-button" onClick={onUnsupported} type="button">{ml(language, "Add Location", "إضافة موقع")}</button></div><EmptyManagementState description={ml(language, "Locations will appear here when a supported tax service is configured.", "ستظهر المواقع هنا عند إعداد خدمة ضريبية مدعومة.")} icon={Percent} title={ml(language, "No tax locations", "لا توجد مواقع ضريبية")} /></section><div className="settings-two-column"><section className="tenant-management-card settings-detail-card"><h2>{ml(language, "Tax settings", "إعدادات الضريبة")}</h2><label className="read-only-option"><input disabled type="radio" />{ml(language, "Tax added at checkout", "تضاف الضريبة عند الدفع")}</label><label className="read-only-option"><input disabled type="radio" />{ml(language, "Tax included in prices", "الضريبة مشمولة في الأسعار")}</label></section><section className="tenant-management-card settings-detail-card"><h2>{ml(language, "Tax groups & exemptions", "المجموعات والإعفاءات الضريبية")}</h2><p>{ml(language, "No verified groups or customer exemptions.", "لا توجد مجموعات أو إعفاءات عملاء موثّقة.")}</p></section></div></>;
 }
 
-function MainContent({ activePage, company, language, onNavigate, onUnsupported }) {
+function MainContent({ activePage, company, currentUser, language, onNavigate, onUnsupported }) {
   if (activePage === "admin-settings") return <SettingsHub language={language} onNavigate={onNavigate} onUnsupported={onUnsupported} />;
   if (activePage.startsWith("admin-settings-getting-paid")) {
     let content = <GeneralGettingPaid company={company} language={language} />;
@@ -133,7 +133,26 @@ function MainContent({ activePage, company, language, onNavigate, onUnsupported 
   if (activePage.startsWith("admin-settings-receipts")) return <><SettingsTabs active={activePage} language={language} onNavigate={onNavigate} tabs={[{ page: "admin-settings-receipts", en: "Customization", ar: "التخصيص" }, { page: "admin-settings-receipts-automations", en: "Automations", ar: "الأتمتة" }]} />{activePage.endsWith("automations") ? <EmptyManagementState description={ml(language, "Receipt switches remain inactive because no receipt automation service is connected.", "تظل مفاتيح الإيصالات غير نشطة لعدم اتصال خدمة أتمتة الإيصالات.")} icon={ReceiptText} title={ml(language, "Automated receipts unavailable", "الإيصالات الآلية غير متاحة")} /> : <DocumentCustomization company={company} language={language} receipt />}</>;
   if (activePage === "admin-settings-tax") return <TaxSettings language={language} onUnsupported={onUnsupported} />;
   if (activePage.startsWith("admin-settings-checkout")) return <><SettingsTabs active={activePage} language={language} onNavigate={onNavigate} tabs={[{ page: "admin-settings-checkout", en: "Customization", ar: "التخصيص" }, { page: "admin-settings-checkout-emails", en: "Emails & Notifications", ar: "البريد والإشعارات" }]} />{activePage.endsWith("emails") ? <><HonestNotice language={language} title={ml(language, "Email automation is not configured", "أتمتة البريد غير مهيأة")}>{ml(language, "No active order-email system is confirmed for this company.", "لم يتم تأكيد نظام بريد طلبات نشط لهذه الشركة.")}</HonestNotice><EmptyManagementState description={ml(language, "Email templates can be edited after a supported service is connected.", "يمكن تعديل قوالب البريد بعد ربط خدمة مدعومة.")} icon={Mail} title={ml(language, "Order emails unavailable", "رسائل الطلبات غير متاحة")} /></> : <><HonestNotice language={language}>{ml(language, "Checkout controls are read-only because a persistence API is unavailable.", "عناصر الدفع للقراءة فقط لعدم توفر واجهة حفظ.")}</HonestNotice><SimpleSettingsForm language={language} type="checkout" /><section className="tenant-management-card settings-detail-card"><h2>{ml(language, "Recommended integrations", "التكاملات المقترحة")}</h2><p>{ml(language, "No verified checkout integrations are available yet.", "لا توجد تكاملات دفع موثّقة متاحة بعد.")}</p></section></>}</>;
-  if (activePage === "admin-settings-shipping") return <><HonestNotice language={language} title={ml(language, "No shipping region configured", "لا توجد منطقة شحن مهيأة")}>{ml(language, "Create actions are unavailable until a supported shipping API is connected.", "إجراءات الإنشاء غير متاحة حتى يتم ربط واجهة شحن مدعومة.")}</HonestNotice><section className="tenant-management-card shipping-empty-card"><EmptyManagementState action={<button className="tenant-primary-button" onClick={onUnsupported} type="button">{ml(language, "Create your first region", "إنشاء أول منطقة")}</button>} description={ml(language, "Shipping regions and rates will appear here when configured.", "ستظهر مناطق وأسعار الشحن هنا عند إعدادها.")} icon={Truck} title={ml(language, "Set up shipping and delivery", "إعداد الشحن والتوصيل")} /></section></>;
+  if (activePage === "admin-settings-shipping") {
+    return (
+      <>
+        <HonestNotice language={language} title={ml(language, "Delivery zones", "مناطق التوصيل")}>
+          {ml(
+            language,
+            "Configure city-based delivery prices used at checkout. Changes are saved immediately.",
+            "اضبط أسعار التوصيل حسب المدينة المستخدمة عند الدفع. يتم حفظ التغييرات فوراً.",
+          )}
+        </HonestNotice>
+        <DeliveryZonesWorkspace
+          compact
+          company={company}
+          currentUser={currentUser}
+          language={language}
+          onNavigate={onNavigate}
+        />
+      </>
+    );
+  }
   return null;
 }
 
@@ -150,5 +169,5 @@ export default function AdminSettingsPage({ activePage = "admin-settings", compa
   const [unsupported, setUnsupported] = React.useState(false);
   const [title, description] = pageMeta(activePage, language);
   const savePage = !["admin-settings", "admin-settings-tax", "admin-settings-shipping"].includes(activePage);
-  return <ManagementShell activePage={activePage} className={activePage === "admin-settings" ? "tenant-settings-hub-page" : "tenant-settings-detail-page"} company={company} currentUser={currentUser} language={language} onNavigate={onNavigate} {...layout}><ManagementHeader actions={savePage ? <><button className="tenant-secondary-button" onClick={() => onNavigate("admin-settings")} type="button">{ml(language, "Cancel", "إلغاء")}</button><button className="tenant-primary-button" disabled type="button">{ml(language, "Save", "حفظ")}</button></> : activePage === "admin-settings-shipping" ? <button className="tenant-primary-button" onClick={() => setUnsupported(true)} type="button">{ml(language, "Create Region", "إنشاء منطقة")}</button> : null} breadcrumbs={activePage === "admin-settings" ? [] : [{ label: ml(language, "Settings", "الإعدادات"), page: "admin-settings" }, { label: title }]} description={description} language={language} onNavigate={onNavigate} title={title} /><MainContent activePage={activePage} company={company} language={language} onNavigate={onNavigate} onUnsupported={() => setUnsupported(true)} />{unsupported && <UnsupportedDialog language={language} onClose={() => setUnsupported(false)} t={t} />}</ManagementShell>;
+  return <ManagementShell activePage={activePage} className={activePage === "admin-settings" ? "tenant-settings-hub-page" : "tenant-settings-detail-page"} company={company} currentUser={currentUser} language={language} onNavigate={onNavigate} {...layout}><ManagementHeader actions={savePage ? <><button className="tenant-secondary-button" onClick={() => onNavigate("admin-settings")} type="button">{ml(language, "Cancel", "إلغاء")}</button><button className="tenant-primary-button" disabled type="button">{ml(language, "Save", "حفظ")}</button></> : null} breadcrumbs={activePage === "admin-settings" ? [] : [{ label: ml(language, "Settings", "الإعدادات"), page: "admin-settings" }, { label: title }]} description={description} language={language} onNavigate={onNavigate} title={title} /><MainContent activePage={activePage} company={company} currentUser={currentUser} language={language} onNavigate={onNavigate} onUnsupported={() => setUnsupported(true)} />{unsupported && <UnsupportedDialog language={language} onClose={() => setUnsupported(false)} t={t} />}</ManagementShell>;
 }
