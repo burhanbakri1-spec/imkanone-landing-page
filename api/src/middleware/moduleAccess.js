@@ -28,10 +28,12 @@ const rules = [
   [/^\/api\/admin\/website-texts(?:\/|$)/, "storefront.website_texts"],
   [/^\/api\/admin\/activity-log(?:\/|$)/, "settings.activity_log"],
   [/^\/api\/admin\/reports(?:\/|$)/, "settings.reports"],
+  [/^\/api\/admin\/analytics(?:\/|$)/, "settings.reports"],
   [/^\/api\/admin\/export-store(?:\/|$)/, "settings.reports"],
   [/^\/api\/admin\/inbox(?:\/|$)/, "people.customers"],
   [/^\/api\/admin\/(?:customers|users)(?:\/|$)/, "people.customers"],
   [/^\/api\/admin\/summary(?:\/|$)/, "dashboard"],
+  [/^\/api\/admin\/dashboard(?:\/|$)/, "dashboard"],
 ];
 
 function moduleForRequest(req) {

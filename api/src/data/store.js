@@ -36,6 +36,7 @@ import {
   saveSuperAdminUserToSupabase,
   saveProductWithTenantCatalogLockInSupabase,
   saveActivityLogEntryToSupabase,
+  saveAnalyticsStoreToSupabase,
   saveInboxStateToSupabase,
   updateBrandForCompanyInSupabase,
   updateBrandStatusForCompanyInSupabase,
@@ -818,6 +819,30 @@ export const activityLogs = normalizeTenantRecords(
   [],
   (log) => log,
 );
+
+export const searchEvents = normalizeTenantRecords(
+  persisted?.searchEvents,
+  [],
+  (event) => event,
+);
+
+export const searchRedirects = normalizeTenantRecords(
+  persisted?.searchRedirects,
+  [],
+  (redirect) => redirect,
+);
+
+export const visitorSessions = normalizeTenantRecords(
+  persisted?.visitorSessions,
+  [],
+  (session) => session,
+);
+
+export const visitorEvents = normalizeTenantRecords(
+  persisted?.visitorEvents,
+  [],
+  (event) => event,
+);
 export const inboxConversations = normalizeTenantRecords(
   persisted?.inboxConversations,
   [],
@@ -1169,6 +1194,10 @@ export const companyProductSchemaRepository = new TenantRepository(companyProduc
 export const invoiceRepository = new TenantRepository(invoices);
 export const deliveryZoneRepository = new TenantRepository(deliveryZones);
 export const activityLogRepository = new TenantRepository(activityLogs);
+export const searchEventRepository = new TenantRepository(searchEvents);
+export const searchRedirectRepository = new TenantRepository(searchRedirects);
+export const visitorSessionRepository = new TenantRepository(visitorSessions);
+export const visitorEventRepository = new TenantRepository(visitorEvents);
 export const inboxConversationRepository = new TenantRepository(inboxConversations);
 export const inboxMessageRepository = Object.freeze({
   getByCompany(companyId) {
@@ -2489,6 +2518,10 @@ export function currentStoreSnapshot(companyId = DEFAULT_COMPANY_ID) {
     invoices: invoiceRepository.getByCompany(normalized),
     deliveryZones: deliveryZoneRepository.getByCompany(normalized),
     activityLogs: activityLogRepository.getByCompany(normalized),
+    searchEvents: searchEventRepository.getByCompany(normalized),
+    searchRedirects: searchRedirectRepository.getByCompany(normalized),
+    visitorSessions: visitorSessionRepository.getByCompany(normalized),
+    visitorEvents: visitorEventRepository.getByCompany(normalized),
     inboxConversations: inboxConversationRepository.getByCompany(normalized),
     inboxMessages: inboxMessageRepository.getByCompany(normalized),
     inboxConversationReads: inboxConversationReadRepository.getByCompany(normalized),
@@ -2561,6 +2594,10 @@ function persistLocalCompanyStore(companyId, store) {
     "invoices",
     "deliveryZones",
     "activityLogs",
+    "searchEvents",
+    "searchRedirects",
+    "visitorSessions",
+    "visitorEvents",
     "inboxConversations",
     "inboxMessages",
     "inboxConversationReads",
@@ -2636,6 +2673,30 @@ export async function persistCompanyStore(companyId, options = {}) {
   }
 
   return persistLocalCompanyStore(normalized, store);
+}
+
+export async function persistAnalyticsStore(companyId, options = {}) {
+  const normalized = normalizeCompanyId(companyId);
+  const store = {
+    searchEvents: searchEventRepository.getByCompany(normalized),
+    searchRedirects: searchRedirectRepository.getByCompany(normalized),
+    visitorSessions: visitorSessionRepository.getByCompany(normalized),
+    visitorEvents: visitorEventRepository.getByCompany(normalized),
+  };
+
+  if (isSupabaseConfigured()) {
+    if (!canPersistToSupabase) {
+      throw new Error("Supabase persistence is configured but unavailable. Refusing local fallback for analytics data.");
+    }
+    await saveAnalyticsStoreToSupabase(normalized, store, {
+      pruneSearchEvents: options.pruneSearchEvents === true,
+      pruneVisitorEvents: options.pruneVisitorEvents === true,
+      pruneSearchRedirects: options.pruneSearchRedirects === true,
+    });
+    return store;
+  }
+
+  return persistLocalCompanyStore(normalized, currentStoreSnapshot(normalized));
 }
 
 export async function persistStore(options = {}) {
