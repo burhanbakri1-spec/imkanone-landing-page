@@ -1044,6 +1044,118 @@ function mergeActivityLog(row) {
   };
 }
 
+function mergeSearchEvent(row) {
+  return {
+    id: row.id,
+    company_id: row.company_id,
+    siteId: row.site_id || "",
+    termNormalized: row.term_normalized,
+    termDisplay: row.term_display || "",
+    resultsCount: Number(row.results_count || 0),
+    locale: row.locale || "",
+    createdAt: row.created_at,
+  };
+}
+
+function mergeSearchRedirect(row) {
+  return {
+    id: row.id,
+    company_id: row.company_id,
+    inputTermNormalized: row.input_term_normalized,
+    inputTermDisplay: row.input_term_display || "",
+    targetTermNormalized: row.target_term_normalized,
+    targetTermDisplay: row.target_term_display || "",
+    isActive: row.is_active !== false,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mergeVisitorSession(row) {
+  return {
+    id: row.id,
+    company_id: row.company_id,
+    siteId: row.site_id || "",
+    sessionKey: row.session_key,
+    visitorKey: row.visitor_key || "",
+    firstSeenAt: row.first_seen_at,
+    lastSeenAt: row.last_seen_at,
+    pageViews: Number(row.page_views || 0),
+    productViews: Number(row.product_views || 0),
+    isReturning: row.is_returning === true,
+    lastPath: row.last_path || "",
+  };
+}
+
+function mergeVisitorEvent(row) {
+  return {
+    id: row.id,
+    company_id: row.company_id,
+    siteId: row.site_id || "",
+    sessionKey: row.session_key,
+    eventType: row.event_type,
+    path: row.path || "",
+    productId: row.product_id || "",
+    createdAt: row.created_at,
+  };
+}
+
+function searchEventRow(event, companyId) {
+  return {
+    id: event.id,
+    company_id: companyId,
+    site_id: event.siteId || "",
+    term_normalized: event.termNormalized,
+    term_display: event.termDisplay || "",
+    results_count: Number(event.resultsCount || 0),
+    locale: event.locale || "",
+    created_at: rowDate(event.createdAt),
+  };
+}
+
+function searchRedirectRow(redirect, companyId) {
+  return {
+    id: redirect.id,
+    company_id: companyId,
+    input_term_normalized: redirect.inputTermNormalized,
+    input_term_display: redirect.inputTermDisplay || "",
+    target_term_normalized: redirect.targetTermNormalized,
+    target_term_display: redirect.targetTermDisplay || "",
+    is_active: redirect.isActive !== false,
+    created_at: rowDate(redirect.createdAt),
+    updated_at: rowDate(redirect.updatedAt),
+  };
+}
+
+function visitorSessionRow(session, companyId) {
+  return {
+    id: session.id,
+    company_id: companyId,
+    site_id: session.siteId || "",
+    session_key: session.sessionKey,
+    visitor_key: session.visitorKey || "",
+    first_seen_at: rowDate(session.firstSeenAt),
+    last_seen_at: rowDate(session.lastSeenAt),
+    page_views: Number(session.pageViews || 0),
+    product_views: Number(session.productViews || 0),
+    is_returning: session.isReturning === true,
+    last_path: session.lastPath || "",
+  };
+}
+
+function visitorEventRow(event, companyId) {
+  return {
+    id: event.id,
+    company_id: companyId,
+    site_id: event.siteId || "",
+    session_key: event.sessionKey,
+    event_type: event.eventType,
+    path: event.path || "",
+    product_id: event.productId || "",
+    created_at: rowDate(event.createdAt),
+  };
+}
+
 function mergeCompanyInvoice(row) {
   return {
     id: row.id,
@@ -1090,6 +1202,10 @@ const LOADED_TENANT_COLLECTIONS = [
   "invoices",
   "deliveryZones",
   "activityLogs",
+  "searchEvents",
+  "searchRedirects",
+  "visitorSessions",
+  "visitorEvents",
   "inboxConversations",
   "inboxMessages",
   "inboxConversationReads",
@@ -1190,6 +1306,10 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID, depe
     companyInvoices,
     deliveryZoneRows,
     activityLogRows,
+    searchEventRows,
+    searchRedirectRows,
+    visitorSessionRows,
+    visitorEventRows,
     inboxConversationRows,
     inboxMessageRows,
     inboxReadRows,
@@ -1223,6 +1343,10 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID, depe
     selectTenantRows("company_invoices", normalizedCompanyId),
     selectTenantRows("company_delivery_zones", normalizedCompanyId),
     selectTenantRows("company_activity_logs", normalizedCompanyId),
+    selectTenantRows("company_search_events", normalizedCompanyId),
+    selectTenantRows("company_search_redirects", normalizedCompanyId),
+    selectTenantRows("company_visitor_sessions", normalizedCompanyId),
+    selectTenantRows("company_visitor_events", normalizedCompanyId),
     selectTenantRows("company_inbox_conversations", normalizedCompanyId),
     selectTenantRows("company_inbox_messages", normalizedCompanyId),
     selectTenantRows("company_inbox_reads", normalizedCompanyId),
@@ -1261,6 +1385,10 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID, depe
     companyInvoices,
     deliveryZoneRows,
     activityLogRows,
+    searchEventRows,
+    searchRedirectRows,
+    visitorSessionRows,
+    visitorEventRows,
     inboxConversationRows,
     inboxMessageRows,
     inboxReadRows,
@@ -1298,6 +1426,10 @@ export async function loadStoreFromSupabase(companyId = DEFAULT_COMPANY_ID, depe
     invoices: companyInvoices.map(mergeCompanyInvoice),
     deliveryZones: deliveryZoneRows.map(mergeDeliveryZone),
     activityLogs: activityLogRows.map(mergeActivityLog),
+    searchEvents: searchEventRows.map(mergeSearchEvent),
+    searchRedirects: searchRedirectRows.map(mergeSearchRedirect),
+    visitorSessions: visitorSessionRows.map(mergeVisitorSession),
+    visitorEvents: visitorEventRows.map(mergeVisitorEvent),
     inboxConversations: inboxConversationRows.map((row) => ({
       id: row.id,
       contactId: row.contact_user_id,
@@ -1360,6 +1492,10 @@ const PLATFORM_TENANT_TABLES = [
   "company_invoices",
   "company_delivery_zones",
   "company_activity_logs",
+  "company_search_events",
+  "company_search_redirects",
+  "company_visitor_sessions",
+  "company_visitor_events",
   "company_inbox_conversations",
   "company_inbox_messages",
   "company_inbox_reads",
@@ -1599,6 +1735,10 @@ export async function loadPlatformStoreFromSupabase(dependencies = null) {
     invoices: tenantRows("company_invoices", mergeCompanyInvoice),
     deliveryZones: tenantRows("company_delivery_zones", mergeDeliveryZone),
     activityLogs: tenantRows("company_activity_logs", mergeActivityLog),
+    searchEvents: tenantRows("company_search_events", mergeSearchEvent),
+    searchRedirects: tenantRows("company_search_redirects", mergeSearchRedirect),
+    visitorSessions: tenantRows("company_visitor_sessions", mergeVisitorSession),
+    visitorEvents: tenantRows("company_visitor_events", mergeVisitorEvent),
     inboxConversations: tenantRows("company_inbox_conversations", (row) => ({
       id: row.id,
       contactId: row.contact_user_id,
@@ -1828,6 +1968,10 @@ export async function saveStoreToSupabase(store, options = {}) {
     user_agent: log.user_agent || null,
     created_at: rowDate(log.created_at),
   }));
+  const searchEventRows = (store.searchEvents || []).map((event) => searchEventRow(event, companyId));
+  const searchRedirectRows = (store.searchRedirects || []).map((redirect) => searchRedirectRow(redirect, companyId));
+  const visitorSessionRows = (store.visitorSessions || []).map((session) => visitorSessionRow(session, companyId));
+  const visitorEventRows = (store.visitorEvents || []).map((event) => visitorEventRow(event, companyId));
   const inboxConversationRows = inboxConversations.map((conversation) => ({
     id: conversation.id,
     company_id: companyId,
@@ -1898,6 +2042,10 @@ export async function saveStoreToSupabase(store, options = {}) {
   await upsertCompanyRows("company_invoices", invoiceRows, companyId);
   await upsertCompanyRows("company_delivery_zones", deliveryZoneRows, companyId);
   await upsertCompanyRows("company_activity_logs", activityLogRows, companyId);
+  await upsertCompanyRows("company_search_events", searchEventRows, companyId);
+  await upsertCompanyRows("company_search_redirects", searchRedirectRows, companyId);
+  await upsertCompanyRows("company_visitor_sessions", visitorSessionRows, companyId);
+  await upsertCompanyRows("company_visitor_events", visitorEventRows, companyId);
   await upsertCompanyRows("company_inbox_conversations", inboxConversationRows, companyId);
   await upsertCompanyRows("company_inbox_messages", inboxMessageRows, companyId);
   await upsertRows(
@@ -2616,6 +2764,44 @@ export async function saveActivityLogEntryToSupabase(companyId, log) {
     user_agent: log.user_agent || "",
     created_at: rowDate(log.created_at),
   }], normalized);
+}
+
+export async function saveAnalyticsStoreToSupabase(companyId, store = {}, options = {}) {
+  if (!isSupabaseConfigured()) {
+    throw new Error("PostgreSQL DATABASE_URL is not configured.");
+  }
+  const normalized = normalizeCompanyId(companyId);
+  const searchEventRows = (store.searchEvents || []).map((event) => searchEventRow(event, normalized));
+  const searchRedirectRows = (store.searchRedirects || []).map((redirect) => searchRedirectRow(redirect, normalized));
+  const visitorSessionRows = (store.visitorSessions || []).map((session) => visitorSessionRow(session, normalized));
+  const visitorEventRows = (store.visitorEvents || []).map((event) => visitorEventRow(event, normalized));
+
+  await upsertCompanyRows("company_search_events", searchEventRows, normalized);
+  await upsertCompanyRows("company_search_redirects", searchRedirectRows, normalized);
+  await upsertCompanyRows("company_visitor_sessions", visitorSessionRows, normalized);
+  await upsertCompanyRows("company_visitor_events", visitorEventRows, normalized);
+
+  if (options.pruneSearchEvents === true) {
+    await deleteMissingCompanyRows(
+      "company_search_events",
+      searchEventRows.map((row) => row.id),
+      normalized,
+    );
+  }
+  if (options.pruneVisitorEvents === true) {
+    await deleteMissingCompanyRows(
+      "company_visitor_events",
+      visitorEventRows.map((row) => row.id),
+      normalized,
+    );
+  }
+  if (options.pruneSearchRedirects === true) {
+    await deleteMissingCompanyRows(
+      "company_search_redirects",
+      searchRedirectRows.map((row) => row.id),
+      normalized,
+    );
+  }
 }
 
 export async function listBrandsByCompanyFromSupabase(companyId) {

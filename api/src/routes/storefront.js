@@ -21,6 +21,7 @@ import {
   publicVlogHeroForCompany,
   publicVlogsForCompany,
 } from "../storefront/vlogsContent.js";
+import analyticsPublicRoutes from "./analyticsPublic.js";
 
 const router = Router();
 const localePattern = /^[a-z]{2}(?:-[a-z]{2})?$/i;
@@ -77,6 +78,7 @@ function publicProducts(companyId) {
 }
 
 router.use(storefrontContext);
+router.use("/analytics", analyticsPublicRoutes);
 
 router.get("/content", async (req, res, next) => {
   try {

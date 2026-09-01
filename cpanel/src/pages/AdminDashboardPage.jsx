@@ -25,6 +25,7 @@ import {
   Users,
 } from "lucide-react";
 import AdminLayout from "../components/AdminLayout.jsx";
+import DashboardInsightsPanel from "../components/DashboardInsightsPanel.jsx";
 import AdminOrdersTable from "../components/AdminOrdersTable.jsx";
 import CategoriesHierarchy from "../components/CategoriesHierarchy.jsx";
 import MediaSlotsManager from "../components/MediaSlotsManager.jsx";
@@ -1118,6 +1119,14 @@ function DashboardHome({
           })}
         </div>
       </section>
+
+      <DashboardInsightsPanel
+        company={company}
+        currentUser={currentUser}
+        language={language}
+        modules={modules}
+        onNavigate={onNavigate}
+      />
 
       <section className="tenant-dashboard-card tenant-dashboard-checklist" data-dashboard-checklist>
         <header className="tenant-dashboard-section-head">

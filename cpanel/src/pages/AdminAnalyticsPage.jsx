@@ -26,6 +26,8 @@ import {
 import AdminLayout from "../components/AdminLayout.jsx";
 import { AdminUnderDevelopmentContent } from "./AdminPlaceholderPage.jsx";
 import AnalyticsReportsWorkspace from "../components/AnalyticsReportsWorkspace.jsx";
+import SearchAnalyticsPanel from "../components/SearchAnalyticsPanel.jsx";
+import { fetchLiveVisitors, fetchVisitorAnalytics } from "../utils/dashboardInsightsApi.js";
 import {
   analyticsDirection,
   reportCatalog,
@@ -109,11 +111,15 @@ function StatusRows({ items, labels }) {
   return <div className="tenant-analytics-status-rows">{items.map(([name, icon]) => { const Icon = icon; return <div key={name}><span><Icon size={17}/>{name}</span><b>{labels.noVerified}</b></div>; })}</div>;
 }
 
-function HighlightsPage({ labels, onOpenReports }) {
+function HighlightsPage({ labels, onOpenReports, visitorData }) {
+  const liveCount = visitorData?.live?.count ?? 0;
+  const hasVisitorData = Boolean(visitorData?.analytics);
+  const dailyVisitors = visitorData?.analytics?.daily?.totalVisitors ?? 0;
+  const dailyPageViews = visitorData?.analytics?.daily?.pageViews ?? 0;
   return <div className="analytics-highlights-page">
-    <div className="tenant-analytics-top-grid"><DataPanel className="analytics-live-card" title="Live visitors"><div className="analytics-live-value"><Radio size={27}/><strong>0</strong><span>{labels.noVerified}</span></div></DataPanel><QuestionPanel labels={labels}/></div>
-    <div className="tenant-analytics-section-heading"><div><h2>Key statistics</h2><p>Visitor analytics stay empty. Company operational reports are on All Reports.</p></div><button className="tenant-analytics-range" onClick={onOpenReports} type="button"><FileBarChart size={16}/>{labels.reports}</button></div>
-    <div className="tenant-analytics-metrics four"><MetricCard icon={Globe2} label="Site sessions" status={labels.unavailable}/><MetricCard icon={Users} label="Unique visitors" status={labels.unavailable}/><MetricCard icon={BarChart3} label="Orders" status={labels.unavailableDetail}/><MetricCard icon={Users} label="Customers" status={labels.unavailableDetail}/></div>
+    <div className="tenant-analytics-top-grid"><DataPanel className="analytics-live-card" title="Live visitors"><div className="analytics-live-value"><Radio size={27}/><strong>{liveCount}</strong><span>{hasVisitorData ? (liveCount ? "Active in the last 5 minutes" : labels.noVerified) : labels.noVerified}</span></div></DataPanel><QuestionPanel labels={labels}/></div>
+    <div className="tenant-analytics-section-heading"><div><h2>Key statistics</h2><p>{hasVisitorData ? "Visitor metrics below come from recorded storefront events for this company." : "Visitor analytics stay empty until storefront events are recorded. Company operational reports are on All Reports."}</p></div><button className="tenant-analytics-range" onClick={onOpenReports} type="button"><FileBarChart size={16}/>{labels.reports}</button></div>
+    <div className="tenant-analytics-metrics four"><MetricCard icon={Globe2} label="Site sessions" value={hasVisitorData ? dailyVisitors : null} status={hasVisitorData ? `${dailyPageViews} page views today` : labels.unavailable}/><MetricCard icon={Users} label="Unique visitors" value={hasVisitorData ? dailyVisitors : null} status={hasVisitorData ? labels.dateRange : labels.unavailableDetail}/><MetricCard icon={BarChart3} label="Orders" status={labels.unavailableDetail}/><MetricCard icon={Users} label="Customers" status={labels.unavailableDetail}/></div>
     <div className="tenant-analytics-section-heading"><div><h2>Get to know your visitors</h2><p>Visitor trends remain empty until a verified event source is connected.</p></div></div>
     <div className="tenant-analytics-grid three"><DataPanel title="Sessions over time"><EmptyChart label={labels.noVerified} detail={labels.unavailableDetail}/></DataPanel><DataPanel title="Top traffic sources"><StatusRows labels={labels} items={[["Direct", Globe2],["Search", Search],["Referrals", ArrowUpRight]]}/></DataPanel><DataPanel title="Sessions by location"><EmptyChart icon={Map} label={labels.noVerified} detail={labels.unavailableDetail} variant="map"/></DataPanel></div>
     <div className="tenant-analytics-section-heading"><div><h2>Explore visitor engagement</h2><p>Engagement and click tracking have not been verified.</p></div></div>
@@ -122,16 +128,94 @@ function HighlightsPage({ labels, onOpenReports }) {
   </div>;
 }
 
-function RealtimePage({ labels }) {
-  return <div className="analytics-realtime-page"><div className="tenant-analytics-metrics two"><MetricCard icon={Clock3} label="Visitors in the last 30 minutes" value="0" status={labels.noVerified}/><MetricCard icon={Radio} label="Live visitors" value="0" status={labels.noVerified}/></div><div className="analytics-realtime-layout"><DataPanel className="analytics-map-panel" title="Live visitor map"><EmptyChart icon={Map} label="No live visitor source" detail={labels.unavailableDetail} variant="map"/><div className="tenant-analytics-grid three compact"><StatusRows labels={labels} items={[["Page views", FileBarChart]]}/><StatusRows labels={labels} items={[["Traffic source", Globe2]]}/><StatusRows labels={labels} items={[["Devices", MonitorSmartphone]]}/></div></DataPanel><aside><DataPanel title="Recent visitors"><EmptyChart icon={Users} label="No verified visitors" detail="Recent visitor identities are not available."/></DataPanel><DataPanel title="Live activity"><EmptyChart icon={Activity} label="No live activity" detail="A verified event stream is required."/></DataPanel></aside></div></div>;
+function RealtimePage({ labels, visitorData }) {
+  const liveCount = visitorData?.live?.count ?? 0;
+  const hasVisitorData = Boolean(visitorData?.analytics);
+  return <div className="analytics-realtime-page"><div className="tenant-analytics-metrics two"><MetricCard icon={Clock3} label="Visitors in the last 30 minutes" value={hasVisitorData ? liveCount : "0"} status={hasVisitorData ? "Based on recent storefront heartbeats/pageviews" : labels.noVerified}/><MetricCard icon={Radio} label="Live visitors" value={hasVisitorData ? liveCount : "0"} status={hasVisitorData ? "5-minute activity window" : labels.noVerified}/></div><div className="analytics-realtime-layout"><DataPanel className="analytics-map-panel" title="Live visitor map"><EmptyChart icon={Map} label={hasVisitorData ? "Map unavailable" : "No live visitor source"} detail={hasVisitorData ? "Geographic live visitor mapping is not stored by the platform." : labels.unavailableDetail} variant="map"/><div className="tenant-analytics-grid three compact"><StatusRows labels={labels} items={[["Page views", FileBarChart]]}/><StatusRows labels={labels} items={[["Traffic source", Globe2]]}/><StatusRows labels={labels} items={[["Devices", MonitorSmartphone]]}/></div></DataPanel><aside><DataPanel title="Recent visitors"><EmptyChart icon={Users} label={hasVisitorData ? "Recent visitor identities are not stored" : "No verified visitors"} detail={hasVisitorData ? "Only aggregate counts are available from storefront events." : "Recent visitor identities are not available."}/></DataPanel><DataPanel title="Live activity"><EmptyChart icon={Activity} label={hasVisitorData ? "No per-event live stream UI yet" : "No live activity"} detail={hasVisitorData ? "Use the live visitor count while detailed event streams are not exposed here." : "A verified event stream is required."}/></DataPanel></aside></div></div>;
 }
 
-function TrafficPage({ labels }) {
-  return <div className="analytics-traffic-page"><div className="tenant-analytics-control-row"><RangeControl labels={labels}/></div><QuestionPanel labels={labels}/><div className="tenant-analytics-metrics two"><MetricCard label="Site sessions" status={labels.unavailable}/><MetricCard icon={Users} label="Unique visitors" status={labels.unavailable}/></div><DataPanel title="Sessions over time"><EmptyChart label="Historical traffic unavailable" detail="No verified time-series dataset is connected."/></DataPanel><div className="tenant-analytics-grid three"><DataPanel title="Sessions by source and category"><StatusRows labels={labels} items={[["Source", Globe2],["Category", BarChart3]]}/></DataPanel><DataPanel title="New vs returning visitors"><EmptyChart icon={Users} label={labels.noVerified} detail={labels.unavailableDetail}/></DataPanel><DataPanel title="Sessions by device"><EmptyChart icon={MonitorSmartphone} label={labels.noVerified} detail={labels.unavailableDetail}/></DataPanel></div><div className="tenant-analytics-grid two"><DataPanel title="Average sessions by day"><EmptyChart icon={CalendarDays} label={labels.unavailable} detail={labels.unavailableDetail}/></DataPanel><DataPanel title="Sessions by location and state"><EmptyChart icon={Map} label={labels.noVerified} detail={labels.unavailableDetail}/></DataPanel></div><DataPanel title="Traffic insights"><EmptyChart icon={Lightbulb} label="No traffic insights yet" detail="Insights appear after verified traffic patterns are available."/></DataPanel></div>;
+function TrafficPage({ labels, visitorData }) {
+  const hasVisitorData = Boolean(visitorData?.analytics);
+  const analytics = visitorData?.analytics;
+  const daily = analytics?.daily;
+  const series = analytics?.seriesByDay || [];
+  return (
+    <div className="analytics-traffic-page">
+      <div className="tenant-analytics-control-row"><RangeControl labels={labels} /></div>
+      <QuestionPanel labels={labels} />
+      <div className="tenant-analytics-metrics two">
+        <MetricCard
+          icon={Globe2}
+          label="Site sessions"
+          status={hasVisitorData ? `${daily?.pageViews ?? 0} page views today` : labels.unavailable}
+          value={hasVisitorData ? daily?.totalVisitors : null}
+        />
+        <MetricCard
+          icon={Users}
+          label="Unique visitors"
+          status={hasVisitorData ? labels.dateRange : labels.unavailable}
+          value={hasVisitorData ? daily?.totalVisitors : null}
+        />
+      </div>
+      <DataPanel title="Sessions over time">
+        {hasVisitorData && series.length ? (
+          <div className="tenant-dashboard-table-wrap">
+            <table className="tenant-dashboard-table compact">
+              <thead><tr><th>Date</th><th>Visitors</th><th>Page views</th></tr></thead>
+              <tbody>
+                {series.map((row) => (
+                  <tr key={row.date}><td>{row.date}</td><td>{row.visitors}</td><td>{row.pageViews}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <EmptyChart label={hasVisitorData ? labels.noVerified : "Historical traffic unavailable"} detail={hasVisitorData ? labels.unavailableDetail : "No verified time-series dataset is connected."} />
+        )}
+      </DataPanel>
+      <div className="tenant-analytics-grid three">
+        <DataPanel title="Monthly visitors">
+          <MetricCard icon={CalendarDays} label="This month" value={hasVisitorData ? analytics?.monthly?.totalVisitors : null} status={hasVisitorData ? `${analytics?.monthly?.pageViews ?? 0} page views` : labels.unavailable} />
+        </DataPanel>
+        <DataPanel title="Yearly visitors">
+          <MetricCard icon={BarChart3} label="This year" value={hasVisitorData ? analytics?.yearly?.totalVisitors : null} status={hasVisitorData ? `${analytics?.yearly?.pageViews ?? 0} page views` : labels.unavailable} />
+        </DataPanel>
+        <DataPanel title="New vs returning visitors">
+          {hasVisitorData && analytics?.returningVisitorIdentitySupported ? (
+            <StatusRows labels={labels} items={[
+              [`First-time: ${daily?.firstTimeVisitors ?? 0}`, Users],
+              [`Returning: ${daily?.returningVisitors ?? 0}`, Users],
+            ]} />
+          ) : (
+            <EmptyChart icon={Users} label={labels.noVerified} detail="Returning visitor identity requires a stable visitorKey from the storefront." />
+          )}
+        </DataPanel>
+      </div>
+    </div>
+  );
 }
 
-function BehaviorPage({ labels }) {
-  return <div className="analytics-behavior-page"><div className="tenant-analytics-control-row"><RangeControl labels={labels}/></div><QuestionPanel labels={labels}/><div className="tenant-analytics-metrics three"><MetricCard icon={Clock3} label="Average session duration" status={labels.unavailable}/><MetricCard icon={FileBarChart} label="Average pages per session" status={labels.unavailable}/><MetricCard icon={Activity} label="Bounce rate" status={labels.unavailable}/></div><div className="tenant-analytics-grid two"><DataPanel title="Top pages"><EmptyChart label={labels.noVerified} detail={labels.unavailableDetail}/></DataPanel><DataPanel title="Top clicks"><EmptyChart icon={MousePointerClick} label="Click tracking is not configured" detail="No click events are collected by a verified source."/></DataPanel></div><DataPanel title="Top navigation flows"><EmptyChart icon={Activity} label="No navigation paths available" detail="Navigation events have not been verified."/></DataPanel><DataPanel title="Form submissions"><EmptyChart icon={FileBarChart} label="No verified submission analytics" detail="Form submission analytics are not connected."/></DataPanel></div>;
+function BehaviorPage({ labels, language }) {
+  return (
+    <div className="analytics-behavior-page">
+      <SearchAnalyticsPanel language={language} />
+      <div className="tenant-analytics-section-heading">
+        <div>
+          <h2>{labels.unavailable}</h2>
+          <p>{labels.unavailableDetail}</p>
+        </div>
+      </div>
+      <div className="tenant-analytics-metrics three">
+        <MetricCard icon={Clock3} label="Average session duration" status={labels.unavailable} />
+        <MetricCard icon={FileBarChart} label="Average pages per session" status={labels.unavailable} />
+        <MetricCard icon={Activity} label="Bounce rate" status={labels.unavailable} />
+      </div>
+      <div className="tenant-analytics-grid two">
+        <DataPanel title="Top pages"><EmptyChart label={labels.noVerified} detail={labels.unavailableDetail} /></DataPanel>
+        <DataPanel title="Top clicks"><EmptyChart icon={MousePointerClick} label="Click tracking is not configured" detail="No click events are collected by a verified source." /></DataPanel>
+      </div>
+    </div>
+  );
 }
 
 function MarketingPage({ labels }) {
@@ -171,13 +255,32 @@ export default function AdminAnalyticsPage({ activePage, company, currentUser, l
   const ar = language === "ar";
   const labels = COPY[ar ? "ar" : "en"];
   const [unsupported, setUnsupported] = React.useState(false);
+  const [visitorData, setVisitorData] = React.useState(null);
   const common = { labels, onUnsupported: () => setUnsupported(true) };
   const reportPage = activePage === "admin-analytics-reports" || activePage === "admin-reports";
+
+  React.useEffect(() => {
+    const analyticsPages = new Set([
+      "admin-analytics-highlights",
+      "admin-analytics-realtime",
+      "admin-analytics-traffic",
+    ]);
+    if (!analyticsPages.has(activePage)) return undefined;
+    let cancelled = false;
+    Promise.all([
+      fetchLiveVisitors().catch(() => ({ count: 0 })),
+      fetchVisitorAnalytics().catch(() => null),
+    ]).then(([live, analytics]) => {
+      if (!cancelled) setVisitorData({ live, analytics });
+    });
+    return () => { cancelled = true; };
+  }, [activePage, company?.id]);
+
   let content;
   switch (activePage) {
-    case "admin-analytics-realtime": content = <RealtimePage labels={labels}/>; break;
-    case "admin-analytics-traffic": content = <TrafficPage labels={labels}/>; break;
-    case "admin-analytics-behavior": content = <BehaviorPage labels={labels}/>; break;
+    case "admin-analytics-realtime": content = <RealtimePage labels={labels} visitorData={visitorData}/>; break;
+    case "admin-analytics-traffic": content = <TrafficPage labels={labels} visitorData={visitorData} />; break;
+    case "admin-analytics-behavior": content = <BehaviorPage labels={labels} language={language} />; break;
     case "admin-analytics-marketing": content = <MarketingPage labels={labels}/>; break;
     case "admin-analytics-session-recordings": content = <RecordingsPage {...common}/>; break;
     case "admin-analytics-insights": content = <InsightsPage {...common}/>; break;
@@ -185,7 +288,7 @@ export default function AdminAnalyticsPage({ activePage, company, currentUser, l
     case "admin-analytics-reports":
     case "admin-reports":
       content = <ReportsPage company={company} currentUser={currentUser} language={language} onUnsupported={() => setUnsupported(true)}/>; break;
-    default: content = <HighlightsPage labels={labels} onOpenReports={() => onNavigate?.("admin-analytics-reports")}/>;
+    default: content = <HighlightsPage labels={labels} onOpenReports={() => onNavigate?.("admin-analytics-reports")} visitorData={visitorData}/>;
   }
   return <AdminLayout activePage={reportPage ? "admin-analytics-reports" : activePage} company={company} currentUser={currentUser} hideHeader language={language} modules={modules} onNavigate={onNavigate} t={t} {...layout}><div className="tenant-analytics-page" dir={analyticsDirection(language)}><PageHeader activePage={reportPage ? "admin-analytics-reports" : activePage} ar={ar} labels={labels} onUnsupported={() => setUnsupported(true)}/>{content}{unsupported&&<div className="tenant-analytics-modal" role="dialog" aria-modal="true"><button aria-label="Close" onClick={()=>setUnsupported(false)} type="button"><X size={18}/></button><AdminUnderDevelopmentContent language={language} title={ar?"الميزة غير متاحة":"Feature unavailable"}/></div>}</div></AdminLayout>;
 }
