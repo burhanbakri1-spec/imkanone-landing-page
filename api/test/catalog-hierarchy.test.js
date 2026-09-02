@@ -18,13 +18,15 @@ const categories = [
   { id: "inactive", slug: "inactive", parentId: null, isActive: false, name: { en: "Inactive" } },
 ];
 
-test("normalizeCatalogHierarchyInput trims strings and coerces quickShop", () => {
+test("normalizeCatalogHierarchyInput trims strings, normalizes exact legacy filters, and coerces quickShop", () => {
   const out = normalizeCatalogHierarchyInput({
-    mainCategoryId: " main ", subcategoryId: "", manufacturer: "  Acme  ", age: "3-6",
-    gender: "", quickShop: true,
+    mainCategoryId: " main ", subcategoryId: "", manufacturer: "  Acme  ", age: "0-12 months",
+    gender: "Boys", quickShop: true,
   });
-  assert.deepEqual(out, { mainCategoryId: "main", subcategoryId: null, manufacturer: "Acme", age: "3-6", gender: null, quickShop: true });
+  assert.deepEqual(out, { mainCategoryId: "main", subcategoryId: null, manufacturer: "Acme", age: "0-12m", gender: "boys", quickShop: true });
   assert.throws(() => normalizeCatalogHierarchyInput({ quickShop: "yes" }), /quickShop must be a boolean/);
+  assert.throws(() => normalizeCatalogHierarchyInput({ age: "1-3 years" }), /invalid value/);
+  assert.throws(() => normalizeCatalogHierarchyInput({ age: "3-6" }), /invalid value/);
 });
 
 test("validateCatalogHierarchy accepts a valid Brand -> Main -> Subcategory product", () => {
@@ -36,7 +38,7 @@ test("validateCatalogHierarchy accepts a valid Brand -> Main -> Subcategory prod
       mainCategoryId: "main-clothing",
       subcategoryId: "sub-dresses",
       manufacturer: "Acme",
-      age: "3-6",
+      age: "7-9y",
       quickShop: true,
     },
   });
@@ -45,7 +47,7 @@ test("validateCatalogHierarchy accepts a valid Brand -> Main -> Subcategory prod
     mainCategoryId: "main-clothing",
     subcategoryId: "sub-dresses",
     manufacturer: "Acme",
-    age: "3-6",
+    age: "7-9y",
     gender: null,
     skill: null,
     occasion: null,
@@ -75,6 +77,42 @@ test("validateCatalogHierarchy rejects a Main Category that does not belong to t
   );
   const result = validateCatalogHierarchy({ brands, categories, product: { brandId: "velvet", mainCategoryId: "main-clothing", subcategoryId: "sub-dresses" } });
   assert.equal(result.brandId, "velvet");
+});
+
+test("validateCatalogHierarchy rejects ambiguous legacy age values", () => {
+  assert.throws(
+    () => validateCatalogHierarchy({
+      brands,
+      categories,
+      product: {
+        brandId: "velvet",
+        mainCategoryId: "main-clothing",
+        subcategoryId: "sub-dresses",
+        age: "1-3 years",
+      },
+    }),
+    /invalid value/,
+  );
+});
+
+test("validateCatalogHierarchy normalizes exact legacy filter values in its result", () => {
+  const result = validateCatalogHierarchy({
+    brands,
+    categories,
+    product: {
+      brandId: "velvet",
+      mainCategoryId: "main-clothing",
+      subcategoryId: "sub-dresses",
+      age: "0-12 months",
+      gender: "Girls",
+      skill: "Intermediate",
+      occasion: "Everyday",
+    },
+  });
+  assert.equal(result.age, "0-12m");
+  assert.equal(result.gender, "girls");
+  assert.equal(result.skill, "intermediate");
+  assert.equal(result.occasion, "everyday");
 });
 
 test("validateCatalogHierarchy rejects unknown/inactive brand and category references", () => {
@@ -173,8 +211,9 @@ test("storefront product serialization exposes hierarchy, manufacturer, and filt
   assert.match(storefrontSource, /mainCategoryId: product\.mainCategoryId/);
   assert.match(storefrontSource, /subcategoryId:/);
   assert.match(storefrontSource, /manufacturer: String\(product\.manufacturer/);
-  for (const key of ["age", "gender", "skill", "occasion"]) {
-    assert.match(storefrontSource, new RegExp(`${key}: String\\(product\\.${key}`));
+  assert.match(storefrontSource, /publicFilterAttribute\("age", product\.age\)/);
+  for (const key of ["gender", "skill", "occasion"]) {
+    assert.match(storefrontSource, new RegExp(`publicFilterAttribute\\("${key}", product\\.${key}\\)`));
   }
   assert.match(storefrontSource, /quickShop: product\.quickShop === true/);
 });

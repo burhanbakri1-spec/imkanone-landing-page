@@ -14,7 +14,12 @@
 // This module is a pure helper over brand/category lists so it can be unit
 // tested without a database and reused by in-memory and Postgres runtimes.
 
-const FILTER_KEYS = ["age", "gender", "skill", "occasion"];
+import {
+  PRODUCT_FILTER_ATTRIBUTE_GROUPS,
+  normalizeProductFilterAttributeValue,
+} from "../../../shared/catalog/productFilterAttributes.js";
+
+const FILTER_KEYS = [...PRODUCT_FILTER_ATTRIBUTE_GROUPS];
 const BOOLEAN_FILTER_KEYS = ["quickShop"];
 
 export const PRODUCT_FILTER_KEYS = Object.freeze([...FILTER_KEYS, ...BOOLEAN_FILTER_KEYS]);
@@ -41,6 +46,14 @@ function normalizeOptionalString(incoming, value, field) {
   return normalized;
 }
 
+function normalizeFilterAttribute(field, value) {
+  try {
+    return normalizeProductFilterAttributeValue(field, value, { strict: true });
+  } catch (error) {
+    throw catalogHierarchyError(error.message || `${field} contains an invalid value.`);
+  }
+}
+
 // Normalizes the hierarchy/filter inputs from a product create/update body.
 // Returns an object containing only recognized keys; safe to spread into the
 // normalized product before persistence.
@@ -49,9 +62,14 @@ export function normalizeCatalogHierarchyInput(incoming = {}) {
     throw catalogHierarchyError("Product body must be an object.");
   }
   const normalized = {};
-  for (const field of ["mainCategoryId", "subcategoryId", "manufacturer", ...FILTER_KEYS]) {
+  for (const field of ["mainCategoryId", "subcategoryId", "manufacturer"]) {
     if (hasOwn(incoming, field)) {
       normalized[field] = normalizeOptionalString(incoming, incoming[field], field);
+    }
+  }
+  for (const field of FILTER_KEYS) {
+    if (hasOwn(incoming, field)) {
+      normalized[field] = normalizeFilterAttribute(field, incoming[field]);
     }
   }
   if (hasOwn(incoming, "quickShop")) {
@@ -154,9 +172,13 @@ export function validateCatalogHierarchy({
   if (product.manufacturer != null && typeof product.manufacturer !== "string") {
     throw catalogHierarchyError("manufacturer must be a string.");
   }
+  const normalizedFilters = {};
   for (const key of FILTER_KEYS) {
     if (product[key] != null && typeof product[key] !== "string") {
       throw catalogHierarchyError(`${key} must be a string.`);
+    }
+    if (product[key] != null && product[key] !== "") {
+      normalizedFilters[key] = normalizeFilterAttribute(key, product[key]);
     }
   }
   if (product.quickShop != null && typeof product.quickShop !== "boolean") {
@@ -168,10 +190,10 @@ export function validateCatalogHierarchy({
     mainCategoryId: mainCategoryId || null,
     subcategoryId: subcategoryId || null,
     manufacturer: nullOrTrimmed(product.manufacturer) || null,
-    age: nullOrTrimmed(product.age) || null,
-    gender: nullOrTrimmed(product.gender) || null,
-    skill: nullOrTrimmed(product.skill) || null,
-    occasion: nullOrTrimmed(product.occasion) || null,
+    age: normalizedFilters.age ?? null,
+    gender: normalizedFilters.gender ?? null,
+    skill: normalizedFilters.skill ?? null,
+    occasion: normalizedFilters.occasion ?? null,
     quickShop: product.quickShop === true,
   };
 }

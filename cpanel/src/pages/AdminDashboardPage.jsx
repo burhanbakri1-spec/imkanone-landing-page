@@ -42,6 +42,11 @@ import {
 } from "../utils/adminCategories.js";
 import { tenantStorageKey } from "../utils/companyContext.js";
 import { parseRequiredStock, preserveLegacySingleVariantStock } from "../utils/productStock.js";
+import {
+  getLocalizedFilterAttributeOptionsForSelect,
+  requiresCanonicalAgeSelection,
+  resolveProductFilterAttributeForForm,
+} from "../utils/productFilterAttributes.js";
 import { moduleAllowsPage, pageKeyForModule } from "../utils/moduleRegistry.js";
 import { canAccessAdminPage, canManageProductMedia, canUpdateProducts, isAdminPortalRole, isCompanyAdmin, isStaffRole, isTenantOperator, tenantAccessNotice } from "../utils/roles.js";
 import { hasPermission } from "../data/permissions.js";
@@ -1314,10 +1319,10 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
     subcategoryId: editingProduct?.subcategoryId || "",
     mainCategoryId: editingProduct?.mainCategoryId || resolveMainCategoryFor(categories, editingProduct?.mainCategoryId, editingProduct?.subcategoryId || ""),
     manufacturer: editingProduct?.manufacturer || "",
-    age: editingProduct?.age || "",
-    gender: editingProduct?.gender || "",
-    skill: editingProduct?.skill || "",
-    occasion: editingProduct?.occasion || "",
+    age: resolveProductFilterAttributeForForm("age", editingProduct?.age),
+    gender: resolveProductFilterAttributeForForm("gender", editingProduct?.gender),
+    skill: resolveProductFilterAttributeForForm("skill", editingProduct?.skill),
+    occasion: resolveProductFilterAttributeForForm("occasion", editingProduct?.occasion),
     quickShop: Boolean(editingProduct?.quickShop),
 
     size: editingProduct?.sizes?.[0]?.size || "500ml",
@@ -1937,10 +1942,10 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
                   <label>{t("productForm.longDescriptionEn")}<textarea dir="ltr" disabled={readOnly} name="fullDescription" value={form.fullDescription} onChange={change} /></label>
                   <label>{t("productForm.longDescriptionAr")}<textarea dir="rtl" disabled={readOnly} name="fullDescriptionAr" value={form.fullDescriptionAr} onChange={change} /></label>
                   <label>Manufacturer<input disabled={readOnly} name="manufacturer" value={form.manufacturer || ""} onChange={change} /></label>
-                  <label>Age<select disabled={readOnly} name="age" value={form.age || ""} onChange={change}><option value="">Any</option>{["0-12 months", "1-3 years", "3-6 years", "6-9 years", "9-12 years", "12+ years"].map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-                  <label>Gender<select disabled={readOnly} name="gender" value={form.gender || ""} onChange={change}><option value="">Any</option>{["Boys", "Girls", "Unisex"].map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-                  <label>Skill<select disabled={readOnly} name="skill" value={form.skill || ""} onChange={change}><option value="">Any</option>{["Beginner", "Intermediate", "Advanced"].map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-                  <label>Occasion<select disabled={readOnly} name="occasion" value={form.occasion || ""} onChange={change}><option value="">Any</option>{["Birthday", "Everyday", "Gift", "School", "Festive"].map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+                  <label>{ar ? "العمر" : "Age"}<select disabled={readOnly} name="age" value={form.age || ""} onChange={change}><option value="">{ar ? "أي" : "Any"}</option>{getLocalizedFilterAttributeOptionsForSelect("age", language, form.age || "").map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select>{requiresCanonicalAgeSelection(form.age) && <span className="admin-note">{ar ? "هذه قيمة عمر قديمة غير دقيقة. اختر نطاقًا معتمدًا قبل الحفظ." : "This legacy age range is ambiguous. Choose a canonical range before saving."}</span>}</label>
+                  <label>{ar ? "الجنس" : "Gender"}<select disabled={readOnly} name="gender" value={form.gender || ""} onChange={change}><option value="">{ar ? "أي" : "Any"}</option>{getLocalizedFilterAttributeOptionsForSelect("gender", language, form.gender || "").map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+                  <label>{ar ? "المهارة" : "Skill"}<select disabled={readOnly} name="skill" value={form.skill || ""} onChange={change}><option value="">{ar ? "أي" : "Any"}</option>{getLocalizedFilterAttributeOptionsForSelect("skill", language, form.skill || "").map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+                  <label>{ar ? "المناسبة" : "Occasion"}<select disabled={readOnly} name="occasion" value={form.occasion || ""} onChange={change}><option value="">{ar ? "أي" : "Any"}</option>{getLocalizedFilterAttributeOptionsForSelect("occasion", language, form.occasion || "").map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
                   <div className="admin-checkbox-grid full-field">
                     <label className="checkbox-line"><input disabled={readOnly} name="quickShop" type="checkbox" checked={Boolean(form.quickShop)} onChange={change} />Quick Shop</label>
                     {["featured", "newArrival", "bestseller"].map((field) => (
