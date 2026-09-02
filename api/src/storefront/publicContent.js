@@ -1,3 +1,5 @@
+import { normalizeProductFilterAttributeForRead } from "../../../shared/catalog/productFilterAttributes.js";
+
 const localized = (value, fallback = "") => {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     return {
@@ -46,6 +48,10 @@ const safeOption = (option = {}) => ({
   })),
 });
 
+function publicFilterAttribute(group, value) {
+  return normalizeProductFilterAttributeForRead(group, value) || "";
+}
+
 export function serializePublicProduct(product = {}) {
   const gallery = Array.isArray(product.gallery_images)
     ? product.gallery_images.map((item) => safeUrl(item?.image_url || item?.url || item)).filter(Boolean)
@@ -83,10 +89,10 @@ export function serializePublicProduct(product = {}) {
     subcategoryId: product.subcategoryId ? String(product.subcategoryId) : (product.categoryId ? String(product.categoryId) : null),
     manufacturer: String(product.manufacturer || ""),
     // Kids Velvet product filters.
-    age: String(product.age || ""),
-    gender: String(product.gender || ""),
-    skill: String(product.skill || ""),
-    occasion: String(product.occasion || ""),
+    age: publicFilterAttribute("age", product.age),
+    gender: publicFilterAttribute("gender", product.gender),
+    skill: publicFilterAttribute("skill", product.skill),
+    occasion: publicFilterAttribute("occasion", product.occasion),
     quickShop: product.quickShop === true,
     image: safeUrl(product.image || product.primaryImage),
     hoverImage: safeUrl(product.hoverImage || product.secondaryImage),
