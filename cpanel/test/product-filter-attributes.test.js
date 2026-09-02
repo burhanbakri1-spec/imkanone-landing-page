@@ -8,7 +8,8 @@ const shared = fs.readFileSync(new URL("../../shared/catalog/productFilterAttrib
 
 test("ProductWizard uses shared canonical filter attribute vocabulary", () => {
   assert.match(dashboard, /from "\.\.\/utils\/productFilterAttributes\.js"/);
-  assert.match(dashboard, /getLocalizedFilterAttributeOptionsForSelect\("age"/);
+  assert.match(dashboard, /getLocalizedFilterAttributeOptions\("age"/);
+  assert.match(dashboard, /toggleAge\(/);
   assert.match(dashboard, /requiresCanonicalAgeSelection\(form\.age\)/);
   assert.doesNotMatch(dashboard, /"1-3 years"/);
   assert.doesNotMatch(dashboard, /\["Boys", "Girls", "Unisex"\]/);
@@ -16,9 +17,14 @@ test("ProductWizard uses shared canonical filter attribute vocabulary", () => {
 
 test("active age options exclude overlapping retired canonical ranges", () => {
   assert.doesNotMatch(shared, /option\("1-3y"/);
-  assert.doesNotMatch(shared, /option\("3-6y"/);
   assert.doesNotMatch(shared, /option\("6-9y"/);
   assert.doesNotMatch(shared, /option\("9-12y"/);
+  assert.doesNotMatch(shared, /option\("13\+"/);
+  assert.match(shared, /option\("3-6y"/);
+  assert.match(shared, /option\("6-10y"/);
+  assert.match(shared, /option\("0-3y"/);
+  assert.match(shared, /option\("10\+y"/);
+  assert.match(shared, /option\("13-17y"/);
   assert.match(shared, /option\("7-9y"/);
 });
 
@@ -30,16 +36,21 @@ test("localized filter attribute options expose canonical IDs only for new produ
   } = await import("../src/utils/productFilterAttributes.js");
 
   const options = getLocalizedFilterAttributeOptions("age", "en");
-  assert.deepEqual(options.map((entry) => entry.id), ["0-12m", "1-2y", "3-4y", "5-6y", "7-9y", "10-12y", "13+", "adults"]);
+  assert.deepEqual(options.map((entry) => entry.id), [
+    "0-12m", "1-2y", "3-4y", "5-6y", "7-9y", "10-12y", "13-17y", "adults",
+    "0-3y", "3-6y", "6-10y", "10+y",
+  ]);
 
-  const legacy = getLocalizedFilterAttributeOptionsForSelect("age", "en", "1-3 years");
+  const legacy = getLocalizedFilterAttributeOptionsForSelect("age", "en", "12+ years");
   assert.equal(legacy.length, options.length + 1);
-  assert.ok(legacy.some((entry) => entry.id === "1-3 years" && /legacy value/i.test(entry.label)));
-  assert.ok(requiresCanonicalAgeSelection("1-3 years"));
+  assert.ok(legacy.some((entry) => entry.id === "12+ years" && /legacy value/i.test(entry.label)));
+  assert.ok(requiresCanonicalAgeSelection("12+ years"));
+  assert.ok(requiresCanonicalAgeSelection("13+"));
 });
 
 test("exact legacy age resolves to canonical form value for editing", async () => {
   const { resolveProductFilterAttributeForForm } = await import("../src/utils/productFilterAttributes.js");
-  assert.equal(resolveProductFilterAttributeForForm("age", "0-12 months"), "0-12m");
-  assert.equal(resolveProductFilterAttributeForForm("age", "1-3 years"), "1-3 years");
+  assert.deepEqual(resolveProductFilterAttributeForForm("age", "0-12 months"), ["0-12m"]);
+  assert.deepEqual(resolveProductFilterAttributeForForm("age", "1-3 years"), ["1-3 years"]);
+  assert.deepEqual(resolveProductFilterAttributeForForm("age", ["3-6y", "6-10y"]), ["3-6y", "6-10y"]);
 });

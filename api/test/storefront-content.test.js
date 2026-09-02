@@ -102,6 +102,36 @@ test("storefront content exposes entity-owned media directly on the entity", asy
   assert.equal(body.products[0].usageVideoPoster, "https://cdn.example/play-one-usage-poster.jpg");
 });
 
+test("storefront content exposes reusable filterDefinitions from canonical vocabulary", async () => {
+  const { response, body } = await request("/content?locale=en");
+  assert.equal(response.status, 200);
+  assert.ok(body.filterDefinitions);
+  assert.ok(Array.isArray(body.filterDefinitions.age));
+  const ageIds = body.filterDefinitions.age.map((entry) => entry.id);
+  assert.deepEqual(ageIds, [
+    "0-12m", "1-2y", "3-4y", "5-6y", "7-9y", "10-12y", "13-17y", "adults",
+    "0-3y", "3-6y", "6-10y", "10+y",
+  ]);
+  assert.ok(!ageIds.includes("13+"));
+  assert.ok(body.filterDefinitions.age.some((entry) => entry.id === "13-17y" && entry.label.en === "13–17 Years"));
+  assert.ok(body.filterDefinitions.gender.some((entry) => entry.id === "unisex"));
+});
+
+test("public products expose structured filterAttributes without removing flat fields", async () => {
+  const { response, body } = await request("/content?locale=en");
+  assert.equal(response.status, 200);
+  const product = body.products[0];
+  assert.equal("age" in product, true);
+  assert.equal("gender" in product, true);
+  assert.equal("skill" in product, true);
+  assert.equal("occasion" in product, true);
+  assert.ok(product.filterAttributes);
+  assert.deepEqual(product.filterAttributes.age, []);
+  assert.equal(product.filterAttributes.gender, null);
+  assert.equal(product.filterAttributes.skill, null);
+  assert.equal(product.filterAttributes.occasion, null);
+});
+
 test("storefront content exposes managed vlogs from company website content settings", async () => {
   const { response, body } = await request("/content?locale=ar");
   assert.equal(response.status, 200);

@@ -23,7 +23,7 @@ test("normalizeCatalogHierarchyInput trims strings, normalizes exact legacy filt
     mainCategoryId: " main ", subcategoryId: "", manufacturer: "  Acme  ", age: "0-12 months",
     gender: "Boys", quickShop: true,
   });
-  assert.deepEqual(out, { mainCategoryId: "main", subcategoryId: null, manufacturer: "Acme", age: "0-12m", gender: "boys", quickShop: true });
+  assert.deepEqual(out, { mainCategoryId: "main", subcategoryId: null, manufacturer: "Acme", age: ["0-12m"], gender: "boys", quickShop: true });
   assert.throws(() => normalizeCatalogHierarchyInput({ quickShop: "yes" }), /quickShop must be a boolean/);
   assert.throws(() => normalizeCatalogHierarchyInput({ age: "1-3 years" }), /invalid value/);
   assert.throws(() => normalizeCatalogHierarchyInput({ age: "3-6" }), /invalid value/);
@@ -38,7 +38,7 @@ test("validateCatalogHierarchy accepts a valid Brand -> Main -> Subcategory prod
       mainCategoryId: "main-clothing",
       subcategoryId: "sub-dresses",
       manufacturer: "Acme",
-      age: "7-9y",
+      age: ["7-9y"],
       quickShop: true,
     },
   });
@@ -47,7 +47,7 @@ test("validateCatalogHierarchy accepts a valid Brand -> Main -> Subcategory prod
     mainCategoryId: "main-clothing",
     subcategoryId: "sub-dresses",
     manufacturer: "Acme",
-    age: "7-9y",
+    age: ["7-9y"],
     gender: null,
     skill: null,
     occasion: null,
@@ -109,7 +109,7 @@ test("validateCatalogHierarchy normalizes exact legacy filter values in its resu
       occasion: "Everyday",
     },
   });
-  assert.equal(result.age, "0-12m");
+  assert.deepEqual(result.age, ["0-12m"]);
   assert.equal(result.gender, "girls");
   assert.equal(result.skill, "intermediate");
   assert.equal(result.occasion, "everyday");
