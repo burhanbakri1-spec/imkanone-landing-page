@@ -2,17 +2,22 @@ import React from "react";
 import AdminLayout from "../components/AdminLayout.jsx";
 import EmployeeForm from "../components/EmployeeForm.jsx";
 import EmployeeTable from "../components/EmployeeTable.jsx";
+import { isCompanyAdmin } from "../utils/roles.js";
 
 function AdminEmployeesPage({
   activePage = "admin-staff",
+  company,
   currentUser,
   employees,
   isDarkMode,
   language = "en",
+  modules,
   onLanguageChange,
   onDeleteEmployee,
   onLogout,
   onNavigate,
+  onReturnToPlatform,
+  onSwitchCompany,
   onSaveEmployee,
   onToggleDarkMode,
   onToggleEmployeeStatus,
@@ -33,16 +38,20 @@ function AdminEmployeesPage({
 
   const layoutProps = {
     activePage,
+    company,
     currentUser,
     isDarkMode,
     language,
+    modules,
     onLanguageChange,
     onLogout,
     onNavigate,
+    onReturnToPlatform,
+    onSwitchCompany,
     onToggleDarkMode,
   };
 
-  if (currentUser?.role !== "admin") {
+  if (!isCompanyAdmin(currentUser?.role)) {
     return (
       <AdminLayout {...layoutProps} subtitle={t("admin.adminOnly")} title={t("admin.accessDenied")}>
         <div className="admin-empty-state">

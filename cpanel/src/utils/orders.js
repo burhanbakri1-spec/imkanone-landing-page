@@ -1,11 +1,12 @@
 import { apiRequest } from "./api.js";
+import { isCompanyAdmin } from "./roles.js";
 
 export async function getOrders(currentUser) {
   if (!currentUser) {
     return [];
   }
 
-  return currentUser.role === "admin" ||
+  return isCompanyAdmin(currentUser.role) ||
     currentUser.permissions?.includes("orders.view")
     ? apiRequest("/orders")
     : apiRequest("/orders/my-orders");

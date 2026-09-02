@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { persistCompanyStore, workSessionRepository } from "../data/store.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAdmin, requireAuth } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -21,6 +21,14 @@ function findOpenSession(companyId, user) {
   );
 }
 
+function sessionMinutes(session, endTime = new Date()) {
+  const loginTime = session?.loginTime ? new Date(session.loginTime) : null;
+  if (!loginTime || Number.isNaN(loginTime.getTime())) return 0;
+  const end = endTime instanceof Date ? endTime : new Date(endTime);
+  if (Number.isNaN(end.getTime())) return 0;
+  return Math.max(0, Math.round((end.getTime() - loginTime.getTime()) / 60000));
+}
+
 router.post("/start", async (req, res) => {
   if (!isStaffRole(req.user.role)) {
     return res.status(403).json({ message: "Only employees can start work sessions." });
@@ -28,13 +36,15 @@ router.post("/start", async (req, res) => {
 
   let session = findOpenSession(req.companyId, req.user);
   if (!session) {
+    const now = new Date().toISOString();
     session = {
       id: `session-${Date.now()}`,
       employeeId: req.user.id,
       employeeName: req.user.name,
       date: todayKey(),
-      loginTime: new Date().toISOString(),
+      loginTime: now,
       logoutTime: null,
+      lastActivityAt: now,
     };
     workSessionRepository.createForCompany(req.companyId, session, { prepend: true });
     await persistCompanyStore(req.companyId);
@@ -46,9 +56,25 @@ router.post("/end", async (req, res) => {
   const session = findOpenSession(req.companyId, req.user);
   if (!session) return res.status(404).json({ message: "No open work session." });
 
-  session.logoutTime = new Date().toISOString();
+  const logoutTime = new Date();
+  session.logoutTime = logoutTime.toISOString();
+  session.lastActivityAt = session.logoutTime;
+  session.totalMinutes = sessionMinutes(session, logoutTime);
   await persistCompanyStore(req.companyId);
   return res.json(session);
+});
+
+router.post("/heartbeat", async (req, res) => {
+  if (!isStaffRole(req.user.role)) {
+    return res.status(403).json({ message: "Only employees can send heartbeat." });
+  }
+
+  const session = findOpenSession(req.companyId, req.user);
+  if (!session) return res.status(404).json({ message: "No open work session." });
+
+  session.lastActivityAt = new Date().toISOString();
+  await persistCompanyStore(req.companyId);
+  return res.json({ ok: true });
 });
 
 router.get("/my-today", (req, res) => {
@@ -56,15 +82,17 @@ router.get("/my-today", (req, res) => {
   return res.json(findOpenSession(req.companyId, req.user) || null);
 });
 
-router.get("/employees", (req, res) => {
-  if (req.user.role !== "admin") {
-    return res.status(403).json({ message: "Admin access required." });
-  }
+router.get("/employees", requireAdmin, (req, res) => {
   return res.json(workSessionRepository.getByCompany(req.companyId));
 });
 
 router.get("/employees/:employeeId", (req, res) => {
-  if (req.user.role !== "admin" && req.user.id !== req.params.employeeId) {
+  const canReadOwnSessions = isStaffRole(req.membershipRole)
+    && req.user.id === req.params.employeeId;
+  if (
+    !["admin", "company_admin"].includes(req.membershipRole)
+    && !canReadOwnSessions
+  ) {
     return res.status(403).json({ message: "Work session access denied." });
   }
   return res.json(

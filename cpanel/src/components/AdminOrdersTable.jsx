@@ -1,5 +1,6 @@
 import React from "react";
 import StatusBadge from "./StatusBadge.jsx";
+import { formatCompanyCurrency } from "../utils/sales.js";
 
 const statuses = ["Pending", "Processing", "Completed", "Cancelled"];
 
@@ -7,10 +8,13 @@ function AdminOrdersTable({
   canAssign = true,
   canDelete = false,
   canUpdateStatus = true,
+  currency,
   employees = [],
   language,
+  locale,
   onAssignEmployee,
   onDeleteOrder,
+  onViewOrder,
   onStatusChange,
   orders,
   products,
@@ -20,8 +24,13 @@ function AdminOrdersTable({
     return <div className="empty-panel compact-empty">{t("admin.noOrders")}</div>;
   }
 
+  function formatAmount(value) {
+    if (!currency) return `${value} ${t("common.ils")}`;
+    return formatCompanyCurrency(value, { settings: { currency, locale } }, language);
+  }
+
   function getItemSummary(order) {
-    return order.items
+    return (Array.isArray(order.items) ? order.items : [])
       .map((item) => {
         const product = products.find((entry) => entry.id === item.productId);
         return `${product?.name[language] || item.slug} ${item.size} x${item.quantity}`;
@@ -52,11 +61,11 @@ function AdminOrdersTable({
         <tbody>
           {orders.map((order) => (
             <tr key={order.id}>
-              <td>{order.id}</td>
-              <td>{order.customer.name}</td>
-              <td>{order.customer.phone}</td>
-              <td>{order.customer.city}</td>
-              <td>{order.total} {t("common.ils")}</td>
+              <td>{onViewOrder ? <button className="sales-order-link" onClick={() => onViewOrder(order)} type="button">{order.id}</button> : order.id}</td>
+              <td>{order.customer?.name || "-"}</td>
+              <td>{order.customer?.phone || "-"}</td>
+              <td>{order.customer?.city || "-"}</td>
+              <td><bdi dir="ltr">{formatAmount(order.total)}</bdi></td>
               <td>{Math.max(0, Number(order.pointsEarned || 0))}</td>
               <td>
                 <StatusBadge status={order.status} t={t} />

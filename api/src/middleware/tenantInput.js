@@ -24,8 +24,21 @@ export function stripReservedTenantFields(value) {
 }
 
 export function sanitizeTenantRequestBody(req, _res, next) {
-  if (req.body !== undefined && !Buffer.isBuffer(req.body)) {
+  const isPlatformRoute =
+    req.path?.startsWith("/api/platform") ||
+    req.originalUrl?.startsWith("/api/platform");
+  const isCompanySelectionRoute =
+    req.path === "/api/auth/select-company" ||
+    req.originalUrl?.split("?", 1)[0] === "/api/auth/select-company";
+
+  if (
+    req.body !== undefined
+    && !Buffer.isBuffer(req.body)
+    && !isPlatformRoute
+    && !isCompanySelectionRoute
+  ) {
     req.body = stripReservedTenantFields(req.body);
   }
+
   next();
 }

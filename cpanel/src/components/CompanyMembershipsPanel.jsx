@@ -14,6 +14,7 @@ const emptyMemberForm = {
   name: "",
   role: "company_admin",
   status: "active",
+  password: "",
 };
 
 function validateMembership(form, { requireEmail = false } = {}) {
@@ -128,6 +129,7 @@ function CompanyMembershipsPanel({
         name: createForm.name.trim(),
         role: createForm.role,
         status: createForm.status,
+        ...(createForm.password.trim() ? { password: createForm.password.trim() } : {}),
       });
       setMemberships((current) => {
         const exists = current.some((membership) => membership.userId === saved.userId);
@@ -260,6 +262,17 @@ function CompanyMembershipsPanel({
                 name="name"
                 onChange={changeCreateForm}
                 value={createForm.name}
+              />
+            </label>
+            <label>
+              Temporary password
+              <input
+                autoComplete="new-password"
+                name="password"
+                onChange={changeCreateForm}
+                placeholder="Required for new users. Ignored for existing."
+                type="password"
+                value={createForm.password}
               />
             </label>
             <label>

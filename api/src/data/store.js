@@ -7,24 +7,122 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   findUsersByEmailFromSupabase,
+  findPlatformUserByIdFromSupabase,
+  categoryParentWouldCycleInSupabase,
+  countCategoryChildrenFromSupabase,
+  countBrandProductReferencesFromSupabase,
+  countCategoryProductReferencesFromSupabase,
+  createBrandForCompanyInSupabase,
+  createCategoryWithTenantLockInSupabase,
+  deleteCompanyMembershipFromSupabase,
+  deleteBrandWithTenantLockInSupabase,
+  deleteCategoryWithTenantLockInSupabase,
+  deleteProductWithTenantCatalogLockInSupabase,
+  findBrandByCompanyFromSupabase,
+  findBrandBySlugFromSupabase,
+  findCategoryByCompanyFromSupabase,
+  findCategoryBySlugFromSupabase,
   isSupabaseConfigured,
+  listBrandsByCompanyFromSupabase,
+  listCategoriesByCompanyFromSupabase,
+  listPlatformUsersFromSupabase,
   listCompanyMembershipsFromSupabase,
-  loadStoreFromSupabase,
+  listUserMembershipsFromSupabase,
+  loadPlatformStoreFromSupabase,
   saveCompanyToSupabase,
   saveCompanyMembershipToSupabase,
+  savePlatformUserToSupabase,
   saveStoreToSupabase,
   saveSuperAdminUserToSupabase,
-} from "./supabaseStore.js";
+  saveProductWithTenantCatalogLockInSupabase,
+  saveActivityLogEntryToSupabase,
+  saveAnalyticsStoreToSupabase,
+  saveInboxStateToSupabase,
+  updateBrandForCompanyInSupabase,
+  updateBrandStatusForCompanyInSupabase,
+  updateCategoryWithTenantLockInSupabase,
+  updateCategoryStatusForCompanyInSupabase,
+  updateCompanyBrandingAndSettingsInSupabase,
+} from "./postgresStore.js";
 import {
   COMPANY_STATUSES,
   DEFAULT_COMPANY_DOMAIN,
   DEFAULT_COMPANY_ID,
   defaultCompany,
+  hasResolvableStorefront,
   isSafeCompanySlug,
+  isSharedStorefrontHost,
   normalizeCompanyHost,
   normalizeCompanyId,
+  normalizeCompanyStorefrontPath,
+  normalizeCompanyStorefrontUrl,
+  resolveStorefrontCompany,
+  selectPreferredCompanyDomains,
 } from "../tenancy/company.js";
-import { isPasswordHash } from "../auth/passwords.js";
+
+export const companyDomains = [];
+export function initializeDomainRegistry(domainRows = []) {
+  companyDomains.length = 0;
+  for (const row of domainRows) {
+    companyDomains.push({
+      id: row.id,
+      company_id: row.company_id || row.companyId,
+      domain: String(row.domain || "").toLowerCase(),
+      is_primary: row.is_primary === true,
+      is_active: row.is_active !== false,
+      is_verified: row.is_verified === true,
+      created_at: row.created_at || row.createdAt || new Date().toISOString(),
+      updated_at: row.updated_at || row.updatedAt || new Date().toISOString(),
+    });
+  }
+}
+
+export function resolveByActiveVerifiedDomain(normalizedHost) {
+  if (!normalizedHost) return null;
+  for (const entry of companyDomains) {
+    if (
+      entry.is_active
+      && entry.is_verified
+      && normalizeCompanyHost(entry.domain) === normalizedHost
+    ) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+export function getCompanyDomainsByCompany(companyId) {
+  return companyDomains.filter((d) => d.company_id === companyId);
+}
+
+export function getDomainEntryById(id) {
+  return companyDomains.find((d) => d.id === id) || null;
+}
+
+export function upsertDomainEntry(entry) {
+  const existing = companyDomains.findIndex((d) => d.id === entry.id);
+  if (existing >= 0) {
+    companyDomains[existing] = { ...companyDomains[existing], ...entry };
+    return companyDomains[existing];
+  }
+  companyDomains.push(entry);
+  return entry;
+}
+
+export function removeDomainEntry(id) {
+  const idx = companyDomains.findIndex((d) => d.id === id);
+  if (idx >= 0) companyDomains.splice(idx, 1);
+}
+import { hashPassword, isPasswordHash } from "../auth/passwords.js";
+import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
+
+const catalogMemoryAllowed = process.env.NODE_ENV === "test"
+  || (process.env.NODE_ENV === "development" && process.env.ALLOW_LOCAL_CATALOG_STORAGE === "true");
+if (!isSupabaseConfigured() && !catalogMemoryAllowed) {
+  throw new Error(
+    "PostgreSQL catalog storage is required. Configure DATABASE_URL or POSTGRES_URL; isolated memory is test-only.",
+  );
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = process.env.DATA_STORE_DIR
@@ -38,14 +136,67 @@ export const allPermissions = [
   "products.create",
   "products.update",
   "products.delete",
+  "products.read",
+  "products.manage",
+  "product_media.manage",
+  "product_content.manage",
+  "product_settings.view",
+  "product_settings.manage",
+  "categories.view",
+  "categories.create",
+  "categories.update",
+  "categories.delete",
+  "brands.view",
+  "brands.create",
+  "brands.update",
+  "brands.delete",
+  "company_settings.view",
+  "company_settings.update",
   "orders.view",
   "orders.create",
   "orders.update",
   "orders.delete",
   "orders.updateStatus",
   "customers.view",
+  "customers.create",
+  "customers.update",
+  "customers.archive",
+  "customers.manage",
+  "inbox.view",
+  "inbox.create",
+  "inbox.reply",
+  "inbox.assign",
+  "inbox.update",
+  "inbox.archive",
+  "inbox.manage",
   "employees.view",
   "website_media.manage",
+  "website_texts.manage",
+  "site_editor.access",
+  "site_editor.edit",
+  "site_editor.save",
+  "site_editor.connection.manage",
+  "site_editor.manifest.sync",
+  "invoices.view",
+  "invoices.manage",
+  "reviews.view",
+  "reviews.manage",
+  "delivery.view",
+  "delivery.manage",
+  "activity_log.view",
+  "reports.view",
+  "dropshipping.marketers.read",
+  "dropshipping.marketers.manage",
+  "dropshipping.products.read",
+  "dropshipping.products.manage",
+  "dropshipping.orders.read",
+  "dropshipping.orders.manage",
+  "dropshipping.earnings.read",
+  "dropshipping.earnings.manage",
+  "dropshipping.withdrawals.read",
+  "dropshipping.withdrawals.manage",
+  "dropshipping.reports.read",
+  "dropshipping.settings.manage",
 ];
 
 const seedUsers = [
@@ -148,12 +299,14 @@ function normalizeVariants(product) {
   const variants = Array.isArray(product.variants) ? product.variants : [];
   if (variants.length) {
     return variants
-      .map((variant, index) => ({
+      .map((variant, index) => withVariantVisibility({
+        ...variant,
         id: variant.id || `${product.id || "product"}-variant-${index}-${Date.now()}`,
         color_name: variant.color_name || variant.colorName || "Default",
         color_value: variant.color_value || variant.colorValue || variant.colorHex || "",
         size: variant.size || "500ml",
         price: Number(variant.price || 0),
+        wholesalePrice: variant.wholesalePrice != null ? Number(variant.wholesalePrice) : undefined,
         stock: Math.max(0, Number(variant.stock ?? variant.stockQty ?? product.stockQty ?? 0)),
         image_url: variant.image_url || variant.imageUrl || variant.image || "",
         sort_order: Number(variant.sort_order ?? variant.sortOrder ?? index),
@@ -161,47 +314,63 @@ function normalizeVariants(product) {
       .sort((a, b) => a.sort_order - b.sort_order);
   }
 
-  return (product.sizes || []).map((sizeOption, index) => ({
+  return (product.sizes || []).map((sizeOption, index) => withVariantVisibility({
     id: `${product.id || "product"}-variant-${index}`,
     color_name: "Default",
     color_value: "",
     size: sizeOption.size || "500ml",
     price: Number(sizeOption.price || 0),
+    wholesalePrice: sizeOption.wholesalePrice != null ? Number(sizeOption.wholesalePrice) : undefined,
     stock: Math.max(0, Number(product.stockQty ?? 24)),
     image_url: product.image || "",
     sort_order: index,
   }));
 }
 
+function normalizeGlobalUsers(source, fallback) {
+  const byId = new Map();
+  ensureArray(source, fallback).forEach((record, index) => {
+    const user = normalizeUser(withoutCompanyFields(record), index);
+    if (!byId.has(user.id)) byId.set(user.id, user);
+  });
+  return [...byId.values()];
+}
+
 function sizesFromVariants(variants, fallbackSizes = []) {
   const bySize = new Map();
-  variants.forEach((variant) => {
+  variants.filter(isVariantVisible).forEach((variant) => {
     const current = bySize.get(variant.size);
     if (!current || Number(variant.price) < Number(current.price)) {
       bySize.set(variant.size, { size: variant.size, price: Number(variant.price || 0) });
     }
   });
-  return bySize.size ? Array.from(bySize.values()) : fallbackSizes;
+  if (bySize.size) return Array.from(bySize.values());
+  return variants.length ? [] : fallbackSizes;
+}
+
+function isRealUrl(value) {
+  return typeof value === "string" && value.trim() && !value.trim().includes("/images/products/product-placeholder");
 }
 
 function normalizeProduct(product, index = 0) {
-  const image = product.image || "/images/products/product-placeholder.svg";
+  const primarySource = product.image || product.primaryImage || product.primary_image || "";
+  const hoverSource = product.hoverImage || product.secondaryImage || product.secondary_image || "";
+  const image = isRealUrl(primarySource) ? primarySource.trim() : "";
+  const hoverImage = isRealUrl(hoverSource) ? hoverSource.trim() : "";
   const galleryImages = normalizeGalleryImages(product);
-  const variants = normalizeVariants({ ...product, image });
+  const variants = normalizeVariants({ ...product, image: image || "/images/products/product-placeholder.svg" });
   return {
     ...product,
     id: product.id || `product-${index}-${Date.now()}`,
     image,
-    hoverImage:
-      product.hoverImage ||
-      product.secondaryImage ||
-      product.gallery?.[1] ||
-      "",
+    hoverImage,
     variants,
     sizes: sizesFromVariants(variants, product.sizes || []),
     gallery_images: galleryImages,
     galleryImages: galleryImages.map((entry) => entry.image_url),
     fallbackImage: product.fallbackImage || "/images/products/product-placeholder.svg",
+    usageVideo: product.usageVideo || product.usage_video || null,
+    usageVideoPoster: product.usageVideoPoster || product.usage_video_poster || null,
   };
 }
 
@@ -211,15 +380,18 @@ function normalizeUser(user) {
   const ebPoints = Math.max(0, Number(user.ebPoints || 0));
   const totalPointsEarned = Math.max(0, Number(user.totalPointsEarned || 0));
   const totalPointsRedeemed = Math.max(0, Number(user.totalPointsRedeemed || 0));
+  const validAccountTypes = new Set(["retail", "trader", "wholesale"]);
   return {
     ...user,
     name,
     role: user.role || "customer",
     permissions: user.permissions || [],
+    accountType: validAccountTypes.has(user.accountType) ? user.accountType : "retail",
     ebPoints,
     totalPointsEarned,
     totalPointsRedeemed,
     isActive: user.isActive !== false,
+    avatarUrl: user.avatarUrl || "",
   };
 }
 
@@ -292,6 +464,8 @@ function normalizeReview(review, index = 0) {
 }
 
 function normalizeWebsiteMedia(item, index = 0) {
+  const videoUrl = item.videoUrl ?? item.video_url ?? "";
+  const mediaType = item.mediaType || item.media_type || (videoUrl ? "video" : "image");
   return {
     ...item,
     id: item.id || `website-media-${index}`,
@@ -300,6 +474,8 @@ function normalizeWebsiteMedia(item, index = 0) {
     groupKey: item.groupKey || item.group_key || "sections",
     fallbackImageUrl: item.fallbackImageUrl || item.fallback_image_url || "",
     imageUrl: item.imageUrl ?? item.image_url ?? "",
+    videoUrl,
+    mediaType,
     title: item.title || "",
     subtitle: item.subtitle || "",
     linkUrl: item.linkUrl || item.link_url || "",
@@ -324,17 +500,19 @@ function mediaTimestamp(item) {
 function preferWebsiteMediaItem(current, next) {
   if (!current) return next;
 
-  const currentHasImage = Boolean(current.imageUrl || current.image_url);
-  const nextHasImage = Boolean(next.imageUrl || next.image_url);
+  const currentHasMedia = Boolean(current.imageUrl || current.image_url || current.videoUrl || current.video_url);
+  const nextHasMedia = Boolean(next.imageUrl || next.image_url || next.videoUrl || next.video_url);
 
   const preferred =
-    nextHasImage && !currentHasImage
+    nextHasMedia && !currentHasMedia
       ? next
-      : !nextHasImage && currentHasImage
+      : !nextHasMedia && currentHasMedia
         ? current
         : mediaTimestamp(next) >= mediaTimestamp(current)
           ? next
           : current;
+
+  const videoUrl = preferred.videoUrl ?? preferred.video_url ?? current.videoUrl ?? current.video_url ?? "";
 
   return {
     ...current,
@@ -345,6 +523,8 @@ function preferWebsiteMediaItem(current, next) {
     groupKey: preferred.groupKey || preferred.group_key || current.groupKey || current.group_key,
     fallbackImageUrl: current.fallbackImageUrl || current.fallback_image_url || preferred.fallbackImageUrl || "",
     imageUrl: preferred.imageUrl ?? preferred.image_url ?? "",
+    videoUrl,
+    mediaType: preferred.mediaType ?? preferred.media_type ?? current.mediaType ?? (videoUrl ? "video" : "image"),
   };
 }
 
@@ -359,6 +539,26 @@ function normalizeCompanyRecord(company = {}, index = 0) {
     : company.publicSettings && typeof company.publicSettings === "object"
       ? clone(company.publicSettings)
       : {};
+  const storefrontUrl = normalizeCompanyStorefrontUrl(
+    Object.prototype.hasOwnProperty.call(company, "storefrontUrl")
+      ? company.storefrontUrl
+      : settings.storefrontUrl,
+  );
+  const storefrontPath = normalizeCompanyStorefrontPath(
+    Object.prototype.hasOwnProperty.call(company, "storefrontPath")
+      ? company.storefrontPath
+      : settings.storefrontPath,
+  );
+  const persistedSettings = { ...settings };
+  if (storefrontUrl) persistedSettings.storefrontUrl = storefrontUrl;
+  else delete persistedSettings.storefrontUrl;
+  if (storefrontPath) persistedSettings.storefrontPath = storefrontPath;
+  else delete persistedSettings.storefrontPath;
+  const preferredDomains = selectPreferredCompanyDomains([
+    ...(Array.isArray(company.domains) ? company.domains : []),
+    company.domain,
+    ...(isDefault ? [DEFAULT_COMPANY_DOMAIN] : []),
+  ]);
   return {
     id,
     slug: isDefault ? DEFAULT_COMPANY_ID : String(company.slug || id).trim().toLowerCase(),
@@ -369,10 +569,11 @@ function normalizeCompanyRecord(company = {}, index = 0) {
         ? company.status
         : "inactive",
     isDefault,
-    domain: isDefault
-      ? DEFAULT_COMPANY_DOMAIN
-      : normalizeCompanyHost(company.domain),
-    settings,
+    domain: preferredDomains[0]?.domain || (isDefault ? DEFAULT_COMPANY_DOMAIN : ""),
+    domains: preferredDomains.map((entry) => entry.domain),
+    storefrontUrl,
+    storefrontPath,
+    settings: persistedSettings,
     createdAt: company.createdAt || company.created_at || now,
     updatedAt: company.updatedAt || company.updated_at || company.createdAt || now,
     _domainId: company._domainId || "",
@@ -437,32 +638,58 @@ function serializeCompany(company) {
   return clone(record);
 }
 
-async function readInitialStore(companyId = DEFAULT_COMPANY_ID) {
+async function readInitialStore() {
   if (!isSupabaseConfigured()) {
-    return { persisted: readPersistedStore(), canPersistToSupabase: false };
+    const persisted = readPersistedStore();
+    if (Array.isArray(persisted?.domains)) {
+      initializeDomainRegistry(persisted.domains);
+    } else {
+      initializeDomainRegistry((persisted?.companies || []).flatMap((c) => {
+        const d = c.domain;
+        return d ? [{ id: c._domainId || `domain-${c.id}`, company_id: c.id, domain: d, is_primary: true, is_active: true, is_verified: false }] : [];
+      }));
+    }
+    return { persisted, canPersistToSupabase: false };
   }
 
   try {
-    const result = await loadStoreFromSupabase(companyId);
+    const result = await loadPlatformStoreFromSupabase();
     const localFallback = readPersistedStore();
+    const store = result.isEmpty
+      ? { ...(localFallback || {}), companies: result.store.companies || [] }
+      : result.store;
+    initializeDomainRegistry(result.rawDomains || []);
     return {
-      persisted: result.isEmpty
-        ? { ...(localFallback || {}), companies: result.store.companies || [] }
-        : result.store,
+      persisted: store,
       canPersistToSupabase: true,
     };
   } catch (error) {
     console.warn("Could not read Supabase store, using local fallback without remote writes.", error.message);
-    return { persisted: readPersistedStore(), canPersistToSupabase: false };
+    const persisted = readPersistedStore();
+    if (Array.isArray(persisted?.domains)) {
+      initializeDomainRegistry(persisted.domains);
+    } else {
+      initializeDomainRegistry((persisted?.companies || []).flatMap((c) => {
+        const d = c.domain;
+        return d ? [{ id: c._domainId || `domain-${c.id}`, company_id: c.id, domain: d, is_primary: true, is_active: true, is_verified: false }] : [];
+      }));
+    }
+    return { persisted, canPersistToSupabase: false };
   }
 }
 
-const initialStore = await readInitialStore();
+let initialStore;
+try {
+  initialStore = await readInitialStore();
+} catch (error) {
+  console.error("Store initialization failed, using empty in-memory store.", error?.message || error);
+  initialStore = { persisted: null, canPersistToSupabase: false };
+}
 const persisted = initialStore.persisted;
 let canPersistToSupabase = initialStore.canPersistToSupabase;
 
 export const companies = initializeCompanies(persisted?.companies);
-export const users = normalizeTenantRecords(persisted?.users, seedUsers, normalizeUser);
+export const users = normalizeGlobalUsers(persisted?.users, seedUsers);
 const membershipSource = Array.isArray(persisted?.memberships)
   ? persisted.memberships
   : users.map((user) => ({
@@ -496,6 +723,8 @@ export const categoryCards = normalizeTenantRecords(
   homepageCategoryCards,
   normalizeCategoryCard,
 );
+export const categories = normalizeTenantRecords(persisted?.categories, [], normalizeCategory);
+export const brands = normalizeTenantRecords(persisted?.brands, [], normalizeBrand);
 export const reviews = normalizeTenantRecords(persisted?.reviews, initialReviews, normalizeReview);
 const persistedWebsiteMedia = Array.isArray(persisted?.websiteMedia) ? persisted.websiteMedia : [];
 const websiteMediaBySection = new Map(
@@ -510,8 +739,130 @@ persistedWebsiteMedia
   const sectionKey = item.sectionKey || item.section_key || item.id || `persisted-website-media-${index}`;
   websiteMediaBySection.set(sectionKey, preferWebsiteMediaItem(websiteMediaBySection.get(sectionKey), item));
 });
-export const websiteMedia = [...websiteMediaBySection.values()].map((item, index) =>
-  tagRecord(normalizeWebsiteMedia(withoutCompanyFields(item), index), DEFAULT_COMPANY_ID),
+const deletedWebsiteMediaKeys = Array.isArray(persisted?.deletedWebsiteMediaKeys) ? persisted.deletedWebsiteMediaKeys : [];
+const defaultCompanyWebsiteMedia = [...websiteMediaBySection.values()]
+  .filter((item) => !deletedWebsiteMediaKeys.includes(item.sectionKey || item.id))
+  .map((item, index) =>
+    tagRecord(normalizeWebsiteMedia(withoutCompanyFields(item), index), DEFAULT_COMPANY_ID),
+  );
+const nonDefaultWebsiteMedia = normalizeTenantRecords(
+  persistedWebsiteMedia.filter((item) => inputCompanyId(item) !== DEFAULT_COMPANY_ID),
+  [],
+  normalizeWebsiteMedia,
+);
+export const websiteMedia = [...defaultCompanyWebsiteMedia, ...nonDefaultWebsiteMedia];
+const legacyHiddenWebsiteMediaKeys = deletedWebsiteMediaKeys.map((sectionKey) => ({
+  id: `hidden-media-${DEFAULT_COMPANY_ID}-${sectionKey}`,
+  company_id: DEFAULT_COMPANY_ID,
+  sectionKey,
+}));
+export const websiteMediaHiddenKeys = normalizeTenantRecords(
+  persisted?.websiteMediaHiddenKeys,
+  legacyHiddenWebsiteMediaKeys,
+  (item, index) => ({
+    ...item,
+    id: item.id || `hidden-media-${index}-${Date.now()}`,
+    sectionKey: item.sectionKey || item.section_key || "",
+    createdAt: item.createdAt || item.created_at || new Date().toISOString(),
+    updatedAt: item.updatedAt || item.updated_at || new Date().toISOString(),
+  }),
+).filter((item) => item.sectionKey);
+export const websiteTexts = normalizeTenantRecords(
+  persisted?.websiteTexts,
+  [],
+  (item, index) => ({
+    ...item,
+    id: item.id || `website-text-${index}-${Date.now()}`,
+    key: item.key || item.text_key || `text_${index}`,
+    group: item.group || item.group_key || "general",
+    label: item.label || "",
+    valueEn: item.valueEn || item.value?.en || item.value_en || "",
+    valueAr: item.valueAr || item.value?.ar || item.value_ar || "",
+    valueHe: item.valueHe || item.value?.he || item.value_he || "",
+    isActive: item.isActive !== false,
+    sortOrder: Number(item.sortOrder ?? item.sort_order ?? 0),
+    createdAt: item.createdAt || item.created_at || new Date().toISOString(),
+    updatedAt: item.updatedAt || item.updated_at || new Date().toISOString(),
+    deletedAt: item.deletedAt || item.deleted_at || null,
+  }),
+);
+export const customAdminModules = normalizeTenantRecords(
+  persisted?.customAdminModules,
+  [],
+  normalizeCustomAdminModule,
+);
+export const customAdminModuleEntries = normalizeTenantRecords(
+  persisted?.customAdminModuleEntries,
+  [],
+  normalizeCustomAdminModuleEntry,
+);
+export const companyProductSchemas = normalizeTenantRecords(
+  persisted?.companyProductSchemas,
+  [],
+  normalizeCompanyProductSchema,
+);
+
+export const invoices = normalizeTenantRecords(
+  persisted?.invoices,
+  [],
+  (inv) => inv,
+);
+
+export const deliveryZones = normalizeTenantRecords(
+  persisted?.deliveryZones,
+  [],
+  (z) => z,
+);
+
+export const activityLogs = normalizeTenantRecords(
+  persisted?.activityLogs,
+  [],
+  (log) => log,
+);
+
+export const searchEvents = normalizeTenantRecords(
+  persisted?.searchEvents,
+  [],
+  (event) => event,
+);
+
+export const searchRedirects = normalizeTenantRecords(
+  persisted?.searchRedirects,
+  [],
+  (redirect) => redirect,
+);
+
+export const visitorSessions = normalizeTenantRecords(
+  persisted?.visitorSessions,
+  [],
+  (session) => session,
+);
+
+export const visitorEvents = normalizeTenantRecords(
+  persisted?.visitorEvents,
+  [],
+  (event) => event,
+);
+export const inboxConversations = normalizeTenantRecords(
+  persisted?.inboxConversations,
+  [],
+  (conversation) => conversation,
+);
+export const inboxMessages = normalizeTenantRecords(
+  persisted?.inboxMessages,
+  [],
+  (message) => message,
+);
+export const inboxConversationReads = normalizeTenantRecords(
+  persisted?.inboxConversationReads,
+  [],
+  (read) => ({
+    ...read,
+    id: read.id || `${read.conversationId || read.conversation_id}:${read.userId || read.user_id}`,
+    conversationId: read.conversationId || read.conversation_id,
+    userId: read.userId || read.user_id,
+    lastReadAt: read.lastReadAt || read.last_read_at,
+  }),
 );
 
 class TenantRepository {
@@ -521,6 +872,7 @@ class TenantRepository {
   }
 
   getByCompany(companyId) {
+    if (companyId == null) return [];
     const normalized = normalizeCompanyId(companyId);
     return this.collection.filter((record) => getRecordCompanyId(record) === normalized);
   }
@@ -564,14 +916,201 @@ class TenantRepository {
   }
 }
 
+class MembershipBackedUserRepository extends TenantRepository {
+  activeMembershipsForCompany(companyId) {
+    const normalized = normalizeCompanyId(companyId);
+    return companyMemberships.filter(
+      (membership) => membership.companyId === normalized && membership.status === "active",
+    );
+  }
+
+  getByCompany(companyId) {
+    const usersById = new Map(this.collection.map((user) => [user.id, user]));
+    return this.activeMembershipsForCompany(companyId)
+      .map((membership) => {
+        const user = usersById.get(membership.userId);
+        if (!user || user.isActive === false || user.role === "super_admin") return null;
+        return this.projectTenantUser(user, membership);
+      })
+      .filter(Boolean);
+  }
+
+  projectTenantUser(user, membership) {
+    return {
+      ...clone(user),
+      globalRole: user.role,
+      globalPermissions: clone(user.permissions || []),
+      role: membership.role,
+      permissions: clone(membership._permissions || []),
+      companyId: membership.companyId,
+      membershipId: membership.id,
+      membershipRole: membership.role,
+      isActive: user.isActive !== false && membership.status === "active",
+    };
+  }
+
+  createForCompany(companyId, record, options = {}) {
+    const normalized = normalizeCompanyId(companyId);
+    const requestedId = String(options.requestedId || record?.id || "").trim();
+    const normalizedEmail = String(record?.email || "").trim().toLowerCase();
+    if (requestedId && this.collection.some((entry) => entry.id === requestedId)) {
+      throw membershipRepositoryError(
+        "This global user identity already exists; use the platform membership workflow.",
+        409,
+      );
+    }
+    if (normalizedEmail && this.collection.some(
+      (entry) => String(entry.email || "").trim().toLowerCase() === normalizedEmail,
+    )) {
+      throw membershipRepositoryError(
+        "This email already belongs to a global user; use the platform membership workflow.",
+        409,
+      );
+    }
+    const user = normalizeUser(withoutCompanyFields({
+      ...record,
+      id: String(record?.id || "").trim() || `user-${crypto.randomUUID()}`,
+      email: normalizedEmail,
+    }));
+    this.collection.push(user);
+    const membershipId = `${normalized}:${user.id}`;
+    const membership = normalizeMembership({
+      id: membershipId,
+      companyId: normalized,
+      userId: user.id,
+      role: membershipRoleForUser(user),
+      _permissions: clone(record.permissions || []),
+      status: "active",
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    });
+    companyMemberships.push(membership);
+    return this.projectTenantUser(user, membership);
+  }
+
+  updateForCompany(companyId, id, update) {
+    const current = this.findByCompany(companyId, id);
+    if (!current) return null;
+    const normalized = normalizeCompanyId(companyId);
+    const index = this.collection.findIndex((user) => user.id === id);
+    const membershipIndex = companyMemberships.findIndex(
+      (membership) => membership.companyId === normalized && membership.userId === id,
+    );
+    if (membershipIndex < 0) return null;
+    const next = typeof update === "function" ? update(current) : { ...current, ...update };
+    const nextEmail = String(next.email || "").trim().toLowerCase();
+    if (nextEmail && this.collection.some(
+      (user) => user.id !== id && String(user.email || "").trim().toLowerCase() === nextEmail,
+    )) {
+      throw membershipRepositoryError("This email already belongs to another global user.", 409);
+    }
+    const {
+      role: _tenantRole,
+      permissions: _tenantPermissions,
+      globalRole: _globalRole,
+      globalPermissions: _globalPermissions,
+      membershipId: _membershipId,
+      membershipRole: _membershipRole,
+      isActive: _tenantActive,
+      ...identityFields
+    } = withoutCompanyFields(next);
+    const globalUser = normalizeUser({
+      ...this.collection[index],
+      ...identityFields,
+      email: nextEmail,
+      role: this.collection[index].role,
+      permissions: this.collection[index].permissions,
+      isActive: this.collection[index].isActive,
+    });
+    const membership = normalizeMembership({
+      ...companyMemberships[membershipIndex],
+      role: next.role || companyMemberships[membershipIndex].role,
+      _permissions: clone(next.permissions || []),
+      status: next.isActive === false ? "inactive" : "active",
+      updatedAt: new Date().toISOString(),
+    });
+    this.collection[index] = globalUser;
+    companyMemberships[membershipIndex] = membership;
+    return this.projectTenantUser(globalUser, membership);
+  }
+
+  deleteForCompany(companyId, id) {
+    const normalized = normalizeCompanyId(companyId);
+    const current = this.findByCompany(normalized, id);
+    if (!current) return null;
+    for (let index = companyMemberships.length - 1; index >= 0; index -= 1) {
+      const membership = companyMemberships[index];
+      if (membership.companyId === normalized && membership.userId === id) {
+        companyMemberships.splice(index, 1);
+      }
+    }
+    return current;
+  }
+
+  deleteGlobal(id) {
+    const index = this.collection.findIndex((user) => user.id === id);
+    return index >= 0 ? this.collection.splice(index, 1)[0] : null;
+  }
+
+  createGlobal(record) {
+    const existing = this.collection.find((user) => user.id === record.id);
+    if (existing) return existing;
+    const user = normalizeUser(withoutCompanyFields(record));
+    this.collection.push(user);
+    return user;
+  }
+}
+
+class CategoryRepository extends TenantRepository {
+  countChildReferences(companyId, categoryId) {
+    return this.getByCompany(companyId).filter((category) => category.parentId === categoryId).length;
+  }
+
+  countProductReferences(companyId, category) {
+    const legacyNames = new Set([
+      category.slug,
+      category.name?.en,
+      category.name?.ar,
+    ].filter(Boolean).map((value) => String(value).trim().toLowerCase()));
+    return productRepository.getByCompany(companyId).filter((product) => {
+      const referenceId = product.categoryId || product.category_id;
+      if (referenceId) return referenceId === category.id;
+      const legacy = typeof product.category === "object"
+        ? [product.category.en, product.category.ar]
+        : [product.category, product.categoryAr, product.category_ar];
+      return legacy.some((value) => legacyNames.has(String(value || "").trim().toLowerCase()));
+    }).length;
+  }
+}
+
+class BrandRepository extends TenantRepository {
+  countProductReferences(companyId, brand) {
+    const name = brand?.name;
+    const names = name && typeof name === "object" && !Array.isArray(name)
+      ? [name.en, name.ar]
+      : [name];
+    const legacyNames = new Set([brand.slug, ...names]
+      .filter(Boolean)
+      .map((value) => String(value).trim().toLowerCase()));
+    return productRepository.getByCompany(companyId).filter((product) => {
+      const referenceId = product.brandId || product.brand_id;
+      if (referenceId) return referenceId === brand.id;
+      return legacyNames.has(String(product.brand || "").trim().toLowerCase());
+    }).length;
+  }
+}
+
 function cartKey(companyId, userId) {
   return `${normalizeCompanyId(companyId)}:${userId}`;
 }
 
-const initialCarts =
-  persisted?.companyCarts?.[DEFAULT_COMPANY_ID] || persisted?.carts || {};
-Object.entries(initialCarts).forEach(([userId, items]) => {
-  carts.set(cartKey(DEFAULT_COMPANY_ID, userId), items);
+const initialCompanyCarts = persisted?.companyCarts || {
+  [DEFAULT_COMPANY_ID]: persisted?.carts || {},
+};
+Object.entries(initialCompanyCarts).forEach(([companyId, companyCart]) => {
+  Object.entries(companyCart || {}).forEach(([userId, items]) => {
+    carts.set(cartKey(companyId, userId), items);
+  });
 });
 
 export const cartRepository = {
@@ -597,14 +1136,484 @@ export const cartRepository = {
   },
 };
 
-export const userRepository = new TenantRepository(users);
+export const userRepository = new MembershipBackedUserRepository(users);
+
+export async function deleteTenantUserMembership(companyId, userId, dependencies = {}) {
+  const normalized = normalizeCompanyId(companyId);
+  const membershipIndex = companyMemberships.findIndex(
+    (membership) => membership.companyId === normalized && membership.userId === userId,
+  );
+  if (membershipIndex < 0) return null;
+  const membership = companyMemberships[membershipIndex];
+  const user = users.find((entry) => entry.id === userId) || null;
+  if (!user || user.role === "super_admin" || membership.role === "super_admin") {
+    throw membershipRepositoryError("Tenant membership cannot be deleted.", 403);
+  }
+  const projection = userRepository.projectTenantUser(user, membership);
+
+  if (isSupabaseConfigured()) {
+    if (!canPersistToSupabase) {
+      throw membershipRepositoryError(
+        "Supabase persistence is configured but unavailable. Refusing membership deletion.",
+        503,
+      );
+    }
+    const deleteRemote = dependencies.deleteRemote || deleteCompanyMembershipFromSupabase;
+    const deletedRows = await deleteRemote(normalized, userId, membership.id);
+    if (!Array.isArray(deletedRows) || deletedRows.length !== 1) {
+      throw membershipRepositoryError("Tenant membership was not deleted.", 409);
+    }
+    companyMemberships.splice(membershipIndex, 1);
+    return projection;
+  }
+
+  companyMemberships.splice(membershipIndex, 1);
+  try {
+    persistLocalMembershipDirectory();
+    return projection;
+  } catch (error) {
+    companyMemberships.splice(membershipIndex, 0, membership);
+    throw error;
+  }
+}
+
 export const orderRepository = new TenantRepository(orders);
 export const workSessionRepository = new TenantRepository(workSessions);
 export const productRepository = new TenantRepository(productCatalog);
 export const offerRepository = new TenantRepository(offers);
 export const categoryCardRepository = new TenantRepository(categoryCards, "key");
+export const categoryRepository = new CategoryRepository(categories);
+export const brandRepository = new BrandRepository(brands);
 export const reviewRepository = new TenantRepository(reviews);
 export const websiteMediaRepository = new TenantRepository(websiteMedia);
+export const websiteMediaHiddenKeysRepository = new TenantRepository(websiteMediaHiddenKeys);
+export const websiteTextsRepository = new TenantRepository(websiteTexts);
+export const customAdminModuleRepository = new TenantRepository(customAdminModules);
+export const customAdminModuleEntryRepository = new TenantRepository(customAdminModuleEntries);
+export const companyProductSchemaRepository = new TenantRepository(companyProductSchemas);
+export const invoiceRepository = new TenantRepository(invoices);
+export const deliveryZoneRepository = new TenantRepository(deliveryZones);
+export const activityLogRepository = new TenantRepository(activityLogs);
+export const searchEventRepository = new TenantRepository(searchEvents);
+export const searchRedirectRepository = new TenantRepository(searchRedirects);
+export const visitorSessionRepository = new TenantRepository(visitorSessions);
+export const visitorEventRepository = new TenantRepository(visitorEvents);
+export const inboxConversationRepository = new TenantRepository(inboxConversations);
+export const inboxMessageRepository = Object.freeze({
+  getByCompany(companyId) {
+    return new TenantRepository(inboxMessages).getByCompany(companyId);
+  },
+  findByCompany(companyId, id) {
+    return new TenantRepository(inboxMessages).findByCompany(companyId, id);
+  },
+  listForConversation(companyId, conversationId) {
+    return this.getByCompany(companyId)
+      .filter((message) => message.conversationId === conversationId)
+      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id.localeCompare(b.id));
+  },
+  appendForCompany(companyId, message) {
+    return new TenantRepository(inboxMessages).createForCompany(companyId, message);
+  },
+});
+export const inboxConversationReadRepository = Object.freeze({
+  getByCompany(companyId) {
+    return new TenantRepository(inboxConversationReads).getByCompany(companyId);
+  },
+  findForUser(companyId, conversationId, userId) {
+    return this.getByCompany(companyId).find(
+      (read) => read.conversationId === conversationId && read.userId === userId,
+    ) || null;
+  },
+  markRead(companyId, conversationId, userId, lastReadAt) {
+    const current = this.findForUser(companyId, conversationId, userId);
+    if (current) {
+      current.lastReadAt = lastReadAt;
+      return current;
+    }
+    return new TenantRepository(inboxConversationReads).createForCompany(companyId, {
+      id: `${conversationId}:${userId}`,
+      conversationId,
+      userId,
+      lastReadAt,
+    });
+  },
+});
+
+export function captureInboxMutationState(companyId) {
+  const normalized = normalizeCompanyId(companyId);
+  return {
+    companyId: normalized,
+    conversations: clone(inboxConversationRepository.getByCompany(normalized)),
+    messages: clone(inboxMessageRepository.getByCompany(normalized)),
+    reads: clone(inboxConversationReadRepository.getByCompany(normalized)),
+  };
+}
+
+function restoreInboxCollection(collection, companyId, records) {
+  for (let index = collection.length - 1; index >= 0; index -= 1) {
+    if (getRecordCompanyId(collection[index]) === companyId) collection.splice(index, 1);
+  }
+  for (const record of records) collection.push(tagRecord(record, companyId));
+}
+
+export async function persistInboxMutation(companyId, checkpoint) {
+  const normalized = normalizeCompanyId(companyId);
+  if (!checkpoint || checkpoint.companyId !== normalized) {
+    throw new Error("A matching Inbox mutation checkpoint is required.");
+  }
+  try {
+    if (isSupabaseConfigured()) {
+      if (!canPersistToSupabase) {
+        throw new Error("PostgreSQL Inbox persistence is configured but unavailable.");
+      }
+      const snapshot = currentStoreSnapshot(normalized);
+      return await saveInboxStateToSupabase(snapshot, normalized);
+    }
+    return await persistCompanyStore(normalized);
+  } catch (error) {
+    restoreInboxCollection(inboxConversations, normalized, checkpoint.conversations);
+    restoreInboxCollection(inboxMessages, normalized, checkpoint.messages);
+    restoreInboxCollection(inboxConversationReads, normalized, checkpoint.reads);
+    throw error;
+  }
+}
+
+async function persistInMemoryCatalog(companyId) {
+  await persistCompanyStore(normalizeCompanyId(companyId));
+}
+
+export const tenantCategoryRepository = {
+  async listByCompany(companyId) {
+    return isSupabaseConfigured()
+      ? listCategoriesByCompanyFromSupabase(companyId)
+      : categoryRepository.getByCompany(companyId)
+        .slice().sort((a, b) => a.sortOrder - b.sortOrder || a.slug.localeCompare(b.slug));
+  },
+  async findByCompany(companyId, id) {
+    return isSupabaseConfigured()
+      ? findCategoryByCompanyFromSupabase(companyId, id)
+      : categoryRepository.findByCompany(companyId, id);
+  },
+  async findBySlugForCompany(companyId, slug) {
+    return isSupabaseConfigured()
+      ? findCategoryBySlugFromSupabase(companyId, slug)
+      : categoryRepository.findByCompany(companyId, (entry) => entry.slug === slug);
+  },
+  async createForCompany(companyId, data) {
+    if (isSupabaseConfigured()) return createCategoryWithTenantLockInSupabase(companyId, data);
+    const created = categoryRepository.createForCompany(companyId, data);
+    try {
+      await persistInMemoryCatalog(companyId);
+    } catch (error) {
+      categoryRepository.deleteForCompany(companyId, created.id);
+      throw error;
+    }
+    return created;
+  },
+  async updateForCompany(companyId, id, patch) {
+    if (isSupabaseConfigured()) return updateCategoryWithTenantLockInSupabase(companyId, id, patch);
+    const previous = categoryRepository.findByCompany(companyId, id);
+    const updated = categoryRepository.updateForCompany(companyId, id, patch);
+    if (updated) {
+      try {
+        await persistInMemoryCatalog(companyId);
+      } catch (error) {
+        categoryRepository.updateForCompany(companyId, id, previous);
+        throw error;
+      }
+    }
+    return updated;
+  },
+  async updateStatusForCompany(companyId, id, isActive) {
+    if (isSupabaseConfigured()) return updateCategoryStatusForCompanyInSupabase(companyId, id, isActive);
+    return this.updateForCompany(companyId, id, { isActive, updatedAt: new Date().toISOString() });
+  },
+  async deleteForCompany(companyId, id) {
+    if (isSupabaseConfigured()) return deleteCategoryWithTenantLockInSupabase(companyId, id);
+    const removed = categoryRepository.deleteForCompany(companyId, id);
+    if (removed) {
+      try {
+        await persistInMemoryCatalog(companyId);
+      } catch (error) {
+        categoryRepository.createForCompany(companyId, removed);
+        throw error;
+      }
+    }
+    return removed;
+  },
+  async countChildrenForCompany(companyId, id) {
+    return isSupabaseConfigured()
+      ? countCategoryChildrenFromSupabase(companyId, id)
+      : categoryRepository.countChildReferences(companyId, id);
+  },
+  async countProductReferencesForCompany(companyId, id) {
+    const category = await this.findByCompany(companyId, id);
+    if (!category) return 0;
+    return isSupabaseConfigured()
+      ? countCategoryProductReferencesFromSupabase(companyId, category)
+      : categoryRepository.countProductReferences(companyId, category);
+  },
+  async validateParentForCompany(companyId, parentId) {
+    return parentId ? this.findByCompany(companyId, parentId) : null;
+  },
+  async parentWouldCycle(companyId, categoryId, parentId) {
+    if (isSupabaseConfigured()) {
+      return categoryParentWouldCycleInSupabase(companyId, categoryId, parentId);
+    }
+    const seen = new Set(categoryId ? [categoryId] : []);
+    let cursor = parentId ? categoryRepository.findByCompany(companyId, parentId) : null;
+    while (cursor) {
+      if (seen.has(cursor.id)) return true;
+      seen.add(cursor.id);
+      cursor = cursor.parentId ? categoryRepository.findByCompany(companyId, cursor.parentId) : null;
+    }
+    return false;
+  },
+};
+
+export const tenantBrandRepository = {
+  async listByCompany(companyId) {
+    return isSupabaseConfigured()
+      ? listBrandsByCompanyFromSupabase(companyId)
+      : brandRepository.getByCompany(companyId)
+        .slice().sort((a, b) => a.sortOrder - b.sortOrder || a.slug.localeCompare(b.slug));
+  },
+  async findByCompany(companyId, id) {
+    return isSupabaseConfigured()
+      ? findBrandByCompanyFromSupabase(companyId, id)
+      : brandRepository.findByCompany(companyId, id);
+  },
+  async findBySlugForCompany(companyId, slug) {
+    return isSupabaseConfigured()
+      ? findBrandBySlugFromSupabase(companyId, slug)
+      : brandRepository.findByCompany(companyId, (entry) => entry.slug === slug);
+  },
+  async createForCompany(companyId, data) {
+    if (isSupabaseConfigured()) return createBrandForCompanyInSupabase(companyId, data);
+    const created = brandRepository.createForCompany(companyId, data);
+    try {
+      await persistInMemoryCatalog(companyId);
+    } catch (error) {
+      brandRepository.deleteForCompany(companyId, created.id);
+      throw error;
+    }
+    return created;
+  },
+  async updateForCompany(companyId, id, patch) {
+    if (isSupabaseConfigured()) return updateBrandForCompanyInSupabase(companyId, id, patch);
+    const previous = brandRepository.findByCompany(companyId, id);
+    const updated = brandRepository.updateForCompany(companyId, id, patch);
+    if (updated) {
+      try {
+        await persistInMemoryCatalog(companyId);
+      } catch (error) {
+        brandRepository.updateForCompany(companyId, id, previous);
+        throw error;
+      }
+    }
+    return updated;
+  },
+  async updateStatusForCompany(companyId, id, isActive) {
+    if (isSupabaseConfigured()) return updateBrandStatusForCompanyInSupabase(companyId, id, isActive);
+    return this.updateForCompany(companyId, id, { isActive, updatedAt: new Date().toISOString() });
+  },
+  async deleteForCompany(companyId, id) {
+    if (isSupabaseConfigured()) return deleteBrandWithTenantLockInSupabase(companyId, id);
+    const removed = brandRepository.deleteForCompany(companyId, id);
+    if (removed) {
+      try {
+        await persistInMemoryCatalog(companyId);
+      } catch (error) {
+        brandRepository.createForCompany(companyId, removed);
+        throw error;
+      }
+    }
+    return removed;
+  },
+  async countProductReferencesForCompany(companyId, id) {
+    const brand = await this.findByCompany(companyId, id);
+    if (!brand) return 0;
+    return isSupabaseConfigured()
+      ? countBrandProductReferencesFromSupabase(companyId, brand)
+      : brandRepository.countProductReferences(companyId, brand);
+  },
+};
+
+export async function saveProductWithTenantCatalogLock(companyId, product, { isCreate = false } = {}) {
+  const normalized = normalizeCompanyId(companyId);
+  if (isSupabaseConfigured()) {
+    const persistedProduct = await saveProductWithTenantCatalogLockInSupabase(normalized, product, { isCreate });
+    return isCreate
+      ? productRepository.createForCompany(normalized, persistedProduct, { prepend: true })
+      : productRepository.updateForCompany(normalized, persistedProduct.id, persistedProduct);
+  }
+  for (const [field, repository, label] of [
+    ["categoryId", categoryRepository, "Category"],
+    ["brandId", brandRepository, "Brand"],
+  ]) {
+    if (!product[field]) continue;
+    const reference = repository.findByCompany(normalized, product[field]);
+    if (!reference) throw companyRepositoryError(`${label} not found.`, 404);
+    if (reference.isActive === false) throw companyRepositoryError(`${label} is inactive.`);
+  }
+  const previous = productRepository.findByCompany(normalized, product.id);
+  const saved = isCreate
+    ? productRepository.createForCompany(normalized, product, { prepend: true })
+    : productRepository.updateForCompany(normalized, product.id, product);
+  try {
+    await persistCompanyStore(normalized);
+    return saved;
+  } catch (error) {
+    if (isCreate) productRepository.deleteForCompany(normalized, product.id);
+    else if (previous) productRepository.updateForCompany(normalized, product.id, previous);
+    throw error;
+  }
+}
+
+export async function deleteProductWithTenantCatalogLock(companyId, id) {
+  const normalized = normalizeCompanyId(companyId);
+  if (isSupabaseConfigured()) {
+    const removed = await deleteProductWithTenantCatalogLockInSupabase(normalized, id);
+    if (removed) productRepository.deleteForCompany(normalized, id);
+    return removed;
+  }
+  const removed = productRepository.deleteForCompany(normalized, id);
+  if (!removed) return null;
+  try {
+    await persistCompanyStore(normalized, { pruneMissing: true });
+    return removed;
+  } catch (error) {
+    productRepository.createForCompany(normalized, removed);
+    throw error;
+  }
+}
+
+export async function persistActivityLogEntry(companyId, log) {
+  if (isSupabaseConfigured()) return saveActivityLogEntryToSupabase(companyId, log);
+  return persistCompanyStore(companyId);
+}
+
+function platformDirectoryError(message, statusCode = 400) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function normalizeCategory(category, index = 0) {
+  const now = new Date().toISOString();
+  const {
+    parent_id: _parentId,
+    image_url: _imageUrl,
+    sort_order: _sortOrder,
+    is_active: _isActive,
+    created_at: _createdAt,
+    updated_at: _updatedAt,
+    ...data
+  } = category;
+  return {
+    ...data,
+    id: String(category.id || `category-${index}-${Date.now()}`),
+    slug: String(category.slug || "").trim().toLowerCase(),
+    name: category.name && typeof category.name === "object" ? clone(category.name) : { en: "", ar: "" },
+    description: category.description && typeof category.description === "object"
+      ? clone(category.description)
+      : null,
+    parentId: category.parentId || category.parent_id || null,
+    brandId: category.brandId || category.brand_id || null,
+    imageUrl: category.imageUrl || category.image_url || null,
+    heroVideo: category.heroVideo || category.hero_video || null,
+    sortOrder: Number(category.sortOrder ?? category.sort_order ?? 0),
+    isActive: category.isActive !== false && category.is_active !== false,
+    createdAt: category.createdAt || category.created_at || now,
+    updatedAt: category.updatedAt || category.updated_at || now,
+  };
+}
+
+function normalizeBrand(brand, index = 0) {
+  const now = new Date().toISOString();
+  const {
+    logo_url: _logoUrl,
+    sort_order: _sortOrder,
+    is_active: _isActive,
+    created_at: _createdAt,
+    updated_at: _updatedAt,
+    ...data
+  } = brand;
+  const rawName = brand.name;
+  const name = rawName && typeof rawName === "object" && !Array.isArray(rawName)
+    ? rawName
+    : String(rawName || "").trim();
+  return {
+    ...data,
+    id: String(brand.id || `brand-${index}-${Date.now()}`),
+    slug: String(brand.slug || "").trim().toLowerCase(),
+    name,
+    logoUrl: brand.logoUrl || brand.logo_url || null,
+    heroVideo: brand.heroVideo || brand.hero_video || null,
+    heroPoster: brand.heroPoster || brand.hero_poster || null,
+    country: brand.country || null,
+    sortOrder: Number(brand.sortOrder ?? brand.sort_order ?? 0),
+    isActive: brand.isActive !== false && brand.is_active !== false,
+    createdAt: brand.createdAt || brand.created_at || now,
+    updatedAt: brand.updatedAt || brand.updated_at || now,
+  };
+}
+
+function normalizeCustomAdminModule(module, index = 0) {
+  const now = new Date().toISOString();
+  return {
+    ...module,
+    id: String(module.id || `custom-module-${index}-${Date.now()}`),
+    key: String(module.key || `custom_module_${index}`),
+    label: String(module.label || "Custom Module"),
+    description: String(module.description || ""),
+    icon: String(module.icon || "folder"),
+    sidebarOrder: Number(module.sidebarOrder ?? module.sidebar_order ?? 100),
+    enabled: module.enabled !== false,
+    fieldsSchema: Array.isArray(module.fieldsSchema ?? module.fields_schema)
+      ? clone(module.fieldsSchema ?? module.fields_schema)
+      : [],
+    listConfig: clone(module.listConfig ?? module.list_config ?? {}),
+    formConfig: clone(module.formConfig ?? module.form_config ?? {}),
+    permissions: clone(module.permissions || {}),
+    createdBy: module.createdBy || module.created_by || "",
+    updatedBy: module.updatedBy || module.updated_by || "",
+    createdAt: module.createdAt || module.created_at || now,
+    updatedAt: module.updatedAt || module.updated_at || module.createdAt || now,
+  };
+}
+
+function normalizeCustomAdminModuleEntry(entry, index = 0) {
+  const now = new Date().toISOString();
+  return {
+    ...entry,
+    id: String(entry.id || `custom-entry-${index}-${Date.now()}`),
+    moduleId: String(entry.moduleId || entry.module_id || ""),
+    data: entry.data && typeof entry.data === "object" && !Array.isArray(entry.data)
+      ? clone(entry.data)
+      : {},
+    status: entry.status === "deleted" ? "deleted" : "active",
+    createdBy: entry.createdBy || entry.created_by || "",
+    updatedBy: entry.updatedBy || entry.updated_by || "",
+    createdAt: entry.createdAt || entry.created_at || now,
+    updatedAt: entry.updatedAt || entry.updated_at || entry.createdAt || now,
+  };
+}
+
+function normalizeCompanyProductSchema(record, index = 0) {
+  const now = new Date().toISOString();
+  return {
+    ...record,
+    id: String(record.id || `company-product-schema-${index}`),
+    schema: record.schema && typeof record.schema === "object" && !Array.isArray(record.schema)
+      ? clone(record.schema)
+      : record.schema_json && typeof record.schema_json === "object"
+        ? clone(record.schema_json)
+        : {},
+    createdAt: record.createdAt || record.created_at || now,
+    updatedAt: record.updatedAt || record.updated_at || record.createdAt || now,
+  };
+}
 
 function superAdminProvisioningError(message, code) {
   const error = new Error(message);
@@ -635,8 +1644,7 @@ export async function provisionSuperAdmin({
   }
 
   let candidates = new Map(
-    userRepository
-      .getByCompany(DEFAULT_COMPANY_ID)
+    users
       .filter((user) => String(user.email || "").trim().toLowerCase() === normalizedEmail)
       .map((user) => [user.id, user]),
   );
@@ -680,16 +1688,17 @@ export async function provisionSuperAdmin({
     updatedAt: now,
   });
 
-  const repositoryCurrent = userRepository.findByCompany(DEFAULT_COMPANY_ID, id);
+  const repositoryIndex = users.findIndex((user) => user.id === id);
+  const repositoryCurrent = repositoryIndex >= 0 ? users[repositoryIndex] : null;
   const previous = repositoryCurrent ? clone(repositoryCurrent) : null;
-  if (repositoryCurrent) userRepository.updateForCompany(DEFAULT_COMPANY_ID, id, next);
-  else userRepository.createForCompany(DEFAULT_COMPANY_ID, next);
+  if (repositoryIndex >= 0) users[repositoryIndex] = next;
+  else userRepository.createGlobal(next);
 
   try {
     await persistSuperAdminUser(next, existing);
   } catch (error) {
-    if (previous) userRepository.updateForCompany(DEFAULT_COMPANY_ID, id, previous);
-    else userRepository.deleteForCompany(DEFAULT_COMPANY_ID, id);
+    if (previous) users[repositoryIndex] = previous;
+    else userRepository.deleteGlobal(id);
     throw error;
   }
 
@@ -727,6 +1736,13 @@ function assertUniqueCompanyFields(candidate, currentId = "") {
     );
     if (duplicateDomain) throw companyRepositoryError("Company domain already exists.", 409);
   }
+
+  if (candidate.storefrontUrl) {
+    const duplicateUrl = companies.find(
+      (company) => company.id !== currentId && company.storefrontUrl === candidate.storefrontUrl,
+    );
+    if (duplicateUrl) throw companyRepositoryError("Company storefront URL already exists.", 409);
+  }
 }
 
 export const companyRepository = {
@@ -762,6 +1778,8 @@ export const companyRepository = {
       status,
       isDefault: false,
       domain: normalizeCompanyHost(input?.domain),
+      storefrontUrl: input?.storefrontUrl,
+      storefrontPath: input?.storefrontPath,
       settings: input?.settings || {},
       createdAt: now,
       updatedAt: now,
@@ -804,9 +1822,11 @@ export const companyRepository = {
       }
     }
 
+    const replacesDomains = Object.prototype.hasOwnProperty.call(changes || {}, "domain");
     const next = normalizeCompanyRecord({
       ...current,
       ...changes,
+      ...(replacesDomains ? { domains: [] } : {}),
       id: current.id,
       isDefault: current.id === DEFAULT_COMPANY_ID,
       updatedAt: new Date().toISOString(),
@@ -828,6 +1848,54 @@ export const companyRepository = {
     return serializeCompany(next);
   },
 
+  resolveStorefront(host, path = "/") {
+    const company = resolveStorefrontCompany(companies, { host, path });
+    return company ? serializeCompany(company) : null;
+  },
+
+  isSharedStorefrontHost(host) {
+    return isSharedStorefrontHost(companies, host);
+  },
+
+  hasResolvableStorefront(id) {
+    return hasResolvableStorefront(companyByIdInternal(id));
+  },
+
+  async updateCompanyBrandingAndSettings(id, { name, settingsPatch = {} } = {}) {
+    const current = companyByIdInternal(id);
+    if (!current) throw companyRepositoryError("Company not found.", 404);
+    if (isSupabaseConfigured()) {
+      const persistedUpdate = await updateCompanyBrandingAndSettingsInSupabase(current.id, {
+        ...(name !== undefined ? { name } : {}),
+        settingsPatch,
+      });
+      const next = normalizeCompanyRecord({
+        ...current,
+        name: persistedUpdate.name,
+        settings: persistedUpdate.settings,
+        updatedAt: persistedUpdate.updatedAt,
+      });
+      companies[companies.indexOf(current)] = next;
+      return serializeCompany(next);
+    }
+    const currentSettings = current.settings || {};
+    const mergedSettings = { ...currentSettings, ...settingsPatch };
+    if (settingsPatch.theme) mergedSettings.theme = { ...(currentSettings.theme || {}), ...settingsPatch.theme };
+    if (settingsPatch.socialLinks) {
+      mergedSettings.socialLinks = { ...(currentSettings.socialLinks || {}), ...settingsPatch.socialLinks };
+    }
+    if (settingsPatch.websiteContent) {
+      mergedSettings.websiteContent = {
+        ...(currentSettings.websiteContent || {}),
+        ...settingsPatch.websiteContent,
+      };
+    }
+    return this.updateCompanyDraft(current.id, {
+      ...(name !== undefined ? { name } : {}),
+      settings: mergedSettings,
+    });
+  },
+
   async disableCompany(id) {
     const current = companyByIdInternal(id);
     if (!current) throw companyRepositoryError("Company not found.", 404);
@@ -836,9 +1904,55 @@ export const companyRepository = {
     }
     return this.updateCompanyDraft(current.id, { status: "inactive" });
   },
+
+  getWebsiteConnection(id) {
+    const current = companyByIdInternal(id);
+    if (!current) return null;
+    const connection = current.settings?.websiteConnection;
+    return connection && typeof connection === "object" && !Array.isArray(connection)
+      ? JSON.parse(JSON.stringify(connection))
+      : null;
+  },
+
+  async updateWebsiteConnection(id, connectionPatch) {
+    const current = companyByIdInternal(id);
+    if (!current) throw companyRepositoryError("Company not found.", 404);
+    const previous = current.settings?.websiteConnection || {};
+    const merged = { ...previous, ...connectionPatch };
+    const updated = await this.updateCompanyBrandingAndSettings(id, {
+      settingsPatch: { websiteConnection: merged },
+    });
+    return updated.settings.websiteConnection || merged;
+  },
+
+  async recordWebsiteManifestSync(id, { manifest, syncedAt, siteManifestUrl = "", connectionError = "" } = {}) {
+    const current = companyByIdInternal(id);
+    if (!current) throw companyRepositoryError("Company not found.", 404);
+    const previous = current.settings?.websiteConnection || {};
+    const merged = {
+      ...previous,
+      ...(siteManifestUrl ? { siteManifestUrl } : {}),
+      connectionStatus: connectionError ? "error" : "connected",
+      connectionError,
+      lastManifestSyncAt: syncedAt || new Date().toISOString(),
+      manifestSchemaVersion: manifest?.schemaVersion || previous.manifestSchemaVersion || "1.0",
+      ...(manifest ? { lastManifest: manifest } : {}),
+    };
+    const updated = await this.updateCompanyBrandingAndSettings(id, {
+      settingsPatch: { websiteConnection: merged },
+    });
+    return updated.settings.websiteConnection || merged;
+  },
 };
 
-const allowedMembershipRoles = new Set(["company_admin", "employee", "customer"]);
+const allowedMembershipRoles = new Set([
+  "admin",
+  "manager",
+  "company_admin",
+  "employee",
+  "staff",
+  "customer",
+]);
 const allowedMembershipStatuses = new Set(["active", "inactive"]);
 
 function membershipRepositoryError(message, statusCode = 400) {
@@ -943,7 +2057,7 @@ function globalUsersByEmail(email) {
 
 function createInactiveUserShell(email, name, companyId) {
   const id = `user-${crypto.randomUUID()}`;
-  return tagRecord(normalizeUser({
+  return normalizeUser({
     id,
     name: String(name || "").trim() || email.split("@")[0],
     email,
@@ -954,7 +2068,23 @@ function createInactiveUserShell(email, name, companyId) {
     isActive: false,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-  }), companyId);
+  });
+}
+
+function createUserWithPassword(email, name, role, passwordHash) {
+  const id = `user-${crypto.randomUUID()}`;
+  return normalizeUser({
+    id,
+    name: String(name || "").trim() || email.split("@")[0],
+    email,
+    phone: "",
+    password: passwordHash,
+    role: role || "customer",
+    permissions: [],
+    isActive: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 async function persistMembershipRecord(membership, user, createUser, previousMembership = null) {
@@ -964,7 +2094,7 @@ async function persistMembershipRecord(membership, user, createUser, previousMem
   }
 
   const currentIndex = companyMemberships.findIndex((entry) => entry.id === membership.id);
-  const addedUser = createUser ? userRepository.createForCompany(membership.companyId, user) : null;
+  const addedUser = createUser ? userRepository.createGlobal(user) : null;
   if (currentIndex === -1) companyMemberships.push(membership);
   else companyMemberships[currentIndex] = membership;
 
@@ -976,21 +2106,57 @@ async function persistMembershipRecord(membership, user, createUser, previousMem
     } else {
       companyMemberships[currentIndex] = previousMembership;
     }
-    if (addedUser) userRepository.deleteForCompany(membership.companyId, addedUser.id);
+    if (addedUser) userRepository.deleteGlobal(addedUser.id);
     throw error;
   }
 }
 
 export const companyMembershipRepository = {
+  async listMembershipsForUser(userId) {
+    const normalizedUserId = String(userId || "").trim();
+    const memberships = isSupabaseConfigured()
+      ? await listUserMembershipsFromSupabase(normalizedUserId)
+      : companies
+          .flatMap((company) => localMembershipsForCompany(company.id))
+          .filter((membership) => membership.userId === normalizedUserId)
+          .map(clone);
+    return memberships.map((membership) => ({
+      ...membership,
+      company: companyRepository.getCompanyById(membership.companyId),
+    }));
+  },
+
+  async listActiveMembershipsForUser(userId) {
+    const memberships = await this.listMembershipsForUser(userId);
+    return memberships.filter(
+      (membership) => membership.status === "active" && membership.company?.status === "active",
+    );
+  },
+
+  async listAllMemberships() {
+    const allMemberships = await Promise.all(
+      companies.map(async (company) => {
+        const memberships = await membershipsForCompany(company.id);
+        return memberships.map((membership) => ({
+          ...membership,
+          company: serializeCompany(company),
+        }));
+      }),
+    );
+    return allMemberships.flat();
+  },
+
   async listUsersForCompany(companyId) {
     assertMembershipCompany(companyId);
     return membershipsForCompany(companyId);
   },
 
   async getMembershipByCompanyAndUser(companyId, userId) {
-    assertMembershipCompany(companyId);
-    const memberships = await membershipsForCompany(companyId);
-    return memberships.find((membership) => membership.userId === userId) || null;
+    const company = assertMembershipCompany(companyId);
+    const memberships = await this.listMembershipsForUser(userId);
+    return memberships.find(
+      (membership) => membership.companyId === company.id && membership.userId === userId,
+    ) || null;
   },
 
   async createOrUpdateMembership(companyId, input) {
@@ -1014,7 +2180,28 @@ export const companyMembershipRepository = {
     }
 
     const existingUser = [...candidates.values()][0] || null;
-    const user = existingUser || createInactiveUserShell(email, input?.name, normalizedCompanyId);
+    let user;
+    let isNewUser;
+    if (existingUser) {
+      user = existingUser;
+      isNewUser = false;
+    } else {
+      const password = typeof input?.password === "string" ? input.password.trim() : "";
+      if (!password) {
+        throw membershipRepositoryError(
+          "Temporary password is required for new users.",
+          400,
+        );
+      }
+      const passwordHash = await hashPassword(password);
+      user = createUserWithPassword(
+        email,
+        input?.name,
+        role,
+        passwordHash,
+      );
+      isNewUser = true;
+    }
     const memberships = await membershipsForCompany(normalizedCompanyId);
     const current = memberships.find((membership) => membership.userId === user.id) || null;
     assertMutableMembership(current, user);
@@ -1034,10 +2221,63 @@ export const companyMembershipRepository = {
     await persistMembershipRecord(
       membership,
       user,
-      !existingUser,
+      isNewUser,
       current ? normalizeMembership(current) : null,
     );
     return { ...clone(membership), user };
+  },
+
+  async createCustomerContact(companyId, input) {
+    const company = assertMembershipCompany(companyId);
+    const email = String(input?.email || "").trim().toLowerCase();
+    let candidates = globalUsersByEmail(email);
+    if (isSupabaseConfigured()) {
+      const remoteUsers = await findUsersByEmailFromSupabase(email);
+      candidates = new Map(remoteUsers.map((user) => [user.id, user]));
+    }
+    if (candidates.size > 1) {
+      throw membershipRepositoryError(
+        "Multiple users match this email. Resolve duplicate identities first.",
+        409,
+      );
+    }
+
+    const existingUser = [...candidates.values()][0] || null;
+    if (existingUser && existingUser.role !== "customer") {
+      throw membershipRepositoryError("This email belongs to a non-customer user.", 409);
+    }
+    if (existingUser?.isActive === false) {
+      throw membershipRepositoryError("This customer identity is inactive.", 409);
+    }
+
+    const memberships = await membershipsForCompany(company.id);
+    if (existingUser && memberships.some((membership) => membership.userId === existingUser.id)) {
+      throw membershipRepositoryError("A contact with this email already exists.", 409);
+    }
+
+    const now = new Date().toISOString();
+    const user = existingUser || normalizeUser(withoutCompanyFields({
+      ...input,
+      id: `user-${crypto.randomUUID()}`,
+      email,
+      password: "",
+      role: "customer",
+      permissions: [],
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    }));
+    const membership = normalizeMembership({
+      id: `${company.id}:${user.id}`,
+      companyId: company.id,
+      userId: user.id,
+      role: "customer",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await persistMembershipRecord(membership, user, !existingUser);
+    return { ...clone(membership), user: clone(user) };
   },
 
   async updateMembership(companyId, userId, changes) {
@@ -1055,6 +2295,9 @@ export const companyMembershipRepository = {
       companyId: company.id,
       role,
       status,
+      _permissions: changes?.permissions !== undefined
+        ? clone(Array.isArray(changes.permissions) ? changes.permissions : [])
+        : current._permissions,
       updatedAt: new Date().toISOString(),
     });
     assertLastEbAdmin(company.id, current, membership, memberships);
@@ -1064,6 +2307,190 @@ export const companyMembershipRepository = {
 
   async disableMembership(companyId, userId) {
     return this.updateMembership(companyId, userId, { status: "inactive" });
+  },
+
+  async updateMembershipById(id, changes) {
+    const memberships = await this.listAllMemberships();
+    const matches = memberships.filter((membership) => membership.id === id);
+    if (matches.length > 1) {
+      throw membershipRepositoryError("Membership ID is ambiguous.", 409);
+    }
+    const current = matches[0];
+    if (!current) throw membershipRepositoryError("Membership not found.", 404);
+    return this.updateMembership(current.companyId, current.userId, changes);
+  },
+};
+
+async function assertPlatformUserStatusChangeSafe(user, isActive) {
+  if (user.role === "super_admin") {
+    throw platformDirectoryError("Super Admin identities remain CLI-managed.", 403);
+  }
+  if (isActive !== false || user.isActive === false) return;
+
+  for (const company of companies) {
+    const memberships = await membershipsForCompany(company.id);
+    const membership = memberships.find(
+      (entry) => entry.userId === user.id
+        && entry.role === "company_admin"
+        && entry.status === "active",
+    );
+    if (!membership) continue;
+    assertLastEbAdmin(
+      company.id,
+      membership,
+      { ...membership, status: "inactive" },
+      memberships,
+    );
+  }
+}
+
+function assertPlatformUserCreateSafe(input) {
+  if (!input || typeof input !== "object") {
+    throw platformDirectoryError("Request body must be an object.");
+  }
+  const email = typeof input.email === "string" ? input.email.trim().toLowerCase() : "";
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw platformDirectoryError("email must be a valid email address.");
+  }
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  if (!name) throw platformDirectoryError("name is required.");
+  if (name.length > 120) throw platformDirectoryError("name must be 120 characters or fewer.");
+  const role = typeof input.role === "string" ? input.role.trim() : "customer";
+  const allowedCreateRoles = new Set(["admin", "manager", "company_admin", "employee", "staff", "customer"]);
+  if (!allowedCreateRoles.has(role)) {
+    throw platformDirectoryError("role must be one of: admin, manager, company_admin, employee, staff, customer.");
+  }
+  const password = typeof input.password === "string" && input.password.length ? input.password : "";
+  if (!password) throw platformDirectoryError("password is required.");
+  const existing = users.find((u) => String(u.email || "").trim().toLowerCase() === email);
+  if (existing) throw platformDirectoryError("A user with this email already exists.", 409);
+  return { email, name, role, password };
+}
+
+export const platformUserRepository = {
+  async listUsers() {
+    if (isSupabaseConfigured()) {
+      if (!canPersistToSupabase) {
+        throw platformDirectoryError("Platform users are unavailable until PostgreSQL validation succeeds.", 503);
+      }
+      return listPlatformUsersFromSupabase();
+    }
+    return users.map(clone);
+  },
+
+  async findByEmail(email) {
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    const matches = isSupabaseConfigured()
+      ? await findUsersByEmailFromSupabase(normalizedEmail)
+      : users.filter(
+          (user) => String(user.email || "").trim().toLowerCase() === normalizedEmail,
+        );
+    if (matches.length > 1) {
+      throw platformDirectoryError("Multiple users match this email.", 409);
+    }
+    return matches[0] ? clone(matches[0]) : null;
+  },
+
+  async getUserById(userId) {
+    if (isSupabaseConfigured()) {
+      if (!canPersistToSupabase) {
+        throw platformDirectoryError("Platform users are unavailable until PostgreSQL validation succeeds.", 503);
+      }
+      return findPlatformUserByIdFromSupabase(userId);
+    }
+    const user = users.find((entry) => entry.id === userId);
+    return user ? clone(user) : null;
+  },
+
+  async createUser(input) {
+    const safe = assertPlatformUserCreateSafe(input);
+    const passwordHash = await hashPassword(safe.password);
+    const now = new Date().toISOString();
+    const id = `user-${crypto.randomUUID()}`;
+    const user = normalizeUser({
+      id,
+      name: safe.name,
+      email: safe.email,
+      phone: typeof input.phone === "string" ? input.phone.trim() : "",
+      department: typeof input.department === "string" ? input.department.trim() : "",
+      password: passwordHash,
+      role: safe.role,
+      permissions: [],
+      isActive: input.isActive !== false,
+      createdAt: now,
+      updatedAt: now,
+    });
+    users.push(user);
+    try {
+      if (isSupabaseConfigured()) {
+        await savePlatformUserToSupabase(user);
+      } else {
+        persistLocalMembershipDirectory();
+      }
+    } catch (error) {
+      users.pop();
+      throw error;
+    }
+    return clone(user);
+  },
+
+  async updateUser(id, changes) {
+    const platformUsers = await this.listUsers();
+    const matches = platformUsers.filter((user) => user.id === id);
+    if (matches.length > 1) throw platformDirectoryError("User ID is ambiguous.", 409);
+    const current = matches[0];
+    if (!current) throw platformDirectoryError("User not found.", 404);
+
+    if (current.role === "super_admin") {
+      if (changes.role !== undefined && changes.role !== "super_admin") {
+        throw platformDirectoryError("Super Admin role cannot be demoted.", 403);
+      }
+      if (changes.isActive === false) {
+        throw platformDirectoryError("Super Admin cannot be disabled.", 403);
+      }
+    }
+
+    if (changes.email !== undefined) {
+      const email = String(changes.email || "").trim().toLowerCase();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        throw platformDirectoryError("email must be a valid email address.");
+      }
+      const duplicate = users.find((u) => u.id !== id && String(u.email || "").trim().toLowerCase() === email);
+      if (duplicate) throw platformDirectoryError("A user with this email already exists.", 409);
+      changes.email = email;
+    }
+
+    if (changes.isActive === false) {
+      await assertPlatformUserStatusChangeSafe(current, false);
+    }
+
+    const next = normalizeUser({
+      ...current,
+      ...changes,
+      updatedAt: new Date().toISOString(),
+    });
+
+    if (isSupabaseConfigured()) {
+      await savePlatformUserToSupabase(next);
+      const local = users.find((user) => user.id === id);
+      if (local) Object.assign(local, next);
+      return clone(next);
+    }
+
+    const index = users.findIndex((user) => user.id === id);
+    const previous = clone(users[index]);
+    users[index] = next;
+    try {
+      persistLocalMembershipDirectory();
+      return clone(users[index]);
+    } catch (error) {
+      users[index] = previous;
+      throw error;
+    }
+  },
+
+  async updateUserStatus(id, isActive) {
+    return this.updateUser(id, { isActive });
   },
 };
 
@@ -1075,11 +2502,29 @@ export function currentStoreSnapshot(companyId = DEFAULT_COMPANY_ID) {
     users: userRepository.getByCompany(normalized),
     orders: orderRepository.getByCompany(normalized),
     products: productRepository.getByCompany(normalized),
+    categories: categoryRepository.getByCompany(normalized),
+    brands: brandRepository.getByCompany(normalized),
     offers: offerRepository.getByCompany(normalized),
     categoryCards: categoryCardRepository.getByCompany(normalized),
     reviews: reviewRepository.getByCompany(normalized),
     websiteMedia: websiteMediaRepository.getByCompany(normalized),
+    websiteMediaHiddenKeys: websiteMediaHiddenKeysRepository.getByCompany(normalized),
+    websiteTexts: websiteTextsRepository.getByCompany(normalized),
+    deletedWebsiteMediaKeys: normalized === DEFAULT_COMPANY_ID ? (persisted?.deletedWebsiteMediaKeys || []) : [],
     workSessions: workSessionRepository.getByCompany(normalized),
+    customAdminModules: customAdminModuleRepository.getByCompany(normalized),
+    customAdminModuleEntries: customAdminModuleEntryRepository.getByCompany(normalized),
+    companyProductSchemas: companyProductSchemaRepository.getByCompany(normalized),
+    invoices: invoiceRepository.getByCompany(normalized),
+    deliveryZones: deliveryZoneRepository.getByCompany(normalized),
+    activityLogs: activityLogRepository.getByCompany(normalized),
+    searchEvents: searchEventRepository.getByCompany(normalized),
+    searchRedirects: searchRedirectRepository.getByCompany(normalized),
+    visitorSessions: visitorSessionRepository.getByCompany(normalized),
+    visitorEvents: visitorEventRepository.getByCompany(normalized),
+    inboxConversations: inboxConversationRepository.getByCompany(normalized),
+    inboxMessages: inboxMessageRepository.getByCompany(normalized),
+    inboxConversationReads: inboxConversationReadRepository.getByCompany(normalized),
     carts: Object.fromEntries(
       cartRepository.getByCompany(normalized).map(({ userId, items }) => [userId, items]),
     ),
@@ -1099,20 +2544,13 @@ function serializeTenantRecords(records, companyId) {
   return records.map((record) => ({ ...record, company_id: normalizeCompanyId(companyId) }));
 }
 
-function serializeAllTenantRecords(records) {
-  return records.map((record) => ({
-    ...record,
-    company_id: getRecordCompanyId(record),
-  }));
-}
-
 function persistLocalMembershipDirectory() {
   const existing = readPersistedStore() || {};
   return persistLocalStore({
     ...existing,
     version: Math.max(2, Number(existing.version || 1)),
     savedAt: new Date().toISOString(),
-    users: serializeAllTenantRecords(users),
+    users: users.map((user) => clone(withoutCompanyFields(user))),
     memberships: companyMemberships.map((membership) => ({
       ...membership,
       company_id: membership.companyId,
@@ -1139,17 +2577,34 @@ function persistLocalCompanyStore(companyId, store) {
   };
 
   for (const key of [
-    "users",
     "orders",
     "products",
+    "categories",
+    "brands",
     "offers",
     "categoryCards",
     "reviews",
     "websiteMedia",
+    "websiteMediaHiddenKeys",
+    "websiteTexts",
     "workSessions",
+    "customAdminModules",
+    "customAdminModuleEntries",
+    "companyProductSchemas",
+    "invoices",
+    "deliveryZones",
+    "activityLogs",
+    "searchEvents",
+    "searchRedirects",
+    "visitorSessions",
+    "visitorEvents",
+    "inboxConversations",
+    "inboxMessages",
+    "inboxConversationReads",
   ]) {
     merged[key] = mergeLocalTenantRecords(existing[key], store[key], normalized);
   }
+  merged.users = users.map((user) => clone(withoutCompanyFields(user)));
 
   merged.companyCarts = {
     ...(existing.companyCarts || {}),
@@ -1157,6 +2612,9 @@ function persistLocalCompanyStore(companyId, store) {
   };
   if (normalized === DEFAULT_COMPANY_ID) {
     merged.carts = store.carts;
+  }
+  if (normalized === DEFAULT_COMPANY_ID) {
+    merged.deletedWebsiteMediaKeys = store.deletedWebsiteMediaKeys || [];
   }
   merged.companies = companies.map(serializeCompany);
 
@@ -1194,11 +2652,7 @@ async function persistSuperAdminUser(user, previousUser = null) {
     ...existing,
     version: Math.max(2, Number(existing.version || 1)),
     savedAt: new Date().toISOString(),
-    users: mergeLocalTenantRecords(
-      existing.users,
-      userRepository.getByCompany(DEFAULT_COMPANY_ID),
-      DEFAULT_COMPANY_ID,
-    ),
+    users: users.map((entry) => clone(withoutCompanyFields(entry))),
   });
 }
 
@@ -1219,6 +2673,30 @@ export async function persistCompanyStore(companyId, options = {}) {
   }
 
   return persistLocalCompanyStore(normalized, store);
+}
+
+export async function persistAnalyticsStore(companyId, options = {}) {
+  const normalized = normalizeCompanyId(companyId);
+  const store = {
+    searchEvents: searchEventRepository.getByCompany(normalized),
+    searchRedirects: searchRedirectRepository.getByCompany(normalized),
+    visitorSessions: visitorSessionRepository.getByCompany(normalized),
+    visitorEvents: visitorEventRepository.getByCompany(normalized),
+  };
+
+  if (isSupabaseConfigured()) {
+    if (!canPersistToSupabase) {
+      throw new Error("Supabase persistence is configured but unavailable. Refusing local fallback for analytics data.");
+    }
+    await saveAnalyticsStoreToSupabase(normalized, store, {
+      pruneSearchEvents: options.pruneSearchEvents === true,
+      pruneVisitorEvents: options.pruneVisitorEvents === true,
+      pruneSearchRedirects: options.pruneSearchRedirects === true,
+    });
+    return store;
+  }
+
+  return persistLocalCompanyStore(normalized, currentStoreSnapshot(normalized));
 }
 
 export async function persistStore(options = {}) {

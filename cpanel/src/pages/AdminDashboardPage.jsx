@@ -1,24 +1,74 @@
 import React from "react";
-import { Minus, Plus, Search, Upload } from "lucide-react";
-import AdminLayout from "../components/AdminLayout.jsx";
-import AdminOrdersTable from "../components/AdminOrdersTable.jsx";
-import WebsiteMediaManager from "../components/WebsiteMediaManager.jsx";
-import { uploadImage, uploadImages } from "../utils/api.js";
 import {
-  adminCategoriesStorageKey,
-  defaultAdminCategories,
-  getSelectableAdminCategories,
+  AlertCircle,
+  ArrowUpDown,
+  BarChart3,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Clock,
+  ExternalLink,
+  FileText,
+  Globe,
+  HandCoins,
+  Mail,
+  Minus,
+  MoreHorizontal,
+  Package,
+  Plus,
+  Search,
+  Settings,
+  ShoppingCart,
+  ClipboardList,
+  Upload,
+  UserCircle,
+  Users,
+} from "lucide-react";
+import AdminLayout from "../components/AdminLayout.jsx";
+import DashboardInsightsPanel from "../components/DashboardInsightsPanel.jsx";
+import AdminOrdersTable from "../components/AdminOrdersTable.jsx";
+import CategoriesHierarchy from "../components/CategoriesHierarchy.jsx";
+import MediaSlotsManager from "../components/MediaSlotsManager.jsx";
+import AdminMediaField from "../components/AdminMediaField.jsx";
+import TenantProductFields from "../components/TenantProductFields.jsx";
+import { deleteProductMedia, uploadImage, uploadImages, uploadProductMedia, uploadWebsiteVideo, validateProductMediaFile } from "../utils/api.js";
+import { fieldStateToValues, productFieldApi, valuesToFieldState } from "../utils/productFields.js";
+import {
+  getMainCategoriesForBrand,
+  getSubcategoriesForMain,
+  isCompleteProductHierarchy,
+  resolveMainCategoryFor,
+  validateProductHierarchySelection,
 } from "../utils/adminCategories.js";
+import { tenantStorageKey } from "../utils/companyContext.js";
+import { parseRequiredStock, preserveLegacySingleVariantStock } from "../utils/productStock.js";
+import {
+  getLocalizedFilterAttributeOptions,
+  getLocalizedFilterAttributeOptionsForSelect,
+  normalizeProductFilterAttributeValue,
+  requiresCanonicalAgeSelection,
+  resolveProductFilterAttributeForForm,
+} from "../utils/productFilterAttributes.js";
+import { moduleAllowsPage, pageKeyForModule } from "../utils/moduleRegistry.js";
+import { canAccessAdminPage, canManageProductMedia, canUpdateProducts, isAdminPortalRole, isCompanyAdmin, isStaffRole, isTenantOperator, tenantAccessNotice } from "../utils/roles.js";
+import { hasPermission } from "../data/permissions.js";
+import { createTranslator } from "../data/translations.js";
+import { resolveProductImageUrl, useProductImagePlaceholder } from "../utils/productImages.js";
+import {
+  buildDashboardActivity,
+  buildDashboardAnalytics,
+  buildDashboardChecklist,
+  dashboardDirection,
+  isDashboardActionAuthorized,
+  resolveDashboardDestination,
+  sortDashboardActivity,
+} from "../utils/dashboardHome.js";
 
 const storageKeys = {
-  brands: "ebAdminBrands",
-  categories: adminCategoriesStorageKey,
-  inventory: "ebAdminInventory",
-  movements: "ebAdminStockMovements",
-  settings: "ebAdminSettings",
-  stores: "ebAdminStores",
-  vlogHero: "ebAdminVlogHero",
-  vlogs: "ebAdminVlogs",
+  inventory: "inventory",
+  movements: "stockMovements",
+  settings: "settings",
+  stores: "stores",
 };
 
 const pageMeta = {
@@ -29,7 +79,6 @@ const pageMeta = {
   "admin-categories-new": ["New Category", "Create a storefront category"],
   "admin-brands": ["Brands", "Manage brand manufacturers and lines"],
   "admin-brands-new": ["New Brand", "Create a brand profile"],
-  "admin-vlogs": ["Vlogs", "Manage storefront vlog entries"],
   "admin-vlogs-new": ["New Vlog", "Create a storefront vlog entry"],
   "admin-store-locator": ["Store Locator", "Manage physical store locations"],
   "admin-store-locator-new": ["New Store", "Create a retail location"],
@@ -120,14 +169,18 @@ function createLocalizedCopy(en, ar) {
 
 function normalizeFormVariant(variant = {}, index = 0, product = {}) {
   return {
-    id: variant.id || `${product.id || "product"}-variant-${index}`,
+    id: variant.id || "",
     color_name: variant.color_name || variant.colorName || "Default",
     color_value: variant.color_value || variant.colorValue || "",
     size: variant.size || product.size || "500ml",
     price: Number(variant.price ?? product.price ?? 0),
+    sale_price: variant.sale_price ?? variant.salePrice ?? "",
     stock: Math.max(0, Number(variant.stock ?? variant.stockQty ?? product.stockQty ?? 0)),
     image_url: variant.image_url || variant.imageUrl || variant.image || "",
     sort_order: Number(variant.sort_order ?? variant.sortOrder ?? index),
+    isActive: variant.isActive !== false && variant.is_active !== false,
+    isVisible: variant.isVisible !== false && variant.is_visible !== false,
+    clearImage: variant.clearImage === true,
   };
 }
 
@@ -166,7 +219,8 @@ function cleanupDuplicateVariants(variants) {
 function normalizeProductVariantsForForm(product = {}) {
   product = product || {};
   if (Array.isArray(product.variants) && product.variants.length) {
-    return product.variants.map((variant, index) => normalizeFormVariant(variant, index, product));
+    const normalized = product.variants.map((variant, index) => normalizeFormVariant(variant, index, product));
+    return preserveLegacySingleVariantStock(product, normalized);
   }
 
   const variants = (product.sizes || []).map((sizeOption, index) =>
@@ -270,9 +324,10 @@ function createProductFromForm(form) {
     .filter((variant) => variant.color_name && variant.size)
     .map((variant, index) => ({
       ...normalizeFormVariant(variant, index, form),
-      id: variant.id || `${id}-variant-${index}`,
+      id: variant.id || undefined,
       price: Number(variant.price || 0),
-      stock: Math.max(0, Number(variant.stock || 0)),
+      sale_price: variant.sale_price === "" || variant.sale_price == null ? null : Number(variant.sale_price),
+      stock: parseRequiredStock(variant.stock, `Variant ${index + 1} stock`),
       sort_order: index,
     }));
 
@@ -286,74 +341,73 @@ function createProductFromForm(form) {
     }));
   const parsedSizes = sizesFromFormVariants(variants, form.size, form.price);
 
-  return {
+  const product = {
     id,
     slug,
     sku: form.sku || slug.toUpperCase(),
     name: createLocalizedCopy(form.nameEn, form.nameAr || form.nameEn),
-    categoryId: form.categoryId,
-    brand: form.brand || "EB Chemical",
     shortDescription: createLocalizedCopy(form.shortDescription, form.shortDescriptionAr || form.shortDescription),
+    categoryId: form.subcategoryId || form.categoryId,
+    brandId: form.brandId || null,
+    mainCategoryId: form.mainCategoryId || null,
+    subcategoryId: form.subcategoryId || null,
+    manufacturer: form.manufacturer || "",
+    age: normalizeProductFilterAttributeValue("age", form.age),
+    gender: form.gender || "",
+    skill: form.skill || "",
+    occasion: form.occasion || "",
+    quickShop: Boolean(form.quickShop),
+
     longDescription: createLocalizedCopy(form.fullDescription, form.fullDescriptionAr || form.fullDescription || form.shortDescription),
     howToUse: form.howToUse,
     ingredients: form.ingredients,
     benefits: form.benefits,
     skinTypes: form.skinTypes,
     concerns: form.concerns,
-    image: form.image || "/images/products/product-placeholder.svg",
-    hoverImage: form.hoverImage || form.image || "/images/products/product-placeholder.svg",
-    productsPageImage: form.productsPageImage || "",
-    productsPageHoverImage: form.productsPageHoverImage || "",
-    fallbackImage: "/images/products/product-placeholder.svg",
+    ...(form.image ? { image: form.image } : {}),
+    ...(form.hoverImage ? { hoverImage: form.hoverImage } : {}),
+    ...(form.productsPageImage ? { productsPageImage: form.productsPageImage } : {}),
+    ...(form.productsPageHoverImage ? { productsPageHoverImage: form.productsPageHoverImage } : {}),
+    removedImageFields: form.removedImageFields || [],
     variants,
     gallery_images: galleryImages,
     galleryImages: galleryImages.map((image) => image.image_url),
+    videoUrl: form.videoUrl || "",
+    usageVideo: form.usageVideo || null,
+    usageVideoPoster: form.usageVideoPoster || null,
     sizes: parsedSizes,
     badge: createLocalizedCopy(form.label || "Featured", form.labelAr || "مميز"),
     status: form.active ? "Active" : "Inactive",
     isActive: form.active,
+    visible: form.visible,
+    isVisible: form.visible,
     isFeatured: form.featured,
     isNewArrival: form.newArrival,
     isBestseller: form.bestseller,
     stockQty: variants.length
-      ? variants.reduce((sum, variant) => sum + Number(variant.stock || 0), 0)
-      : Number(form.stockQty || 0) || 0,
+      ? variants.reduce((sum, variant) => sum + variant.stock, 0)
+      : parseRequiredStock(form.stockQty, "Product stock"),
     stockStatus:
       (variants.length
-        ? variants.reduce((sum, variant) => sum + Number(variant.stock || 0), 0)
-        : Number(form.stockQty || 0)) > 0
+        ? variants.reduce((sum, variant) => sum + variant.stock, 0)
+        : parseRequiredStock(form.stockQty, "Product stock")) > 0
         ? "In Stock"
         : "Out of Stock",
     metaTitle: form.metaTitle,
     metaDescription: form.metaDescription,
-    detailSectionImages: {
-      howItWorks: form.dsiHowItWorks || "",
-      howItWorks1: form.dsiHowItWorks1 || "",
-      howItWorks2: form.dsiHowItWorks2 || "",
-      howItWorks3: form.dsiHowItWorks3 || "",
-      impact: form.dsiImpact || "",
-      impact1: form.dsiImpact1 || "",
-      impact2: form.dsiImpact2 || "",
-      safeToUse: form.dsiSafeToUse || "",
-      practicalBanner: form.dsiPracticalBanner || "",
-      ingredients: form.dsiIngredients || "",
-      faq: form.dsiFaq || "",
-      mainImage: form.dsiMainImage || "",
-    },
+    detailSectionImages: Object.fromEntries([
+      ["howItWorks", form.dsiHowItWorks], ["howItWorks1", form.dsiHowItWorks1],
+      ["howItWorks2", form.dsiHowItWorks2], ["howItWorks3", form.dsiHowItWorks3],
+      ["impact", form.dsiImpact], ["impact1", form.dsiImpact1], ["impact2", form.dsiImpact2],
+      ["safeToUse", form.dsiSafeToUse], ["practicalBanner", form.dsiPracticalBanner],
+      ["ingredients", form.dsiIngredients], ["faq", form.dsiFaq], ["mainImage", form.dsiMainImage],
+    ].filter(([, value]) => Boolean(value))),
     detailStatements: form.detailStatements || [],
     createdAt: form.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
-}
-
-function AdminMetricCard({ label, value, icon }) {
-  return (
-    <article className="admin-metric-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{icon || "+0% vs prev 30d"}</small>
-    </article>
-  );
+  if (form.clearGalleryImages) product.clearGalleryImages = true;
+  return product;
 }
 
 function Toolbar({ children, onAdd, addLabel }) {
@@ -390,49 +444,110 @@ function Badge({ tone = "active", children }) {
   return <span className={`admin-status-pill ${tone}`}>{children}</span>;
 }
 
-function MediaField({ label, name, value, onChange }) {
+function CardImageUpload({ label, helperText, buttonLabel, language = "en", name, value, onChange, onUploadingChange, productId, tenantSpecific = false, variant = "primary" }) {
+  const t = React.useMemo(() => createTranslator(language), [language]);
   const [isUploading, setIsUploading] = React.useState(false);
+  const [uploadError, setUploadError] = React.useState("");
+  const inputRef = React.useRef(null);
+  const uploadingRef = React.useRef(false);
+  const uploadBlocked = tenantSpecific && !productId;
 
   async function handleUpload(event) {
     const file = event.target.files?.[0];
     if (!file) return;
+    if (uploadBlocked) {
+      setUploadError("Save the product before uploading card images.");
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
+    if (uploadingRef.current) return;
+    uploadingRef.current = true;
     setIsUploading(true);
+    onUploadingChange?.(true);
+    setUploadError("");
     try {
-      const uploaded = await uploadImage(file);
+      validateProductMediaFile(file, { allowVideo: false });
+      const uploaded = productId ? await uploadProductMedia(file, productId) : await uploadImage(file);
+      if (!uploaded?.url && !uploaded?.path) {
+        throw new Error("Upload succeeded but no URL was returned. Storage may not be configured.");
+      }
       onChange({ target: { name, value: uploaded.url || uploaded.path } });
+      setUploadError("");
+    } catch (error) {
+      const message = error?.message || t("productForm.errors.imageUpload");
+      setUploadError(message);
     } finally {
       setIsUploading(false);
-      event.target.value = "";
+      onUploadingChange?.(false);
+      uploadingRef.current = false;
+      if (inputRef.current) inputRef.current.value = "";
     }
   }
 
+  function handleRemove() {
+    onChange({ target: { name, value: "", removeImage: true } });
+    setUploadError("");
+  }
+
+  const borderClass = variant === "hover" ? "admin-card-image-upload-hover" : "admin-card-image-upload-primary";
+
   return (
-    <div className="admin-media-field">
-      <label>
-        {label}
-        <input name={name} placeholder="https://..." value={value || ""} onChange={onChange} />
-      </label>
-      <label className="admin-upload-button">
-        <Upload size={14} />
-        {isUploading ? "Uploading..." : "Upload"}
-        <input accept="image/*" hidden type="file" onChange={handleUpload} />
-      </label>
+    <div className={`admin-media-field ${borderClass}`}>
+      <div className="admin-card-image-header">
+        <span className="admin-card-image-label">{label}</span>
+        {helperText && <span className="admin-card-image-helper">{helperText}</span>}
+      </div>
+      <div className="admin-card-image-input-row">
+        <input
+          name={name}
+          placeholder="https://..."
+          value={value || ""}
+          onChange={onChange}
+        />
+        <label className="admin-upload-button">
+          <Upload size={14} />
+          {isUploading ? t("productForm.uploading") : uploadBlocked ? t("productForm.saveFirst") : buttonLabel}
+          <input
+            ref={inputRef}
+            accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
+            disabled={isUploading || uploadBlocked}
+            hidden
+            type="file"
+            onChange={handleUpload}
+          />
+        </label>
+        {value && (
+          <button
+            className="text-action danger"
+            onClick={handleRemove}
+            type="button"
+            disabled={isUploading}
+          >
+            {t("productForm.removeImage")}
+          </button>
+        )}
+      </div>
+      {uploadError && <div className="message-panel error compact">{uploadError}</div>}
+      {isUploading && <div className="admin-upload-progress"><span>{t("productForm.uploadingImage")}</span></div>}
       {value && (
         <div className="admin-media-preview">
-          <img alt="" src={value} />
+          <img alt="" src={resolveProductImageUrl(value)} onError={useProductImagePlaceholder} />
         </div>
       )}
     </div>
   );
 }
 
+function MediaField(props) {
+  return <AdminMediaField {...props} />;
+}
+
 function PermissionNotice({ role }) {
-  if (role === "admin") return null;
+  const notice = tenantAccessNotice(role);
+  if (!notice) return null;
   return (
     <div className="message-panel warning">
-      {role === "manager"
-        ? "Manager access: content, catalog, orders, customers, and reviews can be managed. Staff and settings are restricted."
-        : "Employee access: admin sections are available in view-only mode."}
+      {notice}
     </div>
   );
 }
@@ -446,68 +561,649 @@ function EmptyState({ title, description }) {
   );
 }
 
-function DashboardHome({ customers, language, orders, products, t }) {
-  const revenue = orders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+function LegacyDashboardHome({ company, currentUser, employees, language, modules, onNavigate, orders, products, t }) {
+  const customers = React.useMemo(() => uniqueCustomersFromOrders(orders), [orders]);
+  const revenue = orders.reduce((sum, o) => sum + Number(o.total || 0), 0);
+  const activeProducts = products.filter((p) => p.isActive !== false && p.status !== "Inactive").length;
+  const pendingOrders = orders.filter((o) => /pending/i.test(o.status || "")).length;
+  const role = currentUser?.role;
+  const canCreate = isCompanyAdmin(role) || hasPermission(currentUser, "products.create") || hasPermission(currentUser, "products.manage");
+  const canManage = isCompanyAdmin(role);
+  const l = language;
+
+  const setupItems = [];
+  if (!products.length) setupItems.push({ icon: Package, message: t("admin.noProductsCreated") });
+  if (products.length > 0 && activeProducts === 0) setupItems.push({ icon: AlertCircle, message: t("admin.enableProductNotice") });
+  if (pendingOrders > 0) setupItems.push({ icon: Clock, message: `${pendingOrders} ${t("admin.pendingAttention")}` });
+  if (!company?.storefrontUrl) setupItems.push({ icon: Globe, message: t("admin.storefrontNotSet") });
+
+  const quickActions = [];
+  if (moduleAllowsPage(modules, "admin-products-new") && canCreate)
+    quickActions.push({ page: "admin-products-new", icon: Plus, label: t("admin.addProduct") });
+  if (moduleAllowsPage(modules, "admin-products") && canAccessAdminPage(currentUser, "admin-products"))
+    quickActions.push({ page: "admin-products", icon: Package, label: t("admin.totalProducts") });
+  if (moduleAllowsPage(modules, "admin-orders") && canAccessAdminPage(currentUser, "admin-orders"))
+    quickActions.push({ page: "admin-orders", icon: ClipboardList, label: t("admin.ordersManagement") });
+  if (moduleAllowsPage(modules, "admin-categories") && canAccessAdminPage(currentUser, "admin-categories"))
+    quickActions.push({ page: "admin-categories", icon: FileText, label: l === "ar" ? "الأقسام" : "Categories" });
+  if (moduleAllowsPage(modules, "admin-staff") && canAccessAdminPage(currentUser, "admin-staff"))
+    quickActions.push({ page: "admin-staff", icon: Users, label: t("admin.employees") });
+  if (moduleAllowsPage(modules, "admin-settings") && canManage)
+    quickActions.push({ page: "admin-settings", icon: Settings, label: t("admin.settingsLabel") });
+
+  const recentOrders = orders.slice(0, 5);
+
   return (
-    <>
-      <div className="admin-range-row">
-        <div className="admin-range-toggle">
-          <button type="button">7d</button>
-          <button className="active" type="button">30d</button>
-          <button type="button">90d</button>
+    <div className="dashboard">
+      <div className="dashboard-header">
+        <div className="dashboard-header-text">
+          <span className="dashboard-greeting">
+            {t("admin.welcomeBack")}{currentUser?.name ? `, ${currentUser.name}` : ""}
+          </span>
+          <h1>{company?.name || t("admin.dashboard")}</h1>
         </div>
-        <div className="admin-date-filter">
-          <span>or custom:</span>
-          <input type="date" />
-          <span>to</span>
-          <input type="date" />
+        <div className="dashboard-header-actions">
+          {company?.storefrontUrl && (
+            <a className="admin-outline-button" href={company.storefrontUrl} rel="noreferrer" target="_blank">
+              <ExternalLink size={14} /> {t("admin.viewStorefront")}
+            </a>
+          )}
+          {canCreate && moduleAllowsPage(modules, "admin-products-new") && (
+            <button className="admin-primary-button" onClick={() => onNavigate("admin-products-new")} type="button">
+              <Plus size={15} /> {t("admin.addProduct")}
+            </button>
+          )}
+          {canManage && moduleAllowsPage(modules, "admin-settings") && (
+            <button className="admin-secondary-button" onClick={() => onNavigate("admin-settings")} type="button">
+              <Settings size={14} /> {t("admin.settingsLabel")}
+            </button>
+          )}
         </div>
       </div>
-      <div className="admin-metric-grid">
-        <AdminMetricCard label="Sales" value={`${revenue} ${t("common.ils")}`} />
-        <AdminMetricCard label="Orders" value={orders.length} />
-        <AdminMetricCard label="Customers" value={customers.length} />
+
+      {(company?.storefrontUrl || company?.settings?.language || company?.settings?.currency) && (
+        <div className="dashboard-info-bar">
+          {company?.storefrontUrl && (
+            <>
+              <div className="dashboard-info-item">
+                <Globe size={14} />
+                <span>{company.storefrontUrl}</span>
+              </div>
+              <span className="dashboard-info-sep" />
+            </>
+          )}
+          {company?.settings?.language && (
+            <>
+              <div className="dashboard-info-item">
+                {company.settings.language === "ar" ? "العربية" : "English"}
+              </div>
+              <span className="dashboard-info-sep" />
+            </>
+          )}
+          {company?.settings?.currency && (
+            <div className="dashboard-info-item">{company.settings.currency}</div>
+          )}
+        </div>
+      )}
+
+      <div className="dashboard-section-card">
+        <div className="dashboard-section-card-head">
+          <h2>{t("admin.analytics")}</h2>
+        </div>
+        <div className="dashboard-metrics-row">
+          <div className="dashboard-metric-cell">
+            <div className="dashboard-metric-cell-icon" data-color="green">
+              <Package size={16} />
+            </div>
+            <div className="dashboard-metric-cell-body">
+              <span className="dashboard-metric-cell-label">{t("admin.totalProducts")}</span>
+              <strong className="dashboard-metric-cell-value">{products.length}</strong>
+              {activeProducts > 0 && (
+                <span className="dashboard-metric-cell-sub">{activeProducts} {t("admin.activeLabel")}</span>
+              )}
+            </div>
+          </div>
+          <div className="dashboard-metric-sep" />
+          <div className="dashboard-metric-cell">
+            <div className="dashboard-metric-cell-icon" data-color="blue">
+              <ClipboardList size={16} />
+            </div>
+            <div className="dashboard-metric-cell-body">
+              <span className="dashboard-metric-cell-label">{t("admin.totalOrders")}</span>
+              <strong className="dashboard-metric-cell-value">{orders.length}</strong>
+              {pendingOrders > 0 && (
+                <span className="dashboard-metric-cell-sub">{pendingOrders} {t("admin.pendingOrders")}</span>
+              )}
+            </div>
+          </div>
+          <div className="dashboard-metric-sep" />
+          <div className="dashboard-metric-cell">
+            <div className="dashboard-metric-cell-icon" data-color="red">
+              <Users size={16} />
+            </div>
+            <div className="dashboard-metric-cell-body">
+              <span className="dashboard-metric-cell-label">{t("admin.customersLabel")}</span>
+              <strong className="dashboard-metric-cell-value">{customers.length}</strong>
+            </div>
+          </div>
+          <div className="dashboard-metric-sep" />
+          <div className="dashboard-metric-cell">
+            <div className="dashboard-metric-cell-icon" data-color="purple">
+              <UserCircle size={16} />
+            </div>
+            <div className="dashboard-metric-cell-body">
+              <span className="dashboard-metric-cell-label">{t("admin.totalEmployees")}</span>
+              <strong className="dashboard-metric-cell-value">{employees?.length || 0}</strong>
+            </div>
+          </div>
+          {revenue > 0 && (
+            <>
+              <div className="dashboard-metric-sep" />
+              <div className="dashboard-metric-cell">
+                <div className="dashboard-metric-cell-icon" data-color="orange">
+                  <HandCoins size={16} />
+                </div>
+                <div className="dashboard-metric-cell-body">
+                  <span className="dashboard-metric-cell-label">{t("admin.revenue")}</span>
+                  <strong className="dashboard-metric-cell-value">{revenue}</strong>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
-      <div className="admin-dashboard-grid">
-        <section className="admin-panel-card">
-          <h2>Revenue over time</h2>
-          <p>Orders and revenue across the last 30 days</p>
-          <div className="admin-empty-chart">{orders.length ? `${revenue} ${t("common.ils")}` : "No revenue for this date range"}</div>
-        </section>
-        <section className="admin-panel-card">
-          <h2>Order status distribution</h2>
-          <p>Current order mix for the selected range</p>
-          <div className="admin-empty-chart">{orders.length ? `${orders.length} orders` : "No orders for this date range"}</div>
-        </section>
-        <section className="admin-panel-card">
-          <h2>Top selling products</h2>
-          <p>Ranked by units sold</p>
-          <div className="admin-empty-chart">{products.length ? `${products.length} products available` : "No product sales for this date range"}</div>
-        </section>
-        <section className="admin-panel-card">
-          <h2>Customer growth</h2>
-          <p>New customer trend</p>
-          <div className="admin-empty-chart">{customers.length ? `${customers.length} customers` : "No customers for this date range"}</div>
-        </section>
-      </div>
-      <section className="admin-panel-card">
-        <h2>Recent Orders</h2>
-        {orders.length ? (
-          <AdminOrdersTable canAssign={false} canDelete={false} canUpdateStatus={false} language={language} orders={orders.slice(0, 5)} products={products} t={t} />
-        ) : (
-          <EmptyState title="No recent orders" />
+
+      {setupItems.length > 0 && (
+        <div className="dashboard-section-card dashboard-setup-card">
+          <div className="dashboard-section-card-head">
+            <h2>{t("admin.attentionNeeded")}</h2>
+          </div>
+          <div className="dashboard-setup-list">
+            {setupItems.map((item, i) => {
+              const ItemIcon = item.icon;
+              return (
+                <div className="dashboard-setup-row" key={i}>
+                  <ItemIcon size={15} />
+                  <span>{item.message}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="dashboard-lower">
+        {quickActions.length > 0 && (
+          <div className="dashboard-section-card dashboard-quick-card">
+            <div className="dashboard-section-card-head">
+              <h2>{t("admin.quickActions")}</h2>
+            </div>
+            <div className="dashboard-quick-list">
+              {quickActions.map((action, i) => {
+                const ActionIcon = action.icon;
+                return (
+                  <button className="dashboard-quick-btn" key={i} onClick={() => onNavigate(action.page)} type="button">
+                    <ActionIcon size={14} />
+                    {action.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         )}
-      </section>
-    </>
+
+        <div className="dashboard-section-card dashboard-activity-card">
+          <div className="dashboard-section-card-head">
+            <h2>{l === "ar" ? "الطلبات الأخيرة" : "Recent Orders"}</h2>
+          </div>
+          {recentOrders.length > 0 ? (
+            <AdminOrdersTable
+              canAssign={false}
+              canDelete={false}
+              canUpdateStatus={false}
+              language={language}
+              orders={recentOrders}
+              products={products}
+              t={t}
+            />
+          ) : (
+            <div className="dashboard-empty-card">
+              <Package size={20} />
+              <strong>{t("admin.noOrders")}</strong>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
-function ProductsListPage({ categories, filters, onAdd, onDeleteProduct, onEdit, products, readOnly, setFilters }) {
+function DashboardHome({
+  brands = [],
+  categories = [],
+  company,
+  currentUser,
+  employees = [],
+  language,
+  modules,
+  onNavigate,
+  orders = [],
+  products = [],
+}) {
+  const [activitySort, setActivitySort] = React.useState("priority");
+  const [expandedChecklist, setExpandedChecklist] = React.useState(() => new Set());
+  const [headerMenuOpen, setHeaderMenuOpen] = React.useState(false);
+  const [showAllChecklist, setShowAllChecklist] = React.useState(false);
+  const headerMenuRef = React.useRef(null);
+  const direction = dashboardDirection(language);
+  const ar = direction === "rtl";
+  const authorizationContext = { company, currentUser, modules };
+  const analytics = React.useMemo(
+    () => buildDashboardAnalytics({ employees, orders, products }),
+    [employees, orders, products],
+  );
+  const checklist = React.useMemo(
+    () => buildDashboardChecklist({
+      brands,
+      categories,
+      company,
+      currentUser,
+      employees,
+      modules,
+      orders,
+      products,
+    }),
+    [brands, categories, company, currentUser, employees, modules, orders, products],
+  );
+  const activity = React.useMemo(
+    () => sortDashboardActivity(
+      buildDashboardActivity({ company, employees, orders, products }),
+      activitySort,
+    ).slice(0, 8),
+    [activitySort, company, employees, orders, products],
+  );
+
+  React.useEffect(() => {
+    if (!headerMenuOpen) return undefined;
+    function closeOutside(event) {
+      if (headerMenuRef.current && !headerMenuRef.current.contains(event.target)) {
+        setHeaderMenuOpen(false);
+      }
+    }
+    function closeEscape(event) {
+      if (event.key === "Escape") setHeaderMenuOpen(false);
+    }
+    document.addEventListener("mousedown", closeOutside);
+    document.addEventListener("keydown", closeEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOutside);
+      document.removeEventListener("keydown", closeEscape);
+    };
+  }, [headerMenuOpen]);
+
+  const labels = ar ? {
+    active: "نشط",
+    activity: "موجز النشاط",
+    actionRequired: "إجراء مطلوب",
+    addProduct: "إضافة منتج",
+    analytics: "التحليلات",
+    analyticsDescription: "نظرة عامة مباشرة من بيانات شركتك الحالية",
+    businessEmail: "البريد الإلكتروني للنشاط",
+    businessInfo: "معلومات النشاط التجاري",
+    checklist: "تنمية نشاطك",
+    checklistDescription: "أكمل الخطوات الأساسية لتجهيز شركتك ومتجرك",
+    company: "الشركة الحالية",
+    connectDomain: "ربط النطاق",
+    customers: "العملاء",
+    date: "التاريخ",
+    editBusiness: "تعديل معلومات النشاط",
+    editSite: "تحرير الموقع",
+    employees: "الموظفون",
+    emptyActivity: "لا يوجد نشاط لعرضه بعد",
+    emptyActivityDescription: "ستظهر هنا تحديثات المنتجات والطلبات والموظفين.",
+    noDate: "بدون تاريخ",
+    orders: "الطلبات",
+    priority: "الأولوية",
+    products: "المنتجات",
+    settings: "الإعدادات",
+    showLess: "عرض أقل",
+    showMore: "عرض المزيد",
+    storefront: "المتجر والنطاق",
+    viewAll: "عرض الكل",
+    viewStorefront: "عرض المتجر",
+    welcome: "مرحباً بعودتك",
+    attentionRequired: "يحتاج إلى انتباه",
+    recentActivity: "نشاط حديث",
+  } : {
+    active: "active",
+    activity: "Activity Feed",
+    actionRequired: "Action Required",
+    addProduct: "Add Product",
+    analytics: "Analytics",
+    analyticsDescription: "A live overview from your current company data",
+    businessEmail: "Business email",
+    businessInfo: "Business information",
+    checklist: "Grow your business",
+    checklistDescription: "Complete the essentials for your company and storefront",
+    company: "Current company",
+    connectDomain: "Connect Domain",
+    customers: "Customers",
+    date: "Date",
+    editBusiness: "Edit Business Info",
+    editSite: "Edit Site",
+    employees: "Employees",
+    emptyActivity: "No activity to show yet",
+    emptyActivityDescription: "Product, order, and employee updates will appear here.",
+    noDate: "No date",
+    orders: "Orders",
+    priority: "Priority",
+    products: "Products",
+    settings: "Settings",
+    showLess: "Show Less",
+    showMore: "Show More",
+    storefront: "Storefront & domain",
+    viewAll: "View all",
+    viewStorefront: "View Storefront",
+    welcome: "Welcome back",
+    attentionRequired: "Attention Required",
+    recentActivity: "Recent Activity",
+  };
+
+  const checklistCopy = ar ? {
+    "first-product": ["أضف منتجك الأول", "أنشئ أول منتج متاح في كتالوج الشركة.", "إضافة منتج"],
+    "storefront-domain": ["اربط المتجر أو النطاق", "أكمل عنوان المتجر العام وإعدادات النطاق المتاحة.", "إعداد المتجر"],
+    "first-employee": ["أضف موظفاً", "أضف أول عضو فريق ضمن صلاحيات الشركة.", "الموظفون"],
+    "company-settings": ["اضبط إعدادات الشركة", "راجع اللغة والعملة ومعلومات النشاط.", "الإعدادات"],
+    "review-orders": ["راجع الطلبات", "تابع الطلبات الحالية وحالاتها من صفحة الطلبات.", "عرض الطلبات"],
+    "catalog-organization": ["أضف تصنيفاً أو علامة تجارية", "نظّم الكتالوج باستخدام البيانات الحالية.", "تنظيم الكتالوج"],
+    "storefront-setup": ["أكمل إعداد المتجر", "راجع هوية المتجر ومحتواه المرئي.", "تحرير الموقع"],
+  } : {
+    "first-product": ["Add your first product", "Create the first available product in this company catalog.", "Add product"],
+    "storefront-domain": ["Connect storefront or domain", "Complete the public storefront address and available domain settings.", "Set up storefront"],
+    "first-employee": ["Add an employee", "Add the first team member within this company scope.", "Employees"],
+    "company-settings": ["Configure company settings", "Review language, currency, and available business information.", "Settings"],
+    "review-orders": ["Review orders", "Follow current orders and their real statuses.", "View orders"],
+    "catalog-organization": ["Add a category or brand", "Organize the catalog with existing category and brand tools.", "Organize catalog"],
+    "storefront-setup": ["Complete storefront setup", "Review storefront identity and website content.", "Edit site"],
+  };
+
+  function authorized(action) {
+    return isDashboardActionAuthorized(action, authorizationContext);
+  }
+
+  function go(action) {
+    const destination = resolveDashboardDestination(action);
+    if (!destination || !authorized(action)) return;
+    if (destination === "admin-site-editor") {
+      const editorWindow = window.open("/admin/site-editor", "_blank", "noopener,noreferrer");
+      if (editorWindow) editorWindow.opener = null;
+      return;
+    }
+    onNavigate(destination);
+  }
+
+  function toggleChecklist(id) {
+    setExpandedChecklist((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function formatMoney(value) {
+    const currency = company?.settings?.currency;
+    if (!currency || !value) return "";
+    try {
+      return new Intl.NumberFormat(ar ? "ar" : "en", {
+        currency,
+        maximumFractionDigits: 2,
+        style: "currency",
+      }).format(value);
+    } catch {
+      return `${value} ${currency}`;
+    }
+  }
+
+  function formatShortDate(value) {
+    return new Intl.DateTimeFormat(ar ? "ar" : "en", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }).format(new Date(value));
+  }
+
+  const businessItems = [
+    company?.settings?.plan || company?.settings?.subscription
+      ? { id: "plan", label: ar ? "الخطة" : "Plan", value: company.settings.plan || company.settings.subscription }
+      : null,
+    company?.domain || company?.storefrontUrl
+      ? { id: "storefront", icon: Globe, label: labels.storefront, value: company.domain || company.storefrontUrl }
+      : null,
+    company?.settings?.businessEmail || company?.settings?.supportEmail
+      ? { id: "email", icon: Mail, label: labels.businessEmail, value: company.settings.businessEmail || company.settings.supportEmail }
+      : null,
+  ].filter(Boolean);
+
+  const metricCards = [
+    { action: "products", color: "green", icon: Package, label: labels.products, sub: analytics.activeProducts ? `${analytics.activeProducts} ${labels.active}` : "", value: analytics.products },
+    { action: "orders", color: "blue", icon: ClipboardList, label: labels.orders, sub: formatMoney(analytics.revenue), value: analytics.orders },
+    { action: "customers", color: "orange", icon: Users, label: labels.customers, sub: "", value: analytics.customers },
+    { action: "employees", color: "purple", icon: UserCircle, label: labels.employees, sub: "", value: analytics.employees },
+  ];
+  const analyticsDates = [...orders, ...products, ...employees]
+    .map((record) => record?.updatedAt || record?.createdAt || null)
+    .filter((value) => value && !Number.isNaN(new Date(value).getTime()))
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+  const analyticsRange = analyticsDates.length
+    ? analyticsDates[0] === analyticsDates.at(-1)
+      ? formatShortDate(analyticsDates[0])
+      : `${formatShortDate(analyticsDates[0])} – ${formatShortDate(analyticsDates.at(-1))}`
+    : ar ? "كل السجلات الحالية" : "All current records";
+  const visibleChecklist = showAllChecklist ? checklist : checklist.slice(0, 4);
+
+  function activityCopy(item) {
+    if (item.type === "order") {
+      const orderName = item.record?.number || item.record?.orderNumber || item.record?.id;
+      const customerName = item.record?.customer?.name;
+      return {
+        description: customerName || item.meta,
+        title: ar ? `طلب ${orderName}` : `Order ${orderName}`,
+      };
+    }
+    if (item.type === "product") {
+      return {
+        description: item.meta,
+        title: getText(item.record?.name, language) || item.record?.sku || item.record?.id,
+      };
+    }
+    if (item.type === "employee") {
+      return {
+        description: item.meta,
+        title: item.record?.name || item.record?.email || item.record?.id,
+      };
+    }
+    if (item.type === "storefront-warning") {
+      return {
+        description: ar ? "لم يتم تعيين رابط متجر عام للشركة." : "No public storefront URL is configured for this company.",
+        title: ar ? "إعداد المتجر غير مكتمل" : "Storefront setup is incomplete",
+      };
+    }
+    if (item.type === "settings-warning") {
+      return {
+        description: ar ? "أكمل اللغة والعملة ومعلومات النشاط المتاحة." : "Complete the available language, currency, and business settings.",
+        title: ar ? "معلومات الشركة غير مكتملة" : "Company setup is incomplete",
+      };
+    }
+    return {
+      description: "",
+      title: "",
+    };
+  }
+
+  function activityPresentation(item) {
+    if (item.type === "order") return { icon: ClipboardList, label: item.priority === 3 ? labels.actionRequired : labels.recentActivity };
+    if (item.type === "product") return { icon: Package, label: labels.recentActivity };
+    if (item.type === "employee") return { icon: UserCircle, label: labels.recentActivity };
+    return { icon: AlertCircle, label: item.priority === 3 ? labels.actionRequired : labels.attentionRequired };
+  }
+
+  function activityActionLabel(item) {
+    if (item.action === "orders") return ar ? "عرض الطلب" : "View order";
+    if (item.action === "products") return ar ? "عرض المنتجات" : "View products";
+    if (item.action === "employees") return ar ? "عرض الموظفين" : "View employees";
+    return labels.settings;
+  }
+
+  return (
+    <div className="dashboard tenant-dashboard-home" dir={direction} data-dashboard-direction={direction}>
+      <section className="tenant-dashboard-hero">
+        <div className="tenant-dashboard-welcome">
+          <div className="tenant-dashboard-title-row">
+            <h1>{labels.welcome}{currentUser?.name ? `, ${currentUser.name}` : ""}</h1>
+            <div className="tenant-dashboard-more" ref={headerMenuRef}>
+              <button aria-expanded={headerMenuOpen} aria-haspopup="menu" aria-label="Dashboard actions" onClick={() => setHeaderMenuOpen((value) => !value)} type="button">
+                <MoreHorizontal size={20} />
+              </button>
+              {headerMenuOpen && (
+                <div className="tenant-dashboard-more-menu" role="menu">
+                  {authorized("analytics") && <button onClick={() => go("analytics")} role="menuitem" type="button"><BarChart3 size={15} />{labels.analytics}</button>}
+                  {authorized("editSite") && <button onClick={() => go("editSite")} role="menuitem" type="button"><ExternalLink size={15} />{labels.editSite}</button>}
+                  {authorized("settings") && <button onClick={() => go("settings")} role="menuitem" type="button"><Settings size={15} />{labels.settings}</button>}
+                </div>
+              )}
+            </div>
+          </div>
+          <p><span>{labels.company}</span><strong>{company?.name}</strong></p>
+        </div>
+        <div className="tenant-dashboard-primary-actions" data-dashboard-authorized-actions>
+          {authorized("viewStorefront") && (
+            <a href={company.storefrontUrl} rel="noreferrer" target="_blank"><ExternalLink size={15} />{labels.viewStorefront}</a>
+          )}
+          {authorized("addProduct") && (
+            <button className="primary" onClick={() => go("addProduct")} type="button"><Plus size={16} />{labels.addProduct}</button>
+          )}
+          {authorized("settings") && (
+            <button onClick={() => go("settings")} type="button"><Settings size={15} />{labels.settings}</button>
+          )}
+        </div>
+      </section>
+
+      <section className="tenant-dashboard-business-strip">
+        <div className="tenant-dashboard-strip-title"><strong>{labels.businessInfo}</strong></div>
+        <div className="tenant-dashboard-business-items">
+          {businessItems.map((item) => {
+            const ItemIcon = item.icon;
+            return <div className="tenant-dashboard-business-item" key={item.id}>{ItemIcon && <ItemIcon size={16} />}<span><small>{item.label}</small><b title={String(item.value)}>{item.value}</b></span></div>;
+          })}
+          {!businessItems.length && <span className="tenant-dashboard-business-empty">{ar ? "لا تتوفر معلومات إضافية بعد." : "No additional business information is available yet."}</span>}
+        </div>
+        <div className="tenant-dashboard-business-actions">
+          {authorized("connectDomain") && <button onClick={() => go("connectDomain")} type="button">{labels.connectDomain}</button>}
+          {authorized("settings") && <button onClick={() => go("settings")} type="button">{labels.editBusiness}</button>}
+        </div>
+      </section>
+
+      <section className="tenant-dashboard-card tenant-dashboard-analytics" data-dashboard-analytics>
+        <header className="tenant-dashboard-section-head">
+          <div><h2>{labels.analytics}</h2><p>{labels.analyticsDescription}</p></div>
+          <div className="tenant-dashboard-section-actions">
+            <span data-dashboard-date-range>{analyticsRange}</span>
+            {authorized("analytics") && <button onClick={() => go("analytics")} type="button">{labels.viewAll}<ChevronRight size={15} /></button>}
+          </div>
+        </header>
+        <div className="tenant-dashboard-stat-grid">
+          {metricCards.map((metric) => {
+            const MetricIcon = metric.icon;
+            const canOpen = authorized(metric.action);
+            return (
+              <button className="tenant-dashboard-stat" data-color={metric.color} disabled={!canOpen} key={metric.action} onClick={() => go(metric.action)} type="button">
+                <span className="tenant-dashboard-stat-icon"><MetricIcon size={18} /></span>
+                <span className="tenant-dashboard-stat-copy"><small>{metric.label}</small><strong>{metric.value}</strong>{metric.sub && <em>{metric.sub}</em>}</span>
+                <span className="tenant-dashboard-stat-indicator" aria-hidden="true"><i /></span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <DashboardInsightsPanel
+        company={company}
+        currentUser={currentUser}
+        language={language}
+        modules={modules}
+        onNavigate={onNavigate}
+      />
+
+      <section className="tenant-dashboard-card tenant-dashboard-checklist" data-dashboard-checklist>
+        <header className="tenant-dashboard-section-head">
+          <div><h2>{labels.checklist}</h2><p>{labels.checklistDescription}</p></div>
+          <span className="tenant-dashboard-progress">{checklist.filter((item) => item.completed).length}/{checklist.length}</span>
+        </header>
+        <div className="tenant-dashboard-checklist-list">
+          {visibleChecklist.map((item) => {
+            const copy = checklistCopy[item.id];
+            const expanded = expandedChecklist.has(item.id);
+            return (
+              <div className={`tenant-dashboard-check-row ${item.completed ? "completed" : "attention"}`} key={item.id}>
+                <button aria-expanded={expanded} className="tenant-dashboard-check-main" onClick={() => toggleChecklist(item.id)} type="button">
+                  <span className="tenant-dashboard-check-state">{item.completed ? <Check size={15} /> : <span />}</span>
+                  <span><strong>{copy[0]}</strong>{expanded && <small>{copy[1]}</small>}</span>
+                  <span className="tenant-dashboard-check-chevron">{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</span>
+                </button>
+                {item.action && !item.completed && (
+                  <button className="tenant-dashboard-check-action" onClick={() => go(item.action)} type="button">{copy[2]}</button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {checklist.length > 4 && (
+          <button className="tenant-dashboard-show-more" onClick={() => setShowAllChecklist((value) => !value)} type="button">
+            {showAllChecklist ? labels.showLess : labels.showMore}
+            {showAllChecklist ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+          </button>
+        )}
+      </section>
+
+      <section className="tenant-dashboard-card tenant-dashboard-activity" data-dashboard-activity>
+        <header className="tenant-dashboard-section-head">
+          <div><h2>{labels.activity}</h2><p>{ar ? "آخر التغييرات الفعلية في شركتك" : "Recent changes from your current company data"}</p></div>
+          <label className="tenant-dashboard-sort"><ArrowUpDown size={14} /><select aria-label={labels.activity} onChange={(event) => setActivitySort(event.target.value)} value={activitySort}><option value="priority">{labels.priority}</option><option value="date">{labels.date}</option></select></label>
+        </header>
+        {activity.length ? (
+          <div className="tenant-dashboard-activity-list">
+            {activity.map((item) => {
+              const copy = activityCopy(item);
+              const presentation = activityPresentation(item);
+              const ActivityIcon = presentation.icon;
+              const canAct = item.action && authorized(item.action);
+              return (
+                <article className="tenant-dashboard-activity-row" data-priority={item.priority} key={item.id}>
+                  <span className="tenant-dashboard-activity-icon"><ActivityIcon size={17} /></span>
+                  <span className="tenant-dashboard-activity-copy"><em>{presentation.label}</em><strong>{copy.title}</strong>{copy.description && <small>{copy.description}</small>}</span>
+                  <span className="tenant-dashboard-activity-tail">
+                    <time dateTime={item.date || undefined}>{item.date ? formatDate(item.date) : labels.noDate}</time>
+                    {canAct && <button onClick={() => go(item.action)} type="button">{activityActionLabel(item)}</button>}
+                  </span>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="tenant-dashboard-activity-empty" data-dashboard-empty-activity><Clock size={22} /><strong>{labels.emptyActivity}</strong><span>{labels.emptyActivityDescription}</span></div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ProductsListPage({ brands, canCreate = true, canDelete = true, canUpdate = true, categories, filters, onAdd, onDeleteProduct, onEdit, products, setFilters, t }) {
   const filtered = products.filter((product) => {
     const name = getText(product.name).toLowerCase();
     const sku = getProductSku(product).toLowerCase();
     const matchesSearch = !filters.search || name.includes(filters.search.toLowerCase()) || sku.includes(filters.search.toLowerCase());
-    const matchesBrand = filters.brand === "all" || (product.brand || "EB Chemical") === filters.brand;
+    const matchesBrand = filters.brand === "all" || product.brandId === filters.brand;
     const matchesCategory = filters.category === "all" || product.categoryId === filters.category;
     const matchesStatus = filters.status === "all" || (filters.status === "active" ? product.isActive !== false : product.isActive === false);
     return matchesSearch && matchesBrand && matchesCategory && matchesStatus;
@@ -515,7 +1211,7 @@ function ProductsListPage({ categories, filters, onAdd, onDeleteProduct, onEdit,
 
   return (
     <section className="admin-panel-card">
-      <Toolbar addLabel="Add Product" onAdd={readOnly ? null : onAdd}>
+      <Toolbar addLabel={t("productForm.addProduct")} onAdd={canCreate ? onAdd : null}>
         <SearchField placeholder="Search by name, SKU..." value={filters.search} onChange={(value) => setFilters((current) => ({ ...current, search: value }))} />
         <select value={filters.category} onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value }))}>
           <option value="all">All categories</option>
@@ -525,7 +1221,9 @@ function ProductsListPage({ categories, filters, onAdd, onDeleteProduct, onEdit,
         </select>
         <select value={filters.brand} onChange={(event) => setFilters((current) => ({ ...current, brand: event.target.value }))}>
           <option value="all">All brands</option>
-          <option value="EB Chemical">EB Chemical</option>
+          {brands.map((brand) => (
+            <option key={brand.id} value={brand.id}>{getText(brand.name)}</option>
+          ))}
         </select>
         <div className="admin-segmented">
           {["all", "active", "inactive"].map((status) => (
@@ -548,7 +1246,7 @@ function ProductsListPage({ categories, filters, onAdd, onDeleteProduct, onEdit,
             <th>Status</th>
             <th>Created</th>
             <th>Updated</th>
-            {!readOnly && <th>Actions</th>}
+            {(canUpdate || canDelete) && <th>Actions</th>}
           </tr>
         </thead>
         <tbody>
@@ -557,10 +1255,10 @@ function ProductsListPage({ categories, filters, onAdd, onDeleteProduct, onEdit,
             const stock = getStockQty(product);
             return (
               <tr key={product.id}>
-                <td><img className="admin-thumb" alt="" src={product.image || product.fallbackImage} /></td>
+                <td><img className="admin-thumb" alt="" src={resolveProductImageUrl(product.image || product.primaryImage)} onError={useProductImagePlaceholder} /></td>
                 <td><strong>{getText(product.name)}</strong><span className="table-muted">{getProductSku(product)}</span></td>
                 <td>{getText(category?.name) || "-"}</td>
-                <td>{product.brand || "EB Chemical"}</td>
+                <td>{getText(brands.find((brand) => brand.id === product.brandId)?.name) || product.brand || "-"}</td>
                 <td>{product.sizes?.length || 1}</td>
                 <td><strong>{getProductPrice(product)} ILS</strong></td>
                 <td>{stock}</td>
@@ -573,11 +1271,11 @@ function ProductsListPage({ categories, filters, onAdd, onDeleteProduct, onEdit,
                 </td>
                 <td>{formatDate(product.createdAt)}</td>
                 <td>{formatDate(product.updatedAt)}</td>
-                {!readOnly && (
+                {(canUpdate || canDelete) && (
                   <td>
                     <div className="row-actions">
-                      <button className="text-action" onClick={() => onEdit(product)} type="button">Edit</button>
-                      <button className="text-action danger" onClick={() => onDeleteProduct(product.id)} type="button">Delete</button>
+                      {canUpdate && <button className="text-action" onClick={() => onEdit(product)} type="button">{t("productForm.edit")}</button>}
+                      {canDelete && <button className="text-action danger" onClick={() => onDeleteProduct(product.id)} type="button">{t("productForm.delete")}</button>}
                     </div>
                   </td>
                 )}
@@ -590,13 +1288,22 @@ function ProductsListPage({ categories, filters, onAdd, onDeleteProduct, onEdit,
   );
 }
 
-function ProductWizard({ categories, editingProduct, onCancel, onSave }) {
+export function ProductWizard({ brands = [], categories = [], editingProduct, onCancel, onPersisted, onSave, canManageContent = true, canManageMedia = true, language = "en", readOnly = false }) {
+  const t = React.useMemo(() => createTranslator(language), [language]);
+  const ar = language === "ar";
   const [step, setStep] = React.useState("basic");
-  const initialCategoryOptions = getSelectableAdminCategories(categories, editingProduct?.categoryId);
+  const [advancedOpen, setAdvancedOpen] = React.useState(false);
+  const [fieldErrors, setFieldErrors] = React.useState({});
   const [uploadError, setUploadError] = React.useState("");
   const [uploadingField, setUploadingField] = React.useState("");
   const [uploadingVariantIndex, setUploadingVariantIndex] = React.useState(-1);
   const [uploadingGalleryIndex, setUploadingGalleryIndex] = React.useState(-1);
+  const [videoProgress, setVideoProgress] = React.useState(0);
+  const [tenantDefinitions, setTenantDefinitions] = React.useState([]);
+  const [tenantValues, setTenantValues] = React.useState({});
+  const [contentRetryId, setContentRetryId] = React.useState("");
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [activeChildUploads, setActiveChildUploads] = React.useState(0);
   const [variantGenerator, setVariantGenerator] = React.useState({
     colorsText: "Default|#1db7d8",
     sizesText: "500ml, 1L, 5L",
@@ -609,8 +1316,17 @@ function ProductWizard({ categories, editingProduct, onCancel, onSave }) {
     nameAr: editingProduct?.name?.ar || "",
     slug: editingProduct?.slug || "",
     sku: editingProduct?.sku || "",
-    categoryId: editingProduct?.categoryId || initialCategoryOptions[0]?.id || "",
-    brand: editingProduct?.brand || "EB Chemical",
+    categoryId: editingProduct?.subcategoryId || editingProduct?.categoryId || "",
+    brandId: editingProduct?.brandId || "",
+    subcategoryId: editingProduct?.subcategoryId || "",
+    mainCategoryId: editingProduct?.mainCategoryId || resolveMainCategoryFor(categories, editingProduct?.mainCategoryId, editingProduct?.subcategoryId || ""),
+    manufacturer: editingProduct?.manufacturer || "",
+    age: resolveProductFilterAttributeForForm("age", editingProduct?.age),
+    gender: resolveProductFilterAttributeForForm("gender", editingProduct?.gender),
+    skill: resolveProductFilterAttributeForForm("skill", editingProduct?.skill),
+    occasion: resolveProductFilterAttributeForForm("occasion", editingProduct?.occasion),
+    quickShop: Boolean(editingProduct?.quickShop),
+
     size: editingProduct?.sizes?.[0]?.size || "500ml",
     price: editingProduct?.sizes?.[0]?.price || "",
     stockQty: getStockQty(editingProduct || {}),
@@ -623,13 +1339,15 @@ function ProductWizard({ categories, editingProduct, onCancel, onSave }) {
     benefits: editingProduct?.benefits || "",
     skinTypes: editingProduct?.skinTypes || "",
     concerns: editingProduct?.concerns || "",
-    image: editingProduct?.image || "",
-    hoverImage: editingProduct?.hoverImage || "",
+    image: editingProduct?.image || editingProduct?.primaryImage || "",
+    hoverImage: editingProduct?.hoverImage || editingProduct?.secondaryImage || "",
     productsPageImage: editingProduct?.productsPageImage || "",
     productsPageHoverImage: editingProduct?.productsPageHoverImage || "",
     galleryImages: normalizeGalleryImagesForForm(editingProduct),
     variants: normalizeProductVariantsForForm(editingProduct),
     videoUrl: editingProduct?.videoUrl || "",
+    usageVideo: editingProduct?.usageVideo || "",
+    usageVideoPoster: editingProduct?.usageVideoPoster || "",
     metaTitle: editingProduct?.metaTitle || "",
     metaDescription: editingProduct?.metaDescription || "",
     dsiHowItWorks: (editingProduct?.detailSectionImages || editingProduct?.detail_section_images || {}).howItWorks || "",
@@ -647,18 +1365,175 @@ function ProductWizard({ categories, editingProduct, onCancel, onSave }) {
     label: editingProduct?.badge?.en || "",
     labelAr: editingProduct?.badge?.ar || "",
     active: editingProduct?.isActive !== false,
+    visible: editingProduct?.visible !== false && editingProduct?.isVisible !== false,
     featured: Boolean(editingProduct?.isFeatured),
+    newArrival: Boolean(editingProduct?.isNewArrival),
     bestseller: Boolean(editingProduct?.isBestseller),
     detailStatements: editingProduct?.detailStatements || editingProduct?.detail_statements || [],
+    removedImageFields: [],
+    clearGalleryImages: false,
   }));
 
-  const tabs = ["basic", "variants", "media", "seo", "showcase"];
-  const tabLabels = ["Basic", "Variants", "Media", "SEO", "Showcase"];
-  const selectableCategories = getSelectableAdminCategories(categories, form.categoryId);
+  React.useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      productFieldApi.definitions(),
+      editingProduct?.id ? productFieldApi.values(editingProduct.id) : Promise.resolve([]),
+    ]).then(([definitions, values]) => {
+      if (cancelled) return;
+      setTenantDefinitions(Array.isArray(definitions) ? definitions : []);
+      const fieldState = valuesToFieldState(values, definitions);
+      setTenantValues(fieldState);
+      if (fieldState.product_video) setForm((current) => ({ ...current, videoUrl: fieldState.product_video }));
+      if (Array.isArray(definitions) && definitions.length) {
+        setVariantGenerator({ colorsText: "", sizesText: "", defaultPrice: "", defaultStock: "" });
+        if (!editingProduct?.id || !(editingProduct?.variants?.length || editingProduct?.sizes?.length)) setForm((current) => ({ ...current, size: "", price: "", variants: [] }));
+      }
+    }).catch((error) => setUploadError(error.message || "Unable to load product fields."));
+    return () => { cancelled = true; };
+  }, [editingProduct?.id]);
+
+  const usesTenantDefinitions = tenantDefinitions.length > 0;
+  const additionalMediaDefinitions = tenantDefinitions.filter((definition) => !["gallery_images", "product_video"].includes(definition.field_key));
+  const updateTenantValue = (key, value) => setTenantValues((current) => ({ ...current, [key]: value }));
+
+  const allTabs = ["basic", "pricing", "variants", "media", "details", "marketing", "preview"];
+  const tabName = { basic: t("productForm.tabs.basic"), pricing: t("productForm.tabs.pricing"), variants: t("productForm.tabs.variants"), media: t("productForm.tabs.media"), details: t("productForm.tabs.details"), marketing: t("productForm.tabs.marketing"), preview: t("productForm.tabs.preview") };
+  const tabs = allTabs.filter((tab) => (tab !== "media" || canManageMedia) && (!["details", "marketing"].includes(tab) || canManageContent));
+  const brandOptions = brands.filter((brand) => brand && brand.id && (brand.isActive !== false || brand.id === form.brandId));
+  const mainCategoryOptions = getMainCategoriesForBrand(categories, form.brandId)
+    .filter((category) => category.isActive !== false && category.active !== false || category.id === form.mainCategoryId);
+  const subcategoryOptions = getSubcategoriesForMain(categories, form.mainCategoryId)
+    .filter((category) => category.isActive !== false && category.active !== false || category.id === form.subcategoryId);
+  const hierarchyIncomplete = Boolean(editingProduct) && !isCompleteProductHierarchy({
+    brandId: form.brandId,
+    mainCategoryId: form.mainCategoryId,
+    subcategoryId: form.subcategoryId,
+  });
+  const hierarchyLabels = ar
+    ? {
+      basic: "المعلومات الأساسية",
+      classification: "التصنيف (مطلوب)",
+      pricing: "التسعير",
+      media: "الوسائط",
+      advanced: "خيارات متقدمة",
+      brand: "العلامة التجارية *",
+      main: "الفئة الرئيسية *",
+      sub: "الفئة الفرعية *",
+      selectBrand: "اختر علامة تجارية أولاً",
+      selectMain: "اختر فئة رئيسية أولاً",
+      noMains: "لا توجد فئات رئيسية لهذه العلامة التجارية",
+      noSubs: "لا توجد فئات فرعية لهذه الفئة الرئيسية",
+      helper: "اختر العلامة التجارية ثم الفئة الرئيسية ثم الفئة الفرعية.",
+      incomplete: "التصنيف غير مكتمل. يجب اختيار علامة تجارية وفئة رئيسية وفئة فرعية قبل الحفظ.",
+      viewOnly: "وضع العرض فقط — ليست لديك صلاحية حفظ التغييرات.",
+      nameEnHelp: "الاسم الظاهر في الواجهة الإنجليزية.",
+      nameArHelp: "الاسم الظاهر في الواجهة العربية.",
+      shortHelp: "وصف مختصر يظهر في بطاقة المنتج.",
+    }
+    : {
+      basic: "Basic information",
+      classification: "Classification (required)",
+      pricing: "Pricing",
+      media: "Media",
+      advanced: "Advanced options",
+      brand: "Brand *",
+      main: "Main Category *",
+      sub: "Subcategory *",
+      selectBrand: "Select a Brand first",
+      selectMain: "Select a Main Category first",
+      noMains: "No Main Categories available for this Brand",
+      noSubs: "No Subcategories available for this Main Category",
+      helper: "Choose Brand, then Main Category, then Subcategory.",
+      incomplete: "Classification is incomplete. Choose Brand, Main Category, and Subcategory before saving.",
+      viewOnly: "View only — you do not have permission to save changes.",
+      nameEnHelp: "Name shown on the English storefront.",
+      nameArHelp: "Name shown on the Arabic storefront.",
+      shortHelp: "Short summary shown on product cards.",
+    };
+
+  const trackChildUpload = React.useCallback((active) => {
+    setActiveChildUploads((count) => Math.max(0, count + (active ? 1 : -1)));
+  }, []);
 
   function change(event) {
-    const { checked, name, type, value } = event.target;
-    setForm((current) => ({ ...current, [name]: type === "checkbox" ? checked : value }));
+    const { checked, name, removeImage, type, value } = event.target;
+    setFieldErrors((current) => {
+      if (!current[name]) return current;
+      const next = { ...current };
+      delete next[name];
+      return next;
+    });
+    setForm((current) => {
+      const removed = new Set(current.removedImageFields || []);
+      if (removeImage) removed.add(name);
+      else if (value) removed.delete(name);
+      return { ...current, [name]: type === "checkbox" ? checked : value, removedImageFields: [...removed] };
+    });
+  }
+
+  function toggleAge(ageId, checked) {
+    setFieldErrors((current) => {
+      if (!current.age) return current;
+      const next = { ...current };
+      delete next.age;
+      return next;
+    });
+    setForm((current) => {
+      const selected = Array.isArray(current.age)
+        ? current.age
+        : (current.age ? [current.age] : []);
+      const nextAge = checked
+        ? [...new Set([...selected.filter((entry) => entry !== ageId), ageId])]
+        : selected.filter((entry) => entry !== ageId);
+      return { ...current, age: nextAge };
+    });
+  }
+  function changeBrand(event) {
+    const brandId = event.target.value;
+    setFieldErrors((current) => {
+      const next = { ...current };
+      delete next.brandId;
+      delete next.mainCategoryId;
+      delete next.subcategoryId;
+      return next;
+    });
+    setForm((current) => {
+      const mainStillValid = getMainCategoriesForBrand(categories, brandId).some((category) => category.id === current.mainCategoryId);
+      const mainCategoryId = mainStillValid ? current.mainCategoryId : "";
+      const subcategoryId = mainCategoryId
+        && getSubcategoriesForMain(categories, mainCategoryId).some((category) => category.id === current.subcategoryId)
+        ? current.subcategoryId
+        : "";
+      return { ...current, brandId, mainCategoryId, subcategoryId, categoryId: subcategoryId || "" };
+    });
+  }
+  function changeMainCategory(event) {
+    const mainCategoryId = event.target.value;
+    setFieldErrors((current) => {
+      const next = { ...current };
+      delete next.mainCategoryId;
+      delete next.subcategoryId;
+      return next;
+    });
+    setForm((current) => {
+      const subcategoryId = getSubcategoriesForMain(categories, mainCategoryId)
+        .some((category) => category.id === current.subcategoryId)
+        ? current.subcategoryId
+        : "";
+      return { ...current, mainCategoryId, subcategoryId, categoryId: subcategoryId || "" };
+    });
+  }
+
+  function changeSubcategory(event) {
+    const subcategoryId = event.target.value;
+    setFieldErrors((current) => {
+      if (!current.subcategoryId) return current;
+      const next = { ...current };
+      delete next.subcategoryId;
+      return next;
+    });
+    setForm((current) => ({ ...current, subcategoryId, categoryId: subcategoryId }));
   }
 
   function addVariant() {
@@ -763,8 +1638,11 @@ function ProductWizard({ categories, editingProduct, onCancel, onSave }) {
     setUploadError("");
     setUploadingVariantIndex(index);
     try {
-      const uploaded = await uploadImage(file);
+      const uploaded = usesTenantDefinitions && editingProduct?.id
+        ? await uploadProductMedia(file, editingProduct.id)
+        : await uploadImage(file);
       updateVariant(index, "image_url", uploaded.url || uploaded.path || "");
+      updateVariant(index, "clearImage", false);
     } catch (error) {
       setUploadError(error.message || "Variant image upload failed.");
     } finally {
@@ -780,11 +1658,15 @@ function ProductWizard({ categories, editingProduct, onCancel, onSave }) {
     setUploadError("");
     setUploadingField("galleryImages");
     try {
-      const uploaded = await uploadImages(files);
+      if (usesTenantDefinitions && !editingProduct?.id) throw new Error("Save the product before uploading gallery media.");
+      const uploaded = usesTenantDefinitions
+        ? await Promise.all(Array.from(files).map((file) => uploadProductMedia(file, editingProduct.id)))
+        : await uploadImages(files);
       setForm((current) => {
         const currentImages = current.galleryImages || [];
         return {
           ...current,
+          clearGalleryImages: false,
           galleryImages: [
             ...currentImages,
             ...uploaded
@@ -804,12 +1686,18 @@ function ProductWizard({ categories, editingProduct, onCancel, onSave }) {
     }
   }
 
-  function removeGalleryImage(index) {
+  async function removeGalleryImage(index) {
+    const removed = form.galleryImages?.[index];
+    if (usesTenantDefinitions && editingProduct?.id && removed?.image_url?.includes(`/products/${editingProduct.id}/`)) {
+      try { await deleteProductMedia(editingProduct.id, removed.image_url); }
+      catch (error) { setUploadError(error.message || "Gallery image could not be deleted."); return; }
+    }
     setForm((current) => ({
       ...current,
       galleryImages: (current.galleryImages || [])
         .filter((_, imageIndex) => imageIndex !== index)
         .map((image, sortIndex) => ({ ...image, sort_order: sortIndex })),
+      clearGalleryImages: (current.galleryImages || []).filter((_, imageIndex) => imageIndex !== index).length === 0,
     }));
   }
 
@@ -818,6 +1706,7 @@ function ProductWizard({ categories, editingProduct, onCancel, onSave }) {
       const currentImages = current.galleryImages || [];
       return {
         ...current,
+        clearGalleryImages: false,
         galleryImages: [...currentImages, createGalleryImageEntry(currentImages.length)],
       };
     });
@@ -826,6 +1715,7 @@ function ProductWizard({ categories, editingProduct, onCancel, onSave }) {
   function updateGalleryImage(index, value) {
     setForm((current) => ({
       ...current,
+      clearGalleryImages: value ? false : current.clearGalleryImages,
       galleryImages: (current.galleryImages || []).map((image, imageIndex) =>
         imageIndex === index ? { ...image, image_url: value } : image,
       ),
@@ -840,7 +1730,9 @@ function ProductWizard({ categories, editingProduct, onCancel, onSave }) {
     setUploadError("");
     setUploadingGalleryIndex(index);
     try {
-      const uploaded = await uploadImage(file);
+      const uploaded = usesTenantDefinitions && editingProduct?.id
+        ? await uploadProductMedia(file, editingProduct.id)
+        : await uploadImage(file);
       updateGalleryImage(index, uploaded.url || uploaded.path || "");
     } catch (error) {
       setUploadError(error.message || "Gallery image upload failed.");
@@ -851,54 +1743,285 @@ function ProductWizard({ categories, editingProduct, onCancel, onSave }) {
 
   async function submit(event) {
     event.preventDefault();
-    const result = await onSave(createProductFromForm(form));
-    if (result?.ok) onCancel();
+    if (readOnly || isSaving) return;
+    if (activeChildUploads > 0 || uploadingField || uploadingVariantIndex >= 0 || uploadingGalleryIndex >= 0) {
+      setUploadError(t("productForm.errors.waitForUploads"));
+      return;
+    }
+    const hierarchy = validateProductHierarchySelection({
+      brands,
+      categories,
+      brandId: form.brandId,
+      mainCategoryId: form.mainCategoryId,
+      subcategoryId: form.subcategoryId,
+    });
+    if (!hierarchy.ok) {
+      setFieldErrors({ [hierarchy.field]: ar ? hierarchy.messageAr : hierarchy.messageEn });
+      setUploadError(ar ? hierarchy.messageAr : hierarchy.messageEn);
+      setStep("basic");
+      return;
+    }
+    setIsSaving(true);
+    setUploadError("");
+    setFieldErrors({});
+    let productPayload;
+    try {
+      productPayload = createProductFromForm(form);
+    } catch (error) {
+      setUploadError(error.message || "Product stock is invalid.");
+      setIsSaving(false);
+      return;
+    }
+    let result;
+    try {
+      result = await onSave(productPayload);
+    } catch (error) {
+      setUploadError(error?.message || t("productForm.errors.save"));
+      setIsSaving(false);
+      return;
+    }
+    if (!result?.ok) {
+      setUploadError(result?.message || t("productForm.errors.save"));
+      setIsSaving(false);
+      return;
+    }
+    setForm((current) => ({ ...current, id: result.product.id }));
+    onPersisted?.(result.product);
+    setContentRetryId("");
+    if (result?.ok && usesTenantDefinitions && canManageContent) {
+      try {
+        await productFieldApi.saveValues(result.product.id, fieldStateToValues(tenantDefinitions, tenantValues));
+      } catch (error) {
+        setContentRetryId(result.product.id);
+        setUploadError(`Product saved, but its content fields were not saved: ${error.message || "Unknown error."}`);
+        setIsSaving(false);
+        return;
+      }
+    }
+    if (result?.ok) onCancel({ preserveStatusMessage: true });
+    setIsSaving(false);
+  }
+
+  async function retryContentSave() {
+    if (!contentRetryId) return;
+    setUploadError("");
+    try {
+      await productFieldApi.saveValues(contentRetryId, fieldStateToValues(tenantDefinitions, tenantValues));
+      setContentRetryId("");
+      onCancel({ preserveStatusMessage: true });
+    } catch (error) {
+      setUploadError(`Content fields still could not be saved: ${error.message || "Unknown error."}`);
+    }
+  }
+
+  async function uploadVideo(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!editingProduct?.id) { setUploadError("Save the product before uploading a video."); return; }
+    setUploadError("");
+    setUploadingField("videoUrl");
+    setVideoProgress(0);
+    try {
+      const uploaded = await uploadProductMedia(file, editingProduct.id, setVideoProgress);
+      const url = uploaded.url || uploaded.path || "";
+      setForm((current) => ({ ...current, videoUrl: url }));
+      setTenantValues((current) => ({ ...current, product_video: url }));
+    } catch (error) { setUploadError(error.message || "Video upload failed."); }
+    finally { setUploadingField(""); }
+  }
+
+  async function removeVideo() {
+    try {
+      if (editingProduct?.id && form.videoUrl?.includes(`/products/${editingProduct.id}/`)) await deleteProductMedia(editingProduct.id, form.videoUrl);
+      setForm((current) => ({ ...current, videoUrl: "" }));
+      setTenantValues((current) => ({ ...current, product_video: "" }));
+      setVideoProgress(0);
+    } catch (error) { setUploadError(error.message || "Video could not be removed."); }
+  }
+
+  function moveGalleryImage(from, to) {
+    setForm((current) => {
+      const images = [...(current.galleryImages || [])];
+      if (from < 0 || to < 0 || from >= images.length || to >= images.length || from === to) return current;
+      const [moved] = images.splice(from, 1);
+      images.splice(to, 0, moved);
+      return { ...current, galleryImages: images.map((image, sortIndex) => ({ ...image, sort_order: sortIndex })) };
+    });
   }
 
   return (
-    <section className="admin-panel-card">
+    <section className="admin-panel-card product-wizard-shell" dir={language === "ar" ? "rtl" : "ltr"}>
       <div className="admin-tabs">
         {tabs.map((tab, index) => (
           <button className={step === tab ? "active" : ""} key={tab} onClick={() => setStep(tab)} type="button">
-            {index + 1}. {tabLabels[index]}
+            {index + 1}. {tabName[tab]}
           </button>
         ))}
       </div>
-      <form className="admin-form admin-wizard-form" onSubmit={submit}>
+      <form className={`admin-form admin-wizard-form product-wizard-form ${readOnly ? "is-readonly" : ""}`} onSubmit={submit}>
+        {readOnly && <div className="message-panel full-field product-form-banner" role="status">{hierarchyLabels.viewOnly}</div>}
+        {hierarchyIncomplete && <div className="message-panel error full-field product-form-banner" role="alert">{hierarchyLabels.incomplete}</div>}
+        {uploadError && <div className="message-panel error full-field" role="alert">{uploadError}{contentRetryId && <button className="secondary-action" onClick={retryContentSave} type="button">{language === "ar" ? "إعادة محاولة حفظ المحتوى" : "Retry content save"}</button>}</div>}
         {step === "basic" && (
           <>
-            <label>Product Name *<input name="nameEn" required value={form.nameEn} onChange={change} /></label>
-            <label>Arabic Product Name<input name="nameAr" value={form.nameAr} onChange={change} /></label>
-            <label>Slug<input name="slug" value={form.slug} onChange={change} /></label>
-            <label>SKU<input name="sku" value={form.sku} onChange={change} /></label>
-            <label>Category *<select name="categoryId" required value={form.categoryId} onChange={change}>{selectableCategories.map((category) => <option key={category.id} value={category.id}>{getText(category.name)}</option>)}</select></label>
-            <label>Brand<input name="brand" value={form.brand} onChange={change} /></label>
-            <label>Short Description<textarea name="shortDescription" value={form.shortDescription} onChange={change} /></label>
-            <label>Full Description<textarea name="fullDescription" value={form.fullDescription} onChange={change} /></label>
-            <label>How to Use<textarea name="howToUse" value={form.howToUse} onChange={change} /></label>
-            <label>Ingredients<textarea name="ingredients" value={form.ingredients} onChange={change} /></label>
-            <label>Benefits<textarea name="benefits" value={form.benefits} onChange={change} /></label>
-            <label>Skin Types<input name="skinTypes" value={form.skinTypes} onChange={change} /></label>
-            <label>Concerns<input name="concerns" value={form.concerns} onChange={change} /></label>
-            <div className="admin-checkbox-grid full-field">
-              {["active", "featured", "newArrival", "bestseller"].map((field) => (
-                <label className="checkbox-line" key={field}><input name={field} type="checkbox" checked={form[field]} onChange={change} />{field.replace(/([A-Z])/g, " $1")}</label>
-              ))}
-            </div>
-            <label>Label<input name="label" value={form.label} onChange={change} /></label>
-            <label>Label Arabic<input name="labelAr" value={form.labelAr} onChange={change} /></label>
-            <p className="admin-note full-field">Pricing managed per variant. Set price, sale price, and stock individually for each variant below.</p>
+            <section className="product-form-section">
+              <header className="product-form-section-head"><h3>{hierarchyLabels.basic}</h3></header>
+              <label className={fieldErrors.nameEn ? "has-error" : ""}>
+                {t("productForm.productNameEn")} *
+                <input dir="ltr" disabled={readOnly} name="nameEn" required value={form.nameEn} onChange={change} />
+                <small className="product-field-help">{hierarchyLabels.nameEnHelp}</small>
+              </label>
+              <label>
+                {t("productForm.productNameAr")} *
+                <input dir="rtl" disabled={readOnly} name="nameAr" required value={form.nameAr} onChange={change} />
+                <small className="product-field-help">{hierarchyLabels.nameArHelp}</small>
+              </label>
+              <label>
+                {t("productForm.shortDescriptionEn")}
+                <textarea dir="ltr" disabled={readOnly} name="shortDescription" value={form.shortDescription} onChange={change} />
+                <small className="product-field-help">{hierarchyLabels.shortHelp}</small>
+              </label>
+              <label>
+                {t("productForm.shortDescriptionAr")}
+                <textarea dir="rtl" disabled={readOnly} name="shortDescriptionAr" value={form.shortDescriptionAr} onChange={change} />
+              </label>
+              <div className="admin-checkbox-grid full-field">
+                <label className="checkbox-line"><input disabled={readOnly} name="active" type="checkbox" checked={Boolean(form.active)} onChange={change} />{t("productForm.active")}</label>
+                <label className="checkbox-line"><input disabled={readOnly} name="visible" type="checkbox" checked={Boolean(form.visible)} onChange={change} />{t("productForm.visible")}</label>
+              </div>
+            </section>
+
+            <section className="product-form-section product-form-classification">
+              <header className="product-form-section-head">
+                <h3>{hierarchyLabels.classification}</h3>
+                <p>{hierarchyLabels.helper}</p>
+              </header>
+              <label className={fieldErrors.brandId ? "has-error" : ""}>
+                {hierarchyLabels.brand}
+                <select disabled={readOnly} name="brandId" required value={form.brandId} onChange={changeBrand}>
+                  <option value="">{ar ? "اختر علامة تجارية" : "Select a Brand"}</option>
+                  {brandOptions.map((brand) => (
+                    <option key={brand.id} value={brand.id}>{getText(brand.name, language)}</option>
+                  ))}
+                </select>
+                {fieldErrors.brandId && <span className="product-field-error">{fieldErrors.brandId}</span>}
+              </label>
+              <label className={fieldErrors.mainCategoryId ? "has-error" : ""}>
+                {hierarchyLabels.main}
+                <select disabled={readOnly || !form.brandId} name="mainCategoryId" required value={form.mainCategoryId || ""} onChange={changeMainCategory}>
+                  <option value="">{!form.brandId ? hierarchyLabels.selectBrand : (ar ? "اختر فئة رئيسية" : "Select a Main Category")}</option>
+                  {mainCategoryOptions.map((category) => (
+                    <option key={category.id} value={category.id}>{getText(category.name, language)}</option>
+                  ))}
+                </select>
+                {!form.brandId && <small className="product-field-help">{hierarchyLabels.selectBrand}</small>}
+                {form.brandId && !mainCategoryOptions.length && <small className="product-field-help">{hierarchyLabels.noMains}</small>}
+                {fieldErrors.mainCategoryId && <span className="product-field-error">{fieldErrors.mainCategoryId}</span>}
+              </label>
+              <label className={fieldErrors.subcategoryId ? "has-error" : ""}>
+                {hierarchyLabels.sub}
+                <select disabled={readOnly || !form.mainCategoryId} name="subcategoryId" required value={form.subcategoryId || ""} onChange={changeSubcategory}>
+                  <option value="">{!form.mainCategoryId ? hierarchyLabels.selectMain : (ar ? "اختر فئة فرعية" : "Select a Subcategory")}</option>
+                  {subcategoryOptions.map((category) => (
+                    <option key={category.id} value={category.id}>{getText(category.name, language)}</option>
+                  ))}
+                </select>
+                {!form.mainCategoryId && <small className="product-field-help">{hierarchyLabels.selectMain}</small>}
+                {form.mainCategoryId && !subcategoryOptions.length && <small className="product-field-help">{hierarchyLabels.noSubs}</small>}
+                {fieldErrors.subcategoryId && <span className="product-field-error">{fieldErrors.subcategoryId}</span>}
+              </label>
+            </section>
+
+            <section className="product-form-section">
+              <header className="product-form-section-head">
+                <h3>{hierarchyLabels.pricing}</h3>
+                <p className="admin-note">{t("productForm.pricingHelp")}</p>
+              </header>
+              <p><strong>{form.variants?.length || 0}</strong> {ar ? "متغيرات" : "variants"} · <strong>{(form.variants || []).reduce((sum, variant) => sum + Number(variant.stock || 0), 0)}</strong> {ar ? "وحدة في المخزون" : "units in stock"}</p>
+              <button className="secondary-action" onClick={() => setStep("variants")} type="button">{t("productForm.manageVariants")}</button>
+            </section>
+
+            {canManageMedia && (
+              <section className="product-form-section">
+                <header className="product-form-section-head"><h3>{hierarchyLabels.media}</h3></header>
+                <p className="admin-note">{ar ? "الصورة الأساسية ومعرض الوسائط متاحان في تبويب الوسائط." : "Primary image and gallery tools are available in the Media tab."}</p>
+                <button className="secondary-action" onClick={() => setStep("media")} type="button">{ar ? "فتح الوسائط" : "Open media"}</button>
+              </section>
+            )}
+
+            <section className="product-form-section product-form-advanced">
+              <button className="product-advanced-toggle" onClick={() => setAdvancedOpen((open) => !open)} type="button" aria-expanded={advancedOpen}>
+                <span>{hierarchyLabels.advanced}</span>
+                <ChevronDown className={advancedOpen ? "open" : ""} size={16} />
+              </button>
+              {advancedOpen && (
+                <div className="product-advanced-body">
+                  <label>{t("productForm.slug")}<input dir="ltr" disabled={readOnly} name="slug" value={form.slug} onChange={change} /></label>
+                  <label>{t("productForm.sku")}<input dir="ltr" disabled={readOnly} name="sku" value={form.sku} onChange={change} /></label>
+                  <label>{t("productForm.longDescriptionEn")}<textarea dir="ltr" disabled={readOnly} name="fullDescription" value={form.fullDescription} onChange={change} /></label>
+                  <label>{t("productForm.longDescriptionAr")}<textarea dir="rtl" disabled={readOnly} name="fullDescriptionAr" value={form.fullDescriptionAr} onChange={change} /></label>
+                  <label>Manufacturer<input disabled={readOnly} name="manufacturer" value={form.manufacturer || ""} onChange={change} /></label>
+                  <div className="full-field">
+                    <span>{ar ? "العمر" : "Age"}</span>
+                    <div className="admin-checkbox-grid">
+                      {getLocalizedFilterAttributeOptions("age", language).map((option) => (
+                        <label className="checkbox-line" key={option.id}>
+                          <input
+                            disabled={readOnly}
+                            type="checkbox"
+                            checked={Array.isArray(form.age) ? form.age.includes(option.id) : false}
+                            onChange={(event) => toggleAge(option.id, event.target.checked)}
+                          />
+                          {option.label}
+                        </label>
+                      ))}
+                    </div>
+                    {Array.isArray(form.age) && form.age.filter((entry) => !getLocalizedFilterAttributeOptions("age", language).some((option) => option.id === entry)).map((legacyValue) => (
+                      <span className="admin-note" key={legacyValue}>
+                        {ar
+                          ? `قيمة عمر قديمة: ${legacyValue}. أزلها واختر نطاقًا معتمدًا قبل الحفظ.`
+                          : `Legacy age value: ${legacyValue}. Remove it and choose canonical ranges before saving.`}
+                      </span>
+                    ))}
+                    {requiresCanonicalAgeSelection(form.age) && (
+                      <span className="admin-note">
+                        {ar ? "هذه قيمة عمر قديمة غير دقيقة. اختر نطاقًا معتمدًا قبل الحفظ." : "This legacy age range is ambiguous. Choose a canonical range before saving."}
+                      </span>
+                    )}
+                  </div>
+                  <label>{ar ? "الجنس" : "Gender"}<select disabled={readOnly} name="gender" value={form.gender || ""} onChange={change}><option value="">{ar ? "أي" : "Any"}</option>{getLocalizedFilterAttributeOptionsForSelect("gender", language, form.gender || "").map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+                  <label>{ar ? "المهارة" : "Skill"}<select disabled={readOnly} name="skill" value={form.skill || ""} onChange={change}><option value="">{ar ? "أي" : "Any"}</option>{getLocalizedFilterAttributeOptionsForSelect("skill", language, form.skill || "").map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+                  <label>{ar ? "المناسبة" : "Occasion"}<select disabled={readOnly} name="occasion" value={form.occasion || ""} onChange={change}><option value="">{ar ? "أي" : "Any"}</option>{getLocalizedFilterAttributeOptionsForSelect("occasion", language, form.occasion || "").map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+                  <div className="admin-checkbox-grid full-field">
+                    <label className="checkbox-line"><input disabled={readOnly} name="quickShop" type="checkbox" checked={Boolean(form.quickShop)} onChange={change} />Quick Shop</label>
+                    {["featured", "newArrival", "bestseller"].map((field) => (
+                      <label className="checkbox-line" key={field}><input disabled={readOnly} name={field} type="checkbox" checked={Boolean(form[field])} onChange={change} />{t(`productForm.${field}`)}</label>
+                    ))}
+                  </div>
+                  <label>{t("productForm.labelEn")}<input dir="ltr" disabled={readOnly} name="label" value={form.label} onChange={change} /></label>
+                  <label>{t("productForm.labelAr")}<input dir="rtl" disabled={readOnly} name="labelAr" value={form.labelAr} onChange={change} /></label>
+                  <p className="admin-note">{ar ? "وسائط التفاصيل والاستخدام الإضافية موجودة في تبويب الوسائط." : "Additional usage/detail media remains available in the Media tab."}</p>
+                </div>
+              )}
+            </section>
           </>
         )}
+        {step === "pricing" && <div className="full-field">
+          <h3>{t("productForm.tabs.pricing")}</h3>
+          <p className="admin-note">{t("productForm.pricingHelp")}</p>
+          <p><strong>{form.variants?.length || 0}</strong> variants · <strong>{(form.variants || []).reduce((sum, variant) => sum + Number(variant.stock || 0), 0)}</strong> units in stock</p>
+          <button className="secondary-action" onClick={() => setStep("variants")} type="button">{t("productForm.manageVariants")}</button>
+        </div>}
         {step === "variants" && (
           <div className="full-field admin-variants-editor">
             <div className="admin-inline-heading">
-              <strong>Color, size, price, and stock combinations</strong>
+              <strong>{usesTenantDefinitions ? "Shade / color, size or volume, price and stock" : "Color, size, price, and stock combinations"}</strong>
               <button className="secondary-action compact-action" onClick={addVariant} type="button">
-                Add Variant
+                {t("productForm.addVariant")}
               </button>
             </div>
-            <div className="variant-generator-panel">
+            {!usesTenantDefinitions && <div className="variant-generator-panel">
               <div>
                 <strong>Variant Generator</strong>
                 <p>Enter each color on a new line: name|hex|optional image URL. Separate sizes with commas.</p>
@@ -938,38 +2061,73 @@ function ProductWizard({ categories, editingProduct, onCancel, onSave }) {
               <button className="admin-primary-button compact-action" onClick={generateVariants} type="button">
                 Generate Variants
               </button>
-            </div>
+            </div>}
             <div className="admin-variant-grid">
               {(form.variants || []).map((variant, index) => (
                 <div className="admin-variant-row" key={variant.id || index}>
-                  <label>Color name<input required value={variant.color_name} onChange={(event) => updateVariant(index, "color_name", event.target.value)} /></label>
-                  <label>Color value<input value={variant.color_value} onChange={(event) => updateVariant(index, "color_value", event.target.value)} /></label>
-                  <label>Size<input required value={variant.size} onChange={(event) => updateVariant(index, "size", event.target.value)} /></label>
-                  <label>Price<input min="0" required type="number" value={variant.price} onChange={(event) => updateVariant(index, "price", event.target.value)} /></label>
-                  <label>Stock<input min="0" required type="number" value={variant.stock} onChange={(event) => updateVariant(index, "stock", event.target.value)} /></label>
+                  <label>{usesTenantDefinitions ? "Variant / shade name" : "Color name"}<input required value={variant.color_name} onChange={(event) => updateVariant(index, "color_name", event.target.value)} /></label>
+                  <label>{usesTenantDefinitions ? "Swatch / color value" : "Color value"}<input value={variant.color_value} onChange={(event) => updateVariant(index, "color_value", event.target.value)} /></label>
+                  <label>{usesTenantDefinitions ? "Size or volume" : "Size"}<input required value={variant.size} onChange={(event) => updateVariant(index, "size", event.target.value)} /></label>
+                  <label>{t("productForm.price")}<input min="0" required type="number" value={variant.price} onChange={(event) => updateVariant(index, "price", event.target.value)} /></label>
+                  <label>{t("productForm.salePrice")}<input min="0" type="number" value={variant.sale_price ?? ""} onChange={(event) => updateVariant(index, "sale_price", event.target.value)} /></label>
+                  <label>{t("productForm.stock")}<input min="0" required type="number" value={variant.stock} onChange={(event) => updateVariant(index, "stock", event.target.value)} /></label>
+                  <label className="checkbox-line"><input checked={variant.isActive !== false} type="checkbox" onChange={(event) => updateVariant(index, "isActive", event.target.checked)} />{t("productForm.active")}</label>
+                  <label className="checkbox-line"><input checked={variant.isVisible !== false} type="checkbox" onChange={(event) => updateVariant(index, "isVisible", event.target.checked)} />{t("productForm.visible")}</label>
                   <label>
                     Variant image
                     <span className="image-upload-row">
-                      <input value={variant.image_url} onChange={(event) => updateVariant(index, "image_url", event.target.value)} />
+                      <input value={variant.image_url} onChange={(event) => { updateVariant(index, "image_url", event.target.value); if (event.target.value) updateVariant(index, "clearImage", false); }} />
                       <span className="upload-button-shell">
                         <input accept="image/*" type="file" onChange={(event) => uploadVariantImage(index, event)} />
                         <span>{uploadingVariantIndex === index ? "Uploading..." : "Upload"}</span>
                       </span>
                     </span>
-                    {variant.image_url && <img className="admin-image-preview small-preview" alt="" src={variant.image_url} />}
+                    {variant.image_url && <><img className="admin-image-preview small-preview" alt="" src={resolveProductImageUrl(variant.image_url)} onError={useProductImagePlaceholder} /><button className="text-action danger" onClick={() => setForm((current) => ({ ...current, variants: current.variants.map((item, itemIndex) => itemIndex === index ? { ...item, image_url: "", clearImage: true } : item) }))} type="button">{t("productForm.removeImage")}</button></>}
                   </label>
-                  <button className="text-action danger" onClick={() => removeVariant(index)} type="button">Remove</button>
+                  <button className="text-action danger" onClick={() => removeVariant(index)} type="button">{t("productForm.remove")}</button>
                 </div>
               ))}
             </div>
-            {uploadError && <div className="message-panel error full-field">{uploadError}</div>}
           </div>
         )}
         {step === "media" && (
           <>
-            <MediaField label="Featured Image" name="image" value={form.image} onChange={change} />
-            <MediaField label="Second / Hover Image" name="hoverImage" value={form.hoverImage} onChange={change} />
-            <label>Video URL<input name="videoUrl" value={form.videoUrl} onChange={change} /></label>
+            <CardImageUpload
+              label={t("productForm.mainImage")}
+              helperText={t("productForm.mainImageHelp")}
+              buttonLabel={t("productForm.uploadImage")}
+              language={language}
+              name="image"
+              productId={usesTenantDefinitions ? editingProduct?.id : undefined}
+              tenantSpecific={usesTenantDefinitions}
+              value={form.image}
+              onChange={change}
+              onUploadingChange={trackChildUpload}
+              variant="primary"
+            />
+            <CardImageUpload
+              label={t("productForm.hoverImage")}
+              helperText={t("productForm.hoverImageHelp")}
+              buttonLabel={t("productForm.uploadImage")}
+              language={language}
+              name="hoverImage"
+              productId={usesTenantDefinitions ? editingProduct?.id : undefined}
+              tenantSpecific={usesTenantDefinitions}
+              value={form.hoverImage}
+              onChange={change}
+              onUploadingChange={trackChildUpload}
+              variant="hover"
+            />
+            <CardImageUpload label={t("productForm.productsPageImage")} buttonLabel={t("productForm.uploadImage")} language={language} name="productsPageImage" onChange={change} onUploadingChange={trackChildUpload} productId={usesTenantDefinitions ? editingProduct?.id : undefined} tenantSpecific={usesTenantDefinitions} value={form.productsPageImage} />
+            <CardImageUpload label={t("productForm.productsPageHoverImage")} buttonLabel={t("productForm.uploadImage")} language={language} name="productsPageHoverImage" onChange={change} onUploadingChange={trackChildUpload} productId={usesTenantDefinitions ? editingProduct?.id : undefined} tenantSpecific={usesTenantDefinitions} value={form.productsPageHoverImage} variant="hover" />
+            <MediaField label={t("productForm.productDetailMainImage")} language={language} name="dsiMainImage" onChange={change} onUploadingChange={trackChildUpload} productId={usesTenantDefinitions ? editingProduct?.id : undefined} tenantSpecific={usesTenantDefinitions} value={form.dsiMainImage} />
+            <div className="admin-media-field">
+              <label>Product video URL<input name="videoUrl" value={form.videoUrl} onChange={change} /></label>
+              {usesTenantDefinitions && <label className="admin-upload-button"><Upload size={14} />{uploadingField === "videoUrl" ? `Uploading ${videoProgress}%` : editingProduct?.id ? "Upload MP4/WebM" : "Save product first"}<input accept="video/mp4,video/webm" disabled={!editingProduct?.id} hidden type="file" onChange={uploadVideo} /></label>}
+              {form.videoUrl && <div className="admin-media-preview"><video controls preload="metadata" src={form.videoUrl} /><button className="text-action danger" onClick={removeVideo} type="button">Remove video</button></div>}
+            </div>
+            <MediaField label="Usage video URL (how to use)" language={language} name="usageVideo" onChange={change} onUploadingChange={trackChildUpload} productId={usesTenantDefinitions ? editingProduct?.id : undefined} tenantSpecific={usesTenantDefinitions} value={form.usageVideo} />
+            <MediaField label="Usage video poster" language={language} name="usageVideoPoster" onChange={change} onUploadingChange={trackChildUpload} productId={usesTenantDefinitions ? editingProduct?.id : undefined} tenantSpecific={usesTenantDefinitions} value={form.usageVideoPoster} />
             <div className="full-field admin-gallery-editor">
               <div className="admin-inline-heading">
                 <strong>Vertical Gallery Images</strong>
@@ -984,7 +2142,7 @@ function ProductWizard({ categories, editingProduct, onCancel, onSave }) {
               </div>
               <div className="admin-gallery-preview-grid">
                 {(form.galleryImages || []).map((image, index) => (
-                  <figure className="admin-gallery-preview" key={`${image.image_url}-${index}`}>
+                  <figure className="admin-gallery-preview" draggable onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); moveGalleryImage(Number(event.dataTransfer.getData("text/plain")), index); }} key={image.id || `${image.image_url}-${index}`}>
                     <label>
                       Image URL
                       <span className="image-upload-row">
@@ -1003,13 +2161,14 @@ function ProductWizard({ categories, editingProduct, onCancel, onSave }) {
                         </span>
                       </span>
                     </label>
-                    {image.image_url && <img alt="" src={image.image_url} />}
-                    <button onClick={() => removeGalleryImage(index)} type="button">Remove</button>
+                    {image.image_url && <img alt="" src={resolveProductImageUrl(image.image_url)} onError={useProductImagePlaceholder} />}
+                    <div className="structured-row-actions"><button disabled={index === 0} onClick={() => moveGalleryImage(index, index - 1)} type="button">↑</button><button disabled={index === form.galleryImages.length - 1} onClick={() => moveGalleryImage(index, index + 1)} type="button">↓</button><button onClick={() => removeGalleryImage(index)} type="button">Remove</button></div>
                   </figure>
                 ))}
               </div>
-              {uploadError && <div className="message-panel error full-field">{uploadError}</div>}
             </div>
+            {usesTenantDefinitions && <TenantProductFields definitions={additionalMediaDefinitions} language={language} section="media" value={tenantValues} onChange={updateTenantValue} />}
+            {!usesTenantDefinitions && <>
             <div className="full-field">
               <strong>Product Details Section Images</strong>
               <div className="admin-dsi-grid">
@@ -1024,7 +2183,7 @@ function ProductWizard({ categories, editingProduct, onCancel, onSave }) {
                   { key: "dsiIngredients", label: "Ingredients section image" },
                   { key: "dsiFaq", label: "FAQ side image" },
                 ].map(({ key, label }) => (
-                  <MediaField key={key} label={label} name={key} value={form[key] || ""} onChange={change} />
+                  <MediaField key={key} label={label} language={language} name={key} onUploadingChange={trackChildUpload} value={form[key] || ""} onChange={change} />
                 ))}
               </div>
             </div>
@@ -1087,98 +2246,66 @@ function ProductWizard({ categories, editingProduct, onCancel, onSave }) {
                 </button>
               </div>
             </div>
+            </>}
           </>
         )}
-        {step === "seo" && (
+        {step === "details" && <>
+          {!usesTenantDefinitions && <>
+            <label>{t("productForm.howToUse")}<textarea name="howToUse" value={form.howToUse} onChange={change} /></label>
+            <label>{t("productForm.ingredients")}<textarea name="ingredients" value={form.ingredients} onChange={change} /></label>
+            <label>{t("productForm.benefits")}<textarea name="benefits" value={form.benefits} onChange={change} /></label>
+            <label>{t("productForm.skinTypes")}<input name="skinTypes" value={form.skinTypes} onChange={change} /></label>
+            <label>{t("productForm.concerns")}<input name="concerns" value={form.concerns} onChange={change} /></label>
+          </>}
+          {usesTenantDefinitions && <><TenantProductFields definitions={tenantDefinitions} language={language} section="details" value={tenantValues} onChange={updateTenantValue} /><TenantProductFields definitions={tenantDefinitions} language={language} section="showcase" value={tenantValues} onChange={updateTenantValue} /></>}
+        </>}
+        {step === "marketing" && (
           <>
-            <label>Meta Title<input name="metaTitle" value={form.metaTitle} onChange={change} /></label>
-            <label>Meta Description<textarea name="metaDescription" value={form.metaDescription} onChange={change} /></label>
+            {!usesTenantDefinitions && <><label>{t("productForm.metaTitle")}<input name="metaTitle" value={form.metaTitle} onChange={change} /></label><label>{t("productForm.metaDescription")}<textarea name="metaDescription" value={form.metaDescription} onChange={change} /></label></>}
+            {usesTenantDefinitions && <><TenantProductFields definitions={tenantDefinitions} language={language} section="marketing" value={tenantValues} onChange={updateTenantValue} /><TenantProductFields definitions={tenantDefinitions} language={language} section="seo" value={tenantValues} onChange={updateTenantValue} /></>}
           </>
         )}
-        {step === "showcase" && <div className="full-field"><EmptyState title={form.id ? "Showcase content can be added for this product." : "Save the product first to manage its showcase content."} /></div>}
-        <div className="form-actions full-field">
-          <button className="secondary-action" disabled={tabs.indexOf(step) === 0} onClick={() => setStep(tabs[tabs.indexOf(step) - 1])} type="button">Previous</button>
-          <button className="secondary-action" disabled={tabs.indexOf(step) === tabs.length - 1} onClick={() => setStep(tabs[tabs.indexOf(step) + 1])} type="button">Next</button>
-          <button className="secondary-action" onClick={onCancel} type="button">Cancel</button>
-          <button className="admin-primary-button" type="submit">{editingProduct ? "Save Product" : "Create Product"}</button>
+        {step === "preview" && <article className="full-field admin-product-preview">
+          {form.image && <img className="admin-image-preview" alt="" src={resolveProductImageUrl(form.image)} onError={useProductImagePlaceholder} />}
+          <h2>{form.nameEn || "Untitled product"}</h2>
+          {form.nameAr && <h3 dir="rtl">{form.nameAr}</h3>}
+          <p>{form.shortDescription}</p>
+          <p><strong>{form.variants?.length || 0}</strong> variants · <strong>{(form.variants || []).reduce((sum, variant) => sum + Number(variant.stock || 0), 0)}</strong> in stock</p>
+          {form.videoUrl && <video controls preload="metadata" src={form.videoUrl} />}
+          {(tenantValues.product_faqs || []).filter((item) => item.is_active !== false).length > 0 && <p>{tenantValues.product_faqs.filter((item) => item.is_active !== false).length} active FAQ items</p>}
+        </article>}
+        <div className="form-actions full-field product-form-actions">
+          <button className="secondary-action" disabled={isSaving || tabs.indexOf(step) === 0} onClick={() => setStep(tabs[tabs.indexOf(step) - 1])} type="button">{t("productForm.previous")}</button>
+          <button className="secondary-action" disabled={isSaving || tabs.indexOf(step) === tabs.length - 1} onClick={() => setStep(tabs[tabs.indexOf(step) + 1])} type="button">{t("productForm.next")}</button>
+          <button className="secondary-action" disabled={isSaving} onClick={() => onCancel()} type="button">{t("productForm.cancel")}</button>
+          {!readOnly && <button className="admin-primary-button" disabled={isSaving || activeChildUploads > 0 || Boolean(uploadingField) || uploadingVariantIndex >= 0 || uploadingGalleryIndex >= 0} type="submit">{isSaving ? t("productForm.saving") : (editingProduct || form.id) ? t("productForm.saveChanges") : t("productForm.create")}</button>}
         </div>
       </form>
     </section>
   );
 }
 
-function GenericEntityForm({ fields, initial, onCancel, onSave, title }) {
+function GenericEntityForm({ fields, initial, isEditing = false, language = "en", onCancel, onSave, title }) {
   const [form, setForm] = React.useState(initial);
   function change(event) {
     const { checked, name, type, value } = event.target;
     setForm((current) => ({ ...current, [name]: type === "checkbox" ? checked : value }));
   }
+  const visibleFields = fields.filter((field) => (typeof field.visibleWhen === "function" ? field.visibleWhen(form) : true));
   return (
     <section className="admin-panel-card">
       <h2>{title}</h2>
       <form className="admin-form" onSubmit={(event) => { event.preventDefault(); onSave(form); }}>
-        {fields.map((field) => {
-          if (field.type === "textarea") return <label key={field.name}>{field.label}<textarea name={field.name} value={form[field.name] || ""} onChange={change} /></label>;
+        {visibleFields.map((field) => {
+          if (field.type === "textarea") return <label key={field.name}>{field.label}<textarea dir={field.dir} name={field.name} value={form[field.name] || ""} onChange={change} /></label>;
           if (field.type === "checkbox") return <label className="checkbox-line" key={field.name}><input name={field.name} type="checkbox" checked={Boolean(form[field.name])} onChange={change} />{field.label}</label>;
-          if (field.type === "media") return <MediaField key={field.name} label={field.label} name={field.name} value={form[field.name]} onChange={change} />;
+          if (field.type === "media") return <MediaField key={field.name} allowVideo={Boolean(field.allowVideo)} label={field.label} language={language} name={field.name} value={form[field.name]} onChange={change} />;
           if (field.type === "select") return <label key={field.name}>{field.label}<select name={field.name} value={form[field.name] || ""} onChange={change}>{field.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
-          return <label key={field.name}>{field.label}<input name={field.name} required={field.required} value={form[field.name] || ""} onChange={change} /></label>;
+          return <label key={field.name}>{field.label}<input dir={field.dir} name={field.name} required={field.required} value={form[field.name] || ""} onChange={change} /></label>;
         })}
         <div className="form-actions full-field">
-          <button className="secondary-action" onClick={onCancel} type="button">Cancel</button>
-          <button className="admin-primary-button" type="submit">Create</button>
-        </div>
-      </form>
-    </section>
-  );
-}
-
-function SettingsPage() {
-  const [tab, setTab] = React.useState("general");
-  const [settings, setSettings] = React.useState(() => readStorage(storageKeys.settings, {}));
-  const fields = {
-    general: [
-      "Site Name", "Site Description", "Meta Title", "Meta Description", "Open Graph Image URL", "Site URL",
-      "Maintenance Mode", "Tax Rate (%)", "Currency Code", "Items Per Page", "Enable Wishlist",
-      "Enable Product Reviews", "Enable Guest Checkout", "Default Country", "Announcement Bar Text",
-      "Home Hero Headline", "Home Hero Image URL", "Trending Section Title", "Promo Badge Text",
-      "Promo Headline", "Promo Description", "Promo CTA Label", "Promo Image URL", "Philosophy Headline",
-      "Philosophy Text", "Philosophy CTA", "Philosophy Background Image URL", "Marquee Scrolling Text",
-      "Commitment Headline", "Commitment CTA", "Commitment Image URL", "Social Grid Heading",
-      "Social Grid CTA", "Social Grid Image 1 URL", "Social Grid Image 2 URL", "Social Grid Image 3 URL",
-      "Social Grid Image 4 URL", "Intentional Skincare Title", "Intentional Skincare Text",
-      "Foundation Label", "Foundation Title", "Foundation Text 1", "Foundation Text 2", "Team Label",
-      "Team Title", "Team Description", "Founder Note Heading", "Founder Letter", "Store Locator Tagline",
-      "About Hero Headline", "About Hero CTA", "About Hero Image URL", "Login Page Image URL",
-      "Product Showcase Empty Text", "Back to All Products", "Add to Bag Button Text", "Checkout Button Text",
-      "Login Heading", "Signup Heading", "Search Placeholder", "Verified Buyer Label",
-    ],
-    social: ["Facebook URL", "Instagram URL", "X / Twitter URL", "YouTube URL", "TikTok URL", "Snapchat URL", "LinkedIn URL", "Pinterest URL"],
-    shipping: ["Free Shipping Threshold", "Default Shipping Cost", "Shipping Rates JSON", "Free Shipping Unlocked Text", "Shipping Page Content JSON"],
-  };
-
-  function save() {
-    writeStorage(storageKeys.settings, settings);
-  }
-
-  return (
-    <section className="admin-panel-card">
-      <div className="admin-tabs">
-        {["general", "social", "shipping"].map((item) => (
-          <button className={tab === item ? "active" : ""} key={item} onClick={() => setTab(item)} type="button">{item[0].toUpperCase() + item.slice(1)}</button>
-        ))}
-      </div>
-      <form className="admin-form settings-form" onSubmit={(event) => { event.preventDefault(); save(); }}>
-        {fields[tab].map((label) => {
-          const key = `${tab}.${label}`;
-          const isJson = label.includes("JSON");
-          const isImage = label.includes("Image URL");
-          if (isImage) return <MediaField key={key} label={label} name={key} value={settings[key] || ""} onChange={(event) => setSettings((current) => ({ ...current, [key]: event.target.value }))} />;
-          if (isJson) return <label key={key}>{label}<textarea value={settings[key] || ""} onChange={(event) => setSettings((current) => ({ ...current, [key]: event.target.value }))} /></label>;
-          return <label key={key}>{label}<input value={settings[key] || ""} onChange={(event) => setSettings((current) => ({ ...current, [key]: event.target.value }))} /></label>;
-        })}
-        <div className="form-actions full-field">
-          <button className="admin-primary-button" type="submit">Save {tab[0].toUpperCase() + tab.slice(1)} Settings</button>
+          <button className="secondary-action" onClick={onCancel} type="button">{language === "ar" ? "إلغاء" : "Cancel"}</button>
+          <button className="admin-primary-button" type="submit">{language === "ar" ? (isEditing ? "حفظ التغييرات" : "إنشاء") : (isEditing ? "Save changes" : "Create")}</button>
         </div>
       </form>
     </section>
@@ -1261,21 +2388,33 @@ function StockUpdateModal({ inventoryRows, onApply, onClose, products }) {
 
 function AdminDashboardPage({
   activePage = "admin",
+  brands = [],
+  categories = [],
+  company,
   currentUser,
   employees,
   homepageCategoryCards,
   language,
+  modules,
   homepageOffers,
   onDeleteProduct,
+  onDeleteBrand,
+  onDeleteCategory,
   onDeleteOffer,
   onAssignEmployee,
   onDeleteOrder,
   onLogout,
   onLanguageChange,
   onNavigate,
+  onReturnToPlatform,
+  onSwitchCompany,
   onSaveCategoryCard,
   onSaveOffer,
   onSaveProduct,
+  onSaveBrand,
+  onSaveCategory,
+  onSaveVlog,
+  vlogs: managedVlogs = [],
   onSaveWebsiteMedia,
   onDeleteWebsiteMedia,
   onModerateReview,
@@ -1287,37 +2426,91 @@ function AdminDashboardPage({
   products,
   reviews,
   statusMessage,
+  statusMessageType = "success",
   t,
   websiteMedia = [],
+  websiteMediaError = "",
 }) {
   const [editingProduct, setEditingProduct] = React.useState(null);
+  const [editingCategory, setEditingCategory] = React.useState(null);
+  const [newCategoryDefaults, setNewCategoryDefaults] = React.useState({ brandId: "", parentId: "" });
+  const [editingBrand, setEditingBrand] = React.useState(null);
+  const [editingVlog, setEditingVlog] = React.useState(null);
   const [filters, setFilters] = React.useState({ brand: "all", category: "all", search: "", status: "all" });
-  const [adminCategories, setAdminCategories] = React.useState(() => readStorage(storageKeys.categories, defaultAdminCategories));
-  const [brands, setBrands] = React.useState(() => readStorage(storageKeys.brands, [{ id: "eb-chemical", name: "EB Chemical", slug: "eb-chemical", country: "Palestine", active: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }]));
-  const [vlogs, setVlogs] = React.useState(() => readStorage(storageKeys.vlogs, []));
-  const [vlogHero, setVlogHero] = React.useState(() => readStorage(storageKeys.vlogHero, { image: "", title: "EB Chemical care stories" }));
-  const [stores, setStores] = React.useState(() => readStorage(storageKeys.stores, []));
-  const [inventoryRows, setInventoryRows] = React.useState(() => readStorage(storageKeys.inventory, {}));
-  const [movements, setMovements] = React.useState(() => readStorage(storageKeys.movements, []));
+  const adminCategories = categories;
+  const companyId = company?.id || "";
+  const vlogs = managedVlogs;
+  const [stores, setStores] = React.useState([]);
+  const [inventoryRows, setInventoryRows] = React.useState({});
+  const [movements, setMovements] = React.useState([]);
   const [stockModalOpen, setStockModalOpen] = React.useState(false);
+  const storageKey = React.useCallback(
+    (key) => tenantStorageKey(companyId, storageKeys[key]),
+    [companyId],
+  );
+
+  React.useEffect(() => {
+    if (activePage !== "admin-vlogs-new") return;
+    const params = new URLSearchParams(window.location.search);
+    const editId = params.get("edit");
+    if (!editId) return;
+    const entry = vlogs.find((item) => String(item.id) === editId || String(item.slug) === editId);
+    if (entry) setEditingVlog(entry);
+  }, [activePage, vlogs]);
+
+  React.useEffect(() => {
+    if (activePage !== "admin-products-new") return;
+    const match = window.location.pathname.match(/^\/admin\/products\/([^/]+)\/edit$/);
+    if (!match) return;
+    const id = decodeURIComponent(match[1]);
+    const product = products.find((item) => String(item.id) === id);
+    if (product) setEditingProduct(product);
+  }, [activePage, products]);
+
+  React.useEffect(() => {
+    if (!companyId) {
+      setStores([]);
+      setInventoryRows({});
+      setMovements([]);
+      return;
+    }
+    setStores(readStorage(storageKey("stores"), []));
+    setInventoryRows(readStorage(storageKey("inventory"), {}));
+    setMovements(readStorage(storageKey("movements"), []));
+  }, [companyId, storageKey]);
 
   const role = currentUser?.role;
-  const canEdit = role === "admin" || role === "manager";
-  const canManageSensitive = role === "admin";
+  const canEdit = isTenantOperator(role);
+  const canManageSensitive = isCompanyAdmin(role);
+  const canManageProductContent = isCompanyAdmin(role) || ["product_content.manage", "products.manage", "products.update"].some((permission) => hasPermission(currentUser, permission));
+  const productMediaAllowed = canManageProductMedia(currentUser);
+  const canCreateProducts = isCompanyAdmin(role) || ["products.create", "products.manage"].some((permission) => hasPermission(currentUser, permission));
+  const productsUpdateAllowed = canUpdateProducts(currentUser);
+  const canDeleteProducts = isCompanyAdmin(role) || ["products.delete", "products.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canCreateCategories = isCompanyAdmin(role) || ["categories.create", "categories.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canUpdateCategories = isCompanyAdmin(role) || ["categories.update", "categories.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canDeleteCategories = isCompanyAdmin(role) || ["categories.delete", "categories.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canCreateBrands = isCompanyAdmin(role) || ["brands.create", "brands.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canUpdateBrands = isCompanyAdmin(role) || ["brands.update", "brands.manage"].some((permission) => hasPermission(currentUser, permission));
+  const canDeleteBrands = isCompanyAdmin(role) || ["brands.delete", "brands.manage"].some((permission) => hasPermission(currentUser, permission));
   const readOnly = !canEdit;
   const customers = uniqueCustomersFromOrders(orders);
   const [title, subtitle] = pageMeta[activePage] || pageMeta.admin;
 
-  if (!currentUser || currentUser.role === "customer") {
+  if (!isAdminPortalRole(role)) {
     return (
       <AdminLayout
         activePage={activePage}
+        company={company}
         currentUser={currentUser}
         isDarkMode={isDarkMode}
         language={language}
+        modules={modules}
         onLanguageChange={onLanguageChange}
         onLogout={onLogout}
         onNavigate={onNavigate}
+        onReturnToPlatform={onReturnToPlatform}
+        onSwitchCompany={onSwitchCompany}
         onToggleDarkMode={onToggleDarkMode}
         subtitle="Admin access is required"
         title="Access denied"
@@ -1327,39 +2520,63 @@ function AdminDashboardPage({
     );
   }
 
-  function saveCategories(next) { setAdminCategories(next); writeStorage(storageKeys.categories, next); }
-  function saveBrands(next) { setBrands(next); writeStorage(storageKeys.brands, next); }
-  function saveVlogs(next) { setVlogs(next); writeStorage(storageKeys.vlogs, next); }
-  function saveStores(next) { setStores(next); writeStorage(storageKeys.stores, next); }
-  function saveInventory(next) { setInventoryRows(next); writeStorage(storageKeys.inventory, next); }
-  function saveMovements(next) { setMovements(next); writeStorage(storageKeys.movements, next); }
+  if (isStaffRole(role) && !canAccessAdminPage(currentUser, activePage)) {
+    return (
+      <AdminLayout
+        activePage={activePage}
+        company={company}
+        currentUser={currentUser}
+        isDarkMode={isDarkMode}
+        language={language}
+        modules={modules}
+        onLanguageChange={onLanguageChange}
+        onLogout={onLogout}
+        onNavigate={onNavigate}
+        onReturnToPlatform={onReturnToPlatform}
+        onSwitchCompany={onSwitchCompany}
+        onToggleDarkMode={onToggleDarkMode}
+        subtitle={subtitle}
+        title={title}
+      >
+        <EmptyState title="Access denied" description="You do not have permission to access this page." />
+      </AdminLayout>
+    );
+  }
+
+  function saveStores(next) { setStores(next); writeStorage(storageKey("stores"), next); }
+  function saveInventory(next) { setInventoryRows(next); writeStorage(storageKey("inventory"), next); }
+  function saveMovements(next) { setMovements(next); writeStorage(storageKey("movements"), next); }
 
   function renderSimpleTable(kind) {
     const config = {
       categories: { rows: adminCategories, add: "admin-categories-new", search: "Search by name...", title: "Add Category" },
       brands: { rows: brands, add: "admin-brands-new", search: "Search by name...", title: "Add Brand" },
-      vlogs: { rows: vlogs, add: "admin-vlogs-new", search: "Search by title...", title: "Add Vlog" },
       stores: { rows: stores, add: "admin-store-locator-new", search: "Search by name, city...", title: "Add Store" },
     }[kind];
+    if (kind === "categories" && companyId === "kids-velvet") {
+      const openNewCategory = (defaults = {}) => {
+        setEditingCategory(null);
+        setNewCategoryDefaults({ brandId: defaults.brandId || "", parentId: defaults.parentId || "" });
+        onNavigate("admin-categories-new");
+      };
+      return <CategoriesHierarchy brands={brands} canCreate={canCreateCategories} canDelete={canDeleteCategories} canUpdate={canUpdateCategories} categories={adminCategories} language={language} onAddGeneric={() => openNewCategory()} onAddMain={(brandId) => openNewCategory({ brandId })} onAddSubcategory={(parentId) => openNewCategory({ parentId })} onDelete={onDeleteCategory} onEdit={(category) => { setEditingCategory(category); setNewCategoryDefaults({ brandId: "", parentId: "" }); onNavigate("admin-categories-new"); }} />;
+    }
     return (
       <section className="admin-panel-card">
-        {kind === "vlogs" && (
-          <div className="admin-vlog-hero">
-            <MediaField label="Hero Image" name="image" value={vlogHero.image} onChange={(event) => setVlogHero((current) => ({ ...current, image: event.target.value }))} />
-            <label>Hero Title<input value={vlogHero.title} onChange={(event) => setVlogHero((current) => ({ ...current, title: event.target.value }))} /></label>
-            <button className="admin-primary-button" onClick={() => writeStorage(storageKeys.vlogHero, vlogHero)} type="button">Save Hero</button>
-          </div>
-        )}
-        <Toolbar addLabel={config.title} onAdd={readOnly ? null : () => onNavigate(config.add)}>
+        <Toolbar addLabel={config.title} onAdd={readOnly && kind !== "categories" && kind !== "brands" ? null : () => {
+          if (kind === "categories" && !canCreateCategories) return;
+          if (kind === "brands" && !canCreateBrands) return;
+          if (kind === "categories") { setEditingCategory(null); setNewCategoryDefaults({ brandId: "", parentId: "" }); }
+          if (kind === "brands") setEditingBrand(null);
+          onNavigate(config.add);
+        }}>
           <SearchField placeholder={config.search} value="" onChange={() => {}} />
           <div className="admin-segmented"><button className="active" type="button">All</button><button type="button">Active</button><button type="button">Inactive</button></div>
-          {kind === "vlogs" && <div className="admin-segmented"><button className="active" type="button">All</button><button type="button">Featured</button><button type="button">Standard</button></div>}
         </Toolbar>
         <AdminTable>
           <thead>
             {kind === "stores" ? <tr><th>Name</th><th>City</th><th>Country</th><th>Phone</th><th>Status</th><th>Sort</th><th>Actions</th></tr> :
               kind === "brands" ? <tr><th>Icon / Logo</th><th>Name</th><th>Country</th><th>Status</th><th>Created</th><th>Updated</th><th>Actions</th></tr> :
-                kind === "vlogs" ? <tr><th>Thumbnail</th><th>Title</th><th>Type</th><th>Status</th><th>Created</th><th>Actions</th></tr> :
                   <tr><th>Icon</th><th>Name</th><th>Parent</th><th>Status</th><th>Created</th><th>Updated</th><th>Actions</th></tr>}
           </thead>
           <tbody>
@@ -1368,14 +2585,12 @@ function AdminDashboardPage({
                 {kind === "stores" ? (
                   <><td>{row.name}</td><td>{row.city}</td><td>{row.country}</td><td>{row.phone || "-"}</td><td><Badge>{row.active === false ? "Inactive" : "Active"}</Badge></td><td>{row.sort || index + 1}</td><td>-</td></>
                 ) : kind === "brands" ? (
-                  <><td>{row.logo ? <img className="admin-thumb" src={row.logo} alt="" /> : <span className="admin-logo-mini">{row.name?.charAt(0)}</span>}</td><td>{row.name}</td><td>{row.country}</td><td><Badge>{row.active === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>{formatDate(row.updatedAt)}</td><td>-</td></>
-                ) : kind === "vlogs" ? (
-                  <><td>{row.thumbnail ? <img className="admin-thumb" src={row.thumbnail} alt="" /> : "-"}</td><td>{row.title}</td><td>{row.featured ? "Featured" : "Standard"}</td><td><Badge>{row.active === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>-</td></>
+                  <><td>{row.logoUrl ? <img className="admin-thumb" src={row.logoUrl} alt="" /> : <span className="admin-logo-mini">{getText(row.name, language)?.charAt(0)}</span>}</td><td>{getText(row.name, language)}</td><td>{row.country}</td><td><Badge>{row.isActive === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>{formatDate(row.updatedAt)}</td><td>{(canUpdateBrands || canDeleteBrands) && <div className="row-actions">{canUpdateBrands && <button className="text-action" onClick={() => { setEditingBrand(row); onNavigate("admin-brands-new"); }} type="button">Edit</button>}{canDeleteBrands && <button className="text-action danger" onClick={() => onDeleteBrand(row.id)} type="button">Delete</button>}</div>}</td></>
                 ) : (
-                  <><td>{row.image ? <img className="admin-thumb" src={row.image} alt="" /> : <span className="admin-logo-mini">C</span>}</td><td>{getText(row.name)}</td><td>{row.parentId || "None"}</td><td><Badge>{row.active === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>{formatDate(row.updatedAt)}</td><td>-</td></>
+                  <><td>{row.imageUrl ? <img className="admin-thumb" src={row.imageUrl} alt="" /> : <span className="admin-logo-mini">C</span>}</td><td>{getText(row.name, language)}</td><td>{row.parentId ? getText(adminCategories.find((category) => String(category.id) === String(row.parentId))?.name, language) || (language === "ar" ? "غير متاح" : "Not available") : "—"}</td><td><Badge>{row.isActive === false ? "Inactive" : "Active"}</Badge></td><td>{formatDate(row.createdAt)}</td><td>{formatDate(row.updatedAt)}</td><td>{(canUpdateCategories || canDeleteCategories) && <div className="row-actions">{canUpdateCategories && <button className="text-action" onClick={() => { setEditingCategory(row); onNavigate("admin-categories-new"); }} type="button">Edit</button>}{canDeleteCategories && <button className="text-action danger" onClick={() => onDeleteCategory(row.id)} type="button">Delete</button>}</div>}</td></>
                 )}
               </tr>
-            )) : <tr><td colSpan="7"><EmptyState title={kind === "vlogs" ? "No vlogs yet" : "No records yet"} description={kind === "vlogs" ? "Create your first vlog entry for the storefront." : ""} /></td></tr>}
+            )) : <tr><td colSpan="7"><EmptyState title="No records yet" description="" /></td></tr>}
           </tbody>
         </AdminTable>
       </section>
@@ -1383,21 +2598,93 @@ function AdminDashboardPage({
   }
 
   function renderEntityForm(kind) {
-    if (!canEdit) return <EmptyState title="View-only access" description="You do not have permission to create records." />;
     if (kind === "category") {
-      return <GenericEntityForm title="New Category" initial={{ active: true, parentId: "" }} fields={[
-        { name: "name", label: "Category Name *", required: true }, { name: "slug", label: "Slug" }, { name: "description", label: "Description", type: "textarea" }, { name: "image", label: "Category Image", type: "media" }, { name: "parentId", label: "Parent Category", type: "select", options: [{ value: "", label: "None (top-level)" }, ...adminCategories.map((category) => ({ value: category.id, label: getText(category.name) }))] }, { name: "active", label: "Active", type: "checkbox" }, { name: "metaTitle", label: "Meta Title" }, { name: "metaDescription", label: "Meta Description", type: "textarea" },
-      ]} onCancel={() => onNavigate("admin-categories")} onSave={(form) => { saveCategories([{ id: form.slug || makeSlug(form.name), name: createLocalizedCopy(form.name, form.name), description: createLocalizedCopy(form.description, form.description), image: form.image, parentId: form.parentId, active: form.active, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, ...adminCategories]); onNavigate("admin-categories"); }} />;
+      const current = editingCategory;
+      if (current && !canUpdateCategories) return <EmptyState title="Access denied" description="You do not have permission to edit categories." />;
+      if (!current && !canCreateCategories) return <EmptyState title="Access denied" description="You do not have permission to create categories." />;
+      const ar = language === "ar";
+      const parentIdField = { name: "parentId", label: ar ? "الفئة الرئيسية" : "Parent Category", type: "select", options: [{ value: "", label: ar ? "بدون (فئة رئيسية)" : "None (top-level)" }, ...adminCategories.map((category) => ({ value: category.id, label: getText(category.name, language) }))] };
+      return <GenericEntityForm isEditing={Boolean(current)} language={language} title={current ? (ar ? "تعديل الفئة" : "Edit Category") : (ar ? "فئة جديدة" : "New Category")} initial={{ active: current?.isActive !== false, brandId: current?.brandId || newCategoryDefaults.brandId || "", descriptionAr: current?.description?.ar || "", descriptionEn: current?.description?.en || "", heroVideo: current?.heroVideo || "", image: current?.imageUrl || "", nameAr: current?.name?.ar || "", nameEn: current?.name?.en || "", parentId: current?.parentId || newCategoryDefaults.parentId || "", slug: current?.slug || "" }} fields={[
+        { name: "nameEn", label: ar ? "اسم الفئة بالإنجليزية *" : "Category name — English *", required: true, dir: "ltr" },
+        { name: "nameAr", label: ar ? "اسم الفئة بالعربية *" : "Category name — Arabic *", required: true, dir: "rtl" },
+        { name: "slug", label: ar ? "الرابط المختصر" : "Slug", dir: "ltr" },
+        { name: "descriptionEn", label: ar ? "الوصف بالإنجليزية" : "Description — English", type: "textarea", dir: "ltr" },
+        { name: "descriptionAr", label: ar ? "الوصف بالعربية" : "Description — Arabic", type: "textarea", dir: "rtl" },
+        parentIdField,
+        { name: "brandId", label: ar ? "العلامة التجارية *" : "Brand *", type: "select", visibleWhen: (form) => !form?.parentId, options: [{ value: "", label: ar ? "اختر علامة" : "Select a brand" }, ...brands.map((brand) => ({ value: brand.id, label: getText(brand.name, language) || brand.slug }))] },
+        { name: "image", label: ar ? "صورة الفئة" : "Category Image", type: "media" },
+        { name: "heroVideo", label: ar ? "فيديو الواجهة" : "Category hero video", type: "media", allowVideo: true },
+        { name: "active", label: ar ? "نشطة" : "Active", type: "checkbox" },
+      ]} onCancel={() => { setEditingCategory(null); setNewCategoryDefaults({ brandId: "", parentId: "" }); onNavigate("admin-categories"); }} onSave={async (form) => { await onSaveCategory({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.nameEn || form.nameAr), name: createLocalizedCopy(form.nameEn, form.nameAr), description: form.descriptionEn || form.descriptionAr ? createLocalizedCopy(form.descriptionEn, form.descriptionAr) : null, imageUrl: form.image || null, brandId: form.parentId ? null : form.brandId || null, heroVideo: form.heroVideo || null, parentId: form.parentId || null, isActive: form.active }); setEditingCategory(null); setNewCategoryDefaults({ brandId: "", parentId: "" }); onNavigate("admin-categories", { preserveStatusMessage: true }); }} />;
     }
     if (kind === "brand") {
-      return <GenericEntityForm title="New Brand" initial={{ active: true, country: "Palestine" }} fields={[
-        { name: "name", label: "Brand Name *", required: true }, { name: "slug", label: "Slug" }, { name: "description", label: "Description", type: "textarea" }, { name: "country", label: "Country" }, { name: "website", label: "Website" }, { name: "logo", label: "Brand Logo", type: "media" }, { name: "active", label: "Active", type: "checkbox" }, { name: "metaTitle", label: "Meta Title" }, { name: "metaDescription", label: "Meta Description", type: "textarea" },
-      ]} onCancel={() => onNavigate("admin-brands")} onSave={(form) => { saveBrands([{ id: form.slug || makeSlug(form.name), ...form, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, ...brands]); onNavigate("admin-brands"); }} />;
+      const current = editingBrand;
+      if (current && !canUpdateBrands) return <EmptyState title="Access denied" description="You do not have permission to edit brands." />;
+      if (!current && !canCreateBrands) return <EmptyState title="Access denied" description="You do not have permission to create brands." />;
+      const ar = language === "ar";
+      return <GenericEntityForm isEditing={Boolean(current)} language={language} title={current ? (ar ? "تعديل العلامة" : "Edit Brand") : (ar ? "علامة جديدة" : "New Brand")} initial={{ active: current?.isActive !== false, country: current?.country || "", heroPoster: current?.heroPoster || "", heroVideo: current?.heroVideo || "", logo: current?.logoUrl || "", nameAr: getText(current?.name, "ar"), nameEn: getText(current?.name, "en"), slug: current?.slug || "" }} fields={[
+        { name: "nameEn", label: ar ? "اسم العلامة بالإنجليزية *" : "Brand name — English *", required: true, dir: "ltr" },
+        { name: "nameAr", label: ar ? "اسم العلامة بالعربية *" : "Brand name — Arabic *", required: true, dir: "rtl" },
+        { name: "slug", label: ar ? "الرابط المختصر" : "Slug", dir: "ltr" },
+        { name: "country", label: ar ? "البلد" : "Country" },
+        { name: "logo", label: ar ? "شعار العلامة" : "Brand Logo", type: "media" },
+        { name: "heroVideo", label: ar ? "فيديو الواجهة" : "Brand Hero Video", type: "media", allowVideo: true },
+        { name: "heroPoster", label: ar ? "صورة الواجهة" : "Brand Hero Poster", type: "media" },
+        { name: "active", label: ar ? "نشطة" : "Active", type: "checkbox" },
+      ]} onCancel={() => { setEditingBrand(null); onNavigate("admin-brands"); }} onSave={async (form) => { await onSaveBrand({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.nameEn || form.nameAr), name: createLocalizedCopy(form.nameEn, form.nameAr), country: form.country || null, logoUrl: form.logo || null, heroVideo: form.heroVideo || null, heroPoster: form.heroPoster || null, isActive: form.active }); setEditingBrand(null); onNavigate("admin-brands", { preserveStatusMessage: true }); }} />;
+    }
+    if (kind === "vlog" && !canEdit) {
+      return <EmptyState title="View-only access" description="You do not have permission to create records." />;
     }
     if (kind === "vlog") {
-      return <GenericEntityForm title="New Vlog" initial={{ active: true, featured: false }} fields={[
-        { name: "title", label: "Title *", required: true }, { name: "slug", label: "Slug" }, { name: "description", label: "Description", type: "textarea" }, { name: "videoUrl", label: "Video URL *", required: true }, { name: "thumbnail", label: "Thumbnail", type: "media" }, { name: "active", label: "Active", type: "checkbox" }, { name: "featured", label: "Featured", type: "checkbox" },
-      ]} onCancel={() => onNavigate("admin-vlogs")} onSave={(form) => { saveVlogs([{ id: form.slug || makeSlug(form.title), ...form, createdAt: new Date().toISOString() }, ...vlogs]); onNavigate("admin-vlogs"); }} />;
+      const current = editingVlog;
+      const ar = language === "ar";
+      return <GenericEntityForm isEditing={Boolean(current)} language={language} title={current ? (ar ? "تعديل الفيديو" : "Edit Vlog") : (ar ? "فيديو جديد" : "New Vlog")} initial={{
+        active: current?.isActive !== false,
+        featured: current?.featured === true,
+        mediaType: current?.mediaType === "image" ? "image" : "video",
+        slug: current?.slug || "",
+        titleEn: getText(current?.title, "en"),
+        titleAr: getText(current?.title, "ar"),
+        descriptionEn: getText(current?.description, "en"),
+        descriptionAr: getText(current?.description, "ar"),
+        videoUrl: current?.videoUrl || "",
+        posterUrl: current?.posterUrl || "",
+        imageUrl: current?.imageUrl || "",
+        linkUrl: current?.linkUrl || "",
+        sortOrder: current?.sortOrder ?? 0,
+      }} fields={[
+        { name: "titleEn", label: ar ? "العنوان بالإنجليزية *" : "Title — English *", required: true, dir: "ltr" },
+        { name: "titleAr", label: ar ? "العنوان بالعربية *" : "Title — Arabic *", required: true, dir: "rtl" },
+        { name: "slug", label: ar ? "الرابط المختصر" : "Slug", dir: "ltr" },
+        { name: "descriptionEn", label: ar ? "الوصف بالإنجليزية" : "Description — English", type: "textarea", dir: "ltr" },
+        { name: "descriptionAr", label: ar ? "الوصف بالعربية" : "Description — Arabic", type: "textarea", dir: "rtl" },
+        { name: "mediaType", label: ar ? "نوع المحتوى" : "Media type", type: "select", options: [{ value: "video", label: ar ? "فيديو" : "Video" }, { value: "image", label: ar ? "صورة" : "Image" }] },
+        { name: "videoUrl", label: ar ? "رابط الفيديو" : "Video URL", type: "media", allowVideo: true, visibleWhen: (form) => form?.mediaType !== "image" },
+        { name: "posterUrl", label: ar ? "ملصق الفيديو" : "Video poster", type: "media", visibleWhen: (form) => form?.mediaType !== "image" },
+        { name: "imageUrl", label: ar ? "صورة المنشور" : "Post image", type: "media", visibleWhen: (form) => form?.mediaType === "image" },
+        { name: "linkUrl", label: ar ? "رابط اختياري" : "Optional link", dir: "ltr" },
+        { name: "sortOrder", label: ar ? "الترتيب" : "Sort order", type: "number" },
+        { name: "active", label: ar ? "نشط" : "Active", type: "checkbox" },
+        { name: "featured", label: ar ? "مميز" : "Featured", type: "checkbox" },
+      ]} onCancel={() => { setEditingVlog(null); onNavigate("admin-vlogs"); }} onSave={async (form) => {
+        await onSaveVlog?.({
+          ...(current?.id ? { id: current.id } : {}),
+          slug: form.slug || makeSlug(form.titleEn || form.titleAr),
+          title: createLocalizedCopy(form.titleEn, form.titleAr),
+          description: form.descriptionEn || form.descriptionAr ? createLocalizedCopy(form.descriptionEn, form.descriptionAr) : { en: "", ar: "" },
+          mediaType: form.mediaType === "image" ? "image" : "video",
+          videoUrl: form.mediaType === "image" ? "" : form.videoUrl || "",
+          posterUrl: form.posterUrl || "",
+          imageUrl: form.imageUrl || "",
+          linkUrl: form.linkUrl || "",
+          sortOrder: Number(form.sortOrder || 0),
+          isActive: form.active,
+          featured: form.featured,
+        });
+        setEditingVlog(null);
+        onNavigate("admin-vlogs", { preserveStatusMessage: true });
+      }} />;
     }
     return <GenericEntityForm title="New Store" initial={{ active: true, country: "Palestine" }} fields={[
       { name: "name", label: "Name *", required: true }, { name: "address", label: "Address *", required: true }, { name: "city", label: "City *", required: true }, { name: "country", label: "Country *", required: true }, { name: "phone", label: "Phone" }, { name: "hours", label: "Hours" }, { name: "latitude", label: "Latitude" }, { name: "longitude", label: "Longitude" }, { name: "active", label: "Active", type: "checkbox" },
@@ -1448,9 +2735,19 @@ function AdminDashboardPage({
   function renderActivePage() {
     switch (activePage) {
       case "admin-products":
-        return <ProductsListPage categories={adminCategories} filters={filters} onAdd={() => { setEditingProduct(null); onNavigate("admin-products-new"); }} onDeleteProduct={onDeleteProduct} onEdit={(product) => { setEditingProduct(product); onNavigate("admin-products-new"); }} products={products} readOnly={readOnly} setFilters={setFilters} />;
+        return <ProductsListPage brands={brands} canCreate={canCreateProducts} canDelete={canDeleteProducts} canUpdate={productsUpdateAllowed} categories={adminCategories} filters={filters} onAdd={() => { setEditingProduct(null); onNavigate("admin-products-new"); }} onDeleteProduct={onDeleteProduct} onEdit={(product) => { setEditingProduct(product); onNavigate("admin-products-new", { path: `/admin/products/${encodeURIComponent(product.id)}/edit` }); }} products={products} setFilters={setFilters} t={t} />;
       case "admin-products-new":
-        return <ProductWizard categories={adminCategories} editingProduct={editingProduct} onCancel={() => onNavigate("admin-products")} onSave={onSaveProduct} />;
+      case "admin-products-edit": {
+        const match = window.location.pathname.match(/^\/admin\/products\/([^/]+)\/edit$/);
+        const routeProductId = match ? decodeURIComponent(match[1]) : "";
+        const productToEdit = routeProductId
+          ? products.find((item) => String(item.id) === routeProductId)
+          : editingProduct;
+        if (routeProductId && !productToEdit) return <section className="admin-panel-card">Loading product...</section>;
+        if (!productToEdit && !canCreateProducts) return <EmptyState title="View-only access" description="You do not have permission to create products." />;
+        const formReadOnly = Boolean(productToEdit) && !productsUpdateAllowed;
+        return <ProductWizard brands={brands} categories={adminCategories} canManageContent={canManageProductContent} canManageMedia={productMediaAllowed && !formReadOnly} editingProduct={productToEdit} language={language} readOnly={formReadOnly} onCancel={(options) => onNavigate("admin-products", options)} onPersisted={(product) => { setEditingProduct(product); onNavigate("admin-products-edit", { path: `/admin/products/${encodeURIComponent(product.id)}/edit`, preserveStatusMessage: true, replace: true }); }} onSave={onSaveProduct} />;
+      }
       case "admin-categories":
         return renderSimpleTable("categories");
       case "admin-categories-new":
@@ -1459,8 +2756,6 @@ function AdminDashboardPage({
         return renderSimpleTable("brands");
       case "admin-brands-new":
         return renderEntityForm("brand");
-      case "admin-vlogs":
-        return renderSimpleTable("vlogs");
       case "admin-vlogs-new":
         return renderEntityForm("vlog");
       case "admin-store-locator":
@@ -1468,7 +2763,17 @@ function AdminDashboardPage({
       case "admin-store-locator-new":
         return renderEntityForm("store");
       case "admin-website-media":
-        return <WebsiteMediaManager items={websiteMedia} language={language} onDelete={onDeleteWebsiteMedia} onSave={onSaveWebsiteMedia} />;
+        return (
+          <MediaSlotsManager
+            company={company}
+            currentUser={currentUser}
+            error={websiteMediaError}
+            items={websiteMedia}
+            language={language}
+            onDelete={onDeleteWebsiteMedia}
+            onSave={onSaveWebsiteMedia}
+          />
+        );
       case "admin-orders":
         return <section className="admin-panel-card"><Toolbar><SearchField placeholder="Search order #, customer..." value="" onChange={() => {}} /><select><option>Status</option></select><select><option>Payment</option></select></Toolbar>{orders.length ? <AdminOrdersTable employees={employees} canDelete={canManageSensitive} language={language} onAssignEmployee={onAssignEmployee} onDeleteOrder={onDeleteOrder} onStatusChange={onStatusChange} orders={orders} products={products} t={t} /> : <EmptyState title="No orders found" description="No orders have been placed yet. Orders will appear here once customers complete their purchases." />}</section>;
       case "admin-reviews":
@@ -1477,29 +2782,44 @@ function AdminDashboardPage({
         return <><InventoryPage inventoryRows={inventoryRows} movements={movements} onAdjust={adjustStock} onOpenModal={() => setStockModalOpen(true)} products={products} />{stockModalOpen && <StockUpdateModal inventoryRows={inventoryRows} onApply={applyStockUpdates} onClose={() => setStockModalOpen(false)} products={products} />}</>;
       case "admin-customers":
         return renderCustomers();
-      case "admin-settings":
-        return canManageSensitive ? <SettingsPage /> : <EmptyState title="Settings are restricted" description="Only admins can manage configuration." />;
       case "admin":
       default:
-        return <DashboardHome customers={customers} language={language} orders={orders} products={products} t={t} />;
+        return <DashboardHome
+          brands={brands}
+          categories={categories}
+          company={company}
+          currentUser={currentUser}
+          employees={employees}
+          language={language}
+          modules={modules}
+          onNavigate={onNavigate}
+          orders={orders}
+          products={products}
+          t={t}
+        />;
     }
   }
 
   return (
     <AdminLayout
       activePage={activePage}
+      company={company}
       currentUser={currentUser}
+      hideHeader={activePage === "admin"}
       isDarkMode={isDarkMode}
       language={language}
+      modules={modules}
       onLanguageChange={onLanguageChange}
       onLogout={onLogout}
       onNavigate={onNavigate}
+      onReturnToPlatform={onReturnToPlatform}
+      onSwitchCompany={onSwitchCompany}
       onToggleDarkMode={onToggleDarkMode}
       subtitle={subtitle}
       title={title}
     >
       <PermissionNotice role={role} />
-      {statusMessage && <div className="message-panel success">{statusMessage}</div>}
+      {statusMessage && <div className={`message-panel ${statusMessageType}`} role={statusMessageType === "error" ? "alert" : "status"}>{statusMessage}</div>}
       {renderActivePage()}
     </AdminLayout>
   );

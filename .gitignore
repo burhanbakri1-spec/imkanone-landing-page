@@ -15,10 +15,14 @@ dist/
 # Runtime API data and uploads
 uploads/
 **/uploads/
+!api/src/uploads/
+!api/src/uploads/*.js
 data-store/
 **/data-store/
 live-store-export.json
 **/live-store-export.json
+api/backups/
+**/api/backups/
 
 # Logs and local tooling output
 *.log
