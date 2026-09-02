@@ -1,7 +1,7 @@
 import {
   normalizeProductFilterAttributeForRead,
   serializePublicProductFilterAttributes,
-} from "../../../shared/catalog/productFilterAttributes.js";
+} from "../catalog/productFilterAttributes.js";
 
 const localized = (value, fallback = "") => {
   if (value && typeof value === "object" && !Array.isArray(value)) {
