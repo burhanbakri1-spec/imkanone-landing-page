@@ -1,4 +1,7 @@
-import { normalizeProductFilterAttributeForRead } from "../../../shared/catalog/productFilterAttributes.js";
+import {
+  normalizeProductFilterAttributeForRead,
+  serializePublicProductFilterAttributes,
+} from "../../../shared/catalog/productFilterAttributes.js";
 
 const localized = (value, fallback = "") => {
   if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -49,6 +52,9 @@ const safeOption = (option = {}) => ({
 });
 
 function publicFilterAttribute(group, value) {
+  if (group === "age") {
+    return normalizeProductFilterAttributeForRead("age", value);
+  }
   return normalizeProductFilterAttributeForRead(group, value) || "";
 }
 
@@ -93,6 +99,7 @@ export function serializePublicProduct(product = {}) {
     gender: publicFilterAttribute("gender", product.gender),
     skill: publicFilterAttribute("skill", product.skill),
     occasion: publicFilterAttribute("occasion", product.occasion),
+    filterAttributes: serializePublicProductFilterAttributes(product),
     quickShop: product.quickShop === true,
     image: safeUrl(product.image || product.primaryImage),
     hoverImage: safeUrl(product.hoverImage || product.secondaryImage),

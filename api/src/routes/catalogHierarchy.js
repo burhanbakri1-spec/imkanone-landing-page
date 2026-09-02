@@ -174,12 +174,18 @@ export function validateCatalogHierarchy({
   }
   const normalizedFilters = {};
   for (const key of FILTER_KEYS) {
-    if (product[key] != null && typeof product[key] !== "string") {
+    if (product[key] == null || product[key] === "") continue;
+    if (key === "age") {
+      if (!Array.isArray(product[key]) && typeof product[key] !== "string") {
+        throw catalogHierarchyError(`${key} must be a string or array of canonical IDs.`);
+      }
+      normalizedFilters[key] = normalizeFilterAttribute(key, product[key]);
+      continue;
+    }
+    if (typeof product[key] !== "string") {
       throw catalogHierarchyError(`${key} must be a string.`);
     }
-    if (product[key] != null && product[key] !== "") {
-      normalizedFilters[key] = normalizeFilterAttribute(key, product[key]);
-    }
+    normalizedFilters[key] = normalizeFilterAttribute(key, product[key]);
   }
   if (product.quickShop != null && typeof product.quickShop !== "boolean") {
     throw catalogHierarchyError("quickShop must be a boolean.");
@@ -190,7 +196,7 @@ export function validateCatalogHierarchy({
     mainCategoryId: mainCategoryId || null,
     subcategoryId: subcategoryId || null,
     manufacturer: nullOrTrimmed(product.manufacturer) || null,
-    age: normalizedFilters.age ?? null,
+    age: normalizedFilters.age ?? [],
     gender: normalizedFilters.gender ?? null,
     skill: normalizedFilters.skill ?? null,
     occasion: normalizedFilters.occasion ?? null,

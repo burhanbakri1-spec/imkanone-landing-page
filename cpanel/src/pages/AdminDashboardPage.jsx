@@ -43,7 +43,9 @@ import {
 import { tenantStorageKey } from "../utils/companyContext.js";
 import { parseRequiredStock, preserveLegacySingleVariantStock } from "../utils/productStock.js";
 import {
+  getLocalizedFilterAttributeOptions,
   getLocalizedFilterAttributeOptionsForSelect,
+  normalizeProductFilterAttributeValue,
   requiresCanonicalAgeSelection,
   resolveProductFilterAttributeForForm,
 } from "../utils/productFilterAttributes.js";
@@ -350,7 +352,7 @@ function createProductFromForm(form) {
     mainCategoryId: form.mainCategoryId || null,
     subcategoryId: form.subcategoryId || null,
     manufacturer: form.manufacturer || "",
-    age: form.age || "",
+    age: normalizeProductFilterAttributeValue("age", form.age),
     gender: form.gender || "",
     skill: form.skill || "",
     occasion: form.occasion || "",
@@ -1469,6 +1471,24 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
       return { ...current, [name]: type === "checkbox" ? checked : value, removedImageFields: [...removed] };
     });
   }
+
+  function toggleAge(ageId, checked) {
+    setFieldErrors((current) => {
+      if (!current.age) return current;
+      const next = { ...current };
+      delete next.age;
+      return next;
+    });
+    setForm((current) => {
+      const selected = Array.isArray(current.age)
+        ? current.age
+        : (current.age ? [current.age] : []);
+      const nextAge = checked
+        ? [...new Set([...selected.filter((entry) => entry !== ageId), ageId])]
+        : selected.filter((entry) => entry !== ageId);
+      return { ...current, age: nextAge };
+    });
+  }
   function changeBrand(event) {
     const brandId = event.target.value;
     setFieldErrors((current) => {
@@ -1942,7 +1962,34 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
                   <label>{t("productForm.longDescriptionEn")}<textarea dir="ltr" disabled={readOnly} name="fullDescription" value={form.fullDescription} onChange={change} /></label>
                   <label>{t("productForm.longDescriptionAr")}<textarea dir="rtl" disabled={readOnly} name="fullDescriptionAr" value={form.fullDescriptionAr} onChange={change} /></label>
                   <label>Manufacturer<input disabled={readOnly} name="manufacturer" value={form.manufacturer || ""} onChange={change} /></label>
-                  <label>{ar ? "العمر" : "Age"}<select disabled={readOnly} name="age" value={form.age || ""} onChange={change}><option value="">{ar ? "أي" : "Any"}</option>{getLocalizedFilterAttributeOptionsForSelect("age", language, form.age || "").map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select>{requiresCanonicalAgeSelection(form.age) && <span className="admin-note">{ar ? "هذه قيمة عمر قديمة غير دقيقة. اختر نطاقًا معتمدًا قبل الحفظ." : "This legacy age range is ambiguous. Choose a canonical range before saving."}</span>}</label>
+                  <div className="full-field">
+                    <span>{ar ? "العمر" : "Age"}</span>
+                    <div className="admin-checkbox-grid">
+                      {getLocalizedFilterAttributeOptions("age", language).map((option) => (
+                        <label className="checkbox-line" key={option.id}>
+                          <input
+                            disabled={readOnly}
+                            type="checkbox"
+                            checked={Array.isArray(form.age) ? form.age.includes(option.id) : false}
+                            onChange={(event) => toggleAge(option.id, event.target.checked)}
+                          />
+                          {option.label}
+                        </label>
+                      ))}
+                    </div>
+                    {Array.isArray(form.age) && form.age.filter((entry) => !getLocalizedFilterAttributeOptions("age", language).some((option) => option.id === entry)).map((legacyValue) => (
+                      <span className="admin-note" key={legacyValue}>
+                        {ar
+                          ? `قيمة عمر قديمة: ${legacyValue}. أزلها واختر نطاقًا معتمدًا قبل الحفظ.`
+                          : `Legacy age value: ${legacyValue}. Remove it and choose canonical ranges before saving.`}
+                      </span>
+                    ))}
+                    {requiresCanonicalAgeSelection(form.age) && (
+                      <span className="admin-note">
+                        {ar ? "هذه قيمة عمر قديمة غير دقيقة. اختر نطاقًا معتمدًا قبل الحفظ." : "This legacy age range is ambiguous. Choose a canonical range before saving."}
+                      </span>
+                    )}
+                  </div>
                   <label>{ar ? "الجنس" : "Gender"}<select disabled={readOnly} name="gender" value={form.gender || ""} onChange={change}><option value="">{ar ? "أي" : "Any"}</option>{getLocalizedFilterAttributeOptionsForSelect("gender", language, form.gender || "").map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
                   <label>{ar ? "المهارة" : "Skill"}<select disabled={readOnly} name="skill" value={form.skill || ""} onChange={change}><option value="">{ar ? "أي" : "Any"}</option>{getLocalizedFilterAttributeOptionsForSelect("skill", language, form.skill || "").map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
                   <label>{ar ? "المناسبة" : "Occasion"}<select disabled={readOnly} name="occasion" value={form.occasion || ""} onChange={change}><option value="">{ar ? "أي" : "Any"}</option>{getLocalizedFilterAttributeOptionsForSelect("occasion", language, form.occasion || "").map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>

@@ -5,6 +5,8 @@
  * occasion). Persisted product values MUST be stable machine IDs from this
  * module — never localized display labels.
  *
+ * Age is multi-value and persists as a canonical ID array.
+ *
  * Browser-safe (no Node-only APIs).
  */
 
@@ -23,8 +25,12 @@ export const PRODUCT_FILTER_ATTRIBUTE_OPTIONS = Object.freeze({
     option("5-6y", "5–6 Years", "5–6 سنوات"),
     option("7-9y", "7–9 Years", "7–9 سنوات"),
     option("10-12y", "10–12 Years", "10–12 سنة"),
-    option("13+", "13+", "13+"),
+    option("13-17y", "13–17 Years", "13–17 سنة"),
     option("adults", "Adults", "البالغون"),
+    option("0-3y", "0–3 Years", "من 0 ل 3 سنوات"),
+    option("3-6y", "3–6 Years", "من 3 ل 6 سنوات"),
+    option("6-10y", "6–10 Years", "من 6 ل 10 سنوات"),
+    option("10+y", "10+ Years", "من 10 سنوات فما فوق"),
   ]),
   gender: Object.freeze([
     option("boys", "Boys", "أولاد"),
@@ -60,8 +66,11 @@ export const PRODUCT_FILTER_ATTRIBUTE_OPTIONS = Object.freeze({
   ]),
 });
 
+/** Velvet workbook-native age IDs in display order. */
+export const VELVET_WORKBOOK_AGE_IDS = Object.freeze(["0-3y", "3-6y", "6-10y", "10+y"]);
+
 /** Overlapping age IDs retired from the active vocabulary (still recognized as ambiguous legacy). */
-export const RETIRED_OVERLAPPING_AGE_IDS = Object.freeze(["1-3y", "3-6y", "6-9y", "9-12y"]);
+export const RETIRED_OVERLAPPING_AGE_IDS = Object.freeze(["1-3y", "6-9y", "9-12y", "13+"]);
 
 export const AMBIGUOUS_LEGACY_AGE_ALIASES = Object.freeze([
   "1-3 years",
@@ -69,6 +78,8 @@ export const AMBIGUOUS_LEGACY_AGE_ALIASES = Object.freeze([
   "6-9 years",
   "9-12 years",
   "3-6",
+  "12+ years",
+  "12+",
   ...RETIRED_OVERLAPPING_AGE_IDS,
 ]);
 
@@ -85,6 +96,10 @@ const exactLegacyAgeAliases = buildExactLegacyAgeAliasMap();
 
 const legacyAliasesByGroup = Object.fromEntries(
   PRODUCT_FILTER_ATTRIBUTE_GROUPS.map((group) => [group, buildLegacyAliasMap(group)]),
+);
+
+const ageSortOrder = new Map(
+  PRODUCT_FILTER_ATTRIBUTE_OPTIONS.age.map((entry, index) => [entry.id, index]),
 );
 
 function normalizeLookupKey(value) {
@@ -104,7 +119,10 @@ function buildExactLegacyAgeAliasMap() {
     }
   };
   add(["0-12 months", "0–12 months"], "0-12m");
-  add(["12+ years", "12+ years", "12+"], "13+");
+  add(["من 0 ل 3 سنوات", "من 0 إلى 3 سنوات"], "0-3y");
+  add(["من 3 ل 6 سنوات", "من 3 إلى 6 سنوات"], "3-6y");
+  add(["من6 ل 10 سنوات", "من 6 ل 10 سنوات", "من 6 إلى 10 سنوات"], "6-10y");
+  add(["من 10 سنوات فما فوق"], "10+y");
   return map;
 }
 
@@ -172,6 +190,9 @@ export function getProductFilterAttributeLabel(group, id, locale = "en") {
 
 export function isAmbiguousLegacyAgeValue(value) {
   if (value === null || value === undefined || value === "") return false;
+  if (Array.isArray(value)) {
+    return value.some((entry) => isAmbiguousLegacyAgeValue(entry));
+  }
   return ambiguousLegacyAgeKeys.has(normalizeLookupKey(value));
 }
 
@@ -188,15 +209,83 @@ function resolveLegacyAlias(group, value) {
   return legacyAliasesByGroup[group].get(normalizeLookupKey(value)) || null;
 }
 
+function isPipeSeparatedAgeValue(value) {
+  return typeof value === "string" && value.includes("|");
+}
+
+export function isMultiValueAge(value) {
+  if (Array.isArray(value)) return value.length > 1;
+  return isPipeSeparatedAgeValue(value);
+}
+
+function coerceAgeInputParts(value) {
+  if (value === null || value === undefined || value === "") return [];
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => coerceAgeInputParts(entry));
+  }
+  if (typeof value !== "string" || !value.trim()) return [];
+  const trimmed = value.trim();
+  if (isPipeSeparatedAgeValue(trimmed)) {
+    return trimmed.split("|").map((part) => part.trim()).filter(Boolean);
+  }
+  return [trimmed];
+}
+
+function normalizeSingleAgePart(part, { strict = true } = {}) {
+  if (canonicalIdsByGroup.age.has(part)) return part;
+
+  if (isAmbiguousLegacyAgeValue(part)) {
+    if (strict) throw new Error("age contains an invalid value.");
+    return part;
+  }
+
+  const exactAge = resolveExactLegacyAge(part);
+  if (exactAge) return exactAge;
+
+  const mapped = resolveLegacyAlias("age", part);
+  if (mapped && canonicalIdsByGroup.age.has(mapped)) return mapped;
+
+  if (strict) throw new Error("age contains an invalid value.");
+  return part;
+}
+
+function sortAgeIds(ids = []) {
+  return [...ids].sort((left, right) => (ageSortOrder.get(left) ?? 999) - (ageSortOrder.get(right) ?? 999));
+}
+
+export function normalizeAgeArray(value, { strict = true } = {}) {
+  const parts = coerceAgeInputParts(value);
+  if (!parts.length) return [];
+
+  const normalized = [];
+  for (const part of parts) {
+    const resolved = normalizeSingleAgePart(part, { strict });
+    if (resolved && !normalized.includes(resolved)) normalized.push(resolved);
+  }
+
+  return sortAgeIds(normalized);
+}
+
+export function ageValuesEqual(left, right) {
+  return JSON.stringify(normalizeAgeArray(left, { strict: false }))
+    === JSON.stringify(normalizeAgeArray(right, { strict: false }));
+}
+
 /**
- * Normalize a stored or incoming filter value to a canonical ID for writes.
- * Returns null for empty values. Throws when strict and value is not canonical
- * or an exact legacy mapping.
+ * Normalize a stored or incoming filter value for writes.
+ * Age returns a canonical ID array; other groups return a string or null.
  */
 export function normalizeProductFilterAttributeValue(group, value, { strict = true } = {}) {
   if (!isProductFilterAttributeGroup(group)) {
     throw new Error(`Unknown product filter attribute group: ${group}`);
   }
+
+  if (group === "age") {
+    if (value === null || value === undefined || value === "") return [];
+    if (Array.isArray(value) && value.length === 0) return [];
+    return normalizeAgeArray(value, { strict });
+  }
+
   if (value === null || value === undefined || value === "") return null;
   if (typeof value !== "string" || !value.trim()) {
     if (strict) throw new Error(`${group} must be a non-empty string or empty.`);
@@ -211,15 +300,6 @@ export function normalizeProductFilterAttributeValue(group, value, { strict = tr
 
   if (canonicalIdsByGroup[group].has(trimmed)) return trimmed;
 
-  if (group === "age") {
-    if (isAmbiguousLegacyAgeValue(trimmed)) {
-      if (strict) throw new Error(`${group} contains an invalid value.`);
-      return trimmed;
-    }
-    const exactAge = resolveExactLegacyAge(trimmed);
-    if (exactAge) return exactAge;
-  }
-
   const mapped = resolveLegacyAlias(group, trimmed);
   if (mapped && canonicalIdsByGroup[group].has(mapped)) return mapped;
 
@@ -227,19 +307,18 @@ export function normalizeProductFilterAttributeValue(group, value, { strict = tr
   return trimmed;
 }
 
-/** Read/serialize path: exact legacy maps to canonical; ambiguous legacy preserved. */
+/** Read path: age returns a canonical ID array; other groups return a string. */
 export function normalizeProductFilterAttributeForRead(group, value) {
+  if (group === "age") {
+    if (value === null || value === undefined || value === "") return [];
+    return normalizeAgeArray(value, { strict: false });
+  }
+
   if (value === null || value === undefined || value === "") return "";
   if (typeof value !== "string" || !value.trim()) return "";
 
   const trimmed = value.trim();
   if (canonicalIdsByGroup[group].has(trimmed)) return trimmed;
-
-  if (group === "age") {
-    if (isAmbiguousLegacyAgeValue(trimmed)) return trimmed;
-    const exactAge = resolveExactLegacyAge(trimmed);
-    if (exactAge) return exactAge;
-  }
 
   const mapped = resolveLegacyAlias(group, trimmed);
   if (mapped && canonicalIdsByGroup[group].has(mapped)) return mapped;
@@ -247,8 +326,11 @@ export function normalizeProductFilterAttributeForRead(group, value) {
   return trimmed;
 }
 
-/** Resolve a stored product value for CPanel select controls. */
+/** Resolve a stored product value for CPanel controls. */
 export function resolveProductFilterAttributeForForm(group, value) {
+  if (group === "age") {
+    return normalizeProductFilterAttributeForRead("age", value);
+  }
   return normalizeProductFilterAttributeForRead(group, value) || "";
 }
 
@@ -263,8 +345,89 @@ export function listUnmappedProductFilterAttributeValues(group, values = []) {
     try {
       normalizeProductFilterAttributeValue(group, value, { strict: true });
     } catch {
-      unknown.add(String(value));
+      unknown.add(Array.isArray(value) ? JSON.stringify(value) : String(value));
     }
   }
   return [...unknown];
+}
+
+function resolveCanonicalFilterAttributeId(group, rawValue) {
+  if (rawValue === null || rawValue === undefined || rawValue === "") return null;
+  if (typeof rawValue !== "string" || !rawValue.trim()) return null;
+
+  const trimmed = rawValue.trim();
+  if (canonicalIdsByGroup[group].has(trimmed)) return trimmed;
+
+  if (group === "age") {
+    if (isAmbiguousLegacyAgeValue(trimmed)) return null;
+    const exactAge = resolveExactLegacyAge(trimmed);
+    if (exactAge) return exactAge;
+  }
+
+  const mapped = resolveLegacyAlias(group, trimmed);
+  if (mapped && canonicalIdsByGroup[group].has(mapped)) return mapped;
+
+  return null;
+}
+
+function serializePublicAgeFilterAttributes(rawValue) {
+  const ids = normalizeAgeArray(rawValue, { strict: false }).filter((id) => canonicalIdsByGroup.age.has(id));
+  return ids.map((id) => {
+    const entry = getProductFilterAttributeOptions("age").find((item) => item.id === id);
+    return {
+      id: entry.id,
+      label: {
+        en: entry.label.en,
+        ar: entry.label.ar,
+      },
+    };
+  });
+}
+
+/** Structured public storefront attribute(s) with canonical id + localized labels. */
+export function serializePublicProductFilterAttribute(group, rawValue) {
+  if (!isProductFilterAttributeGroup(group)) return group === "age" ? [] : null;
+
+  if (group === "age") {
+    return serializePublicAgeFilterAttributes(rawValue);
+  }
+
+  const canonicalId = resolveCanonicalFilterAttributeId(group, rawValue);
+  if (!canonicalId) return null;
+
+  const entry = getProductFilterAttributeOptions(group).find((item) => item.id === canonicalId);
+  if (!entry) return null;
+
+  return {
+    id: entry.id,
+    label: {
+      en: entry.label.en,
+      ar: entry.label.ar,
+    },
+  };
+}
+
+/** Reusable storefront filter vocabulary metadata for all canonical options. */
+export function serializePublicProductFilterDefinitions() {
+  return Object.fromEntries(
+    PRODUCT_FILTER_ATTRIBUTE_GROUPS.map((group) => [
+      group,
+      getProductFilterAttributeOptions(group).map((entry) => ({
+        id: entry.id,
+        label: {
+          en: entry.label.en,
+          ar: entry.label.ar,
+        },
+      })),
+    ]),
+  );
+}
+
+export function serializePublicProductFilterAttributes(product = {}) {
+  return {
+    age: serializePublicAgeFilterAttributes(product.age),
+    gender: serializePublicProductFilterAttribute("gender", product.gender),
+    skill: serializePublicProductFilterAttribute("skill", product.skill),
+    occasion: serializePublicProductFilterAttribute("occasion", product.occasion),
+  };
 }

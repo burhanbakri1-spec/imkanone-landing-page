@@ -17,6 +17,7 @@ import {
   serializePublicWebsiteMedia,
   serializePublicWebsiteText,
 } from "../storefront/publicContent.js";
+import { serializePublicProductFilterDefinitions } from "../../../shared/catalog/productFilterAttributes.js";
 import {
   publicVlogHeroForCompany,
   publicVlogsForCompany,
@@ -110,6 +111,7 @@ router.get("/content", async (req, res, next) => {
       brands: brands.filter((brand) => brand.isActive !== false).map(serializePublicBrand),
       categories: categories.filter((category) => category.isActive !== false).map(serializePublicCategory),
       products,
+      filterDefinitions: serializePublicProductFilterDefinitions(),
       texts,
       media,
       vlogs: publicVlogsForCompany(req.company, req.storefront.locale),
