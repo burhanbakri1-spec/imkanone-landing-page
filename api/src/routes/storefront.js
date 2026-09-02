@@ -17,7 +17,7 @@ import {
   serializePublicWebsiteMedia,
   serializePublicWebsiteText,
 } from "../storefront/publicContent.js";
-import { serializePublicProductFilterDefinitions } from "../catalog/productFilterAttributes.js";
+import { serializePublicProductFilterDefinitionsFromProducts } from "../catalog/productFilterAttributes.js";
 import {
   publicVlogHeroForCompany,
   publicVlogsForCompany,
@@ -88,7 +88,10 @@ router.get("/content", async (req, res, next) => {
       tenantCategoryRepository.listByCompany(req.companyId),
       tenantBrandRepository.listByCompany(req.companyId),
     ]);
-    const products = publicProducts(req.companyId);
+    const rawProducts = productRepository.getByCompany(req.companyId)
+      .filter((product) => product.isActive !== false && product.active !== false && product.visible !== false);
+    const products = rawProducts.map(serializePublicProduct)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.slug.localeCompare(b.slug));
     const texts = websiteTextsRepository.getByCompany(req.companyId)
       .filter((item) => item.isActive !== false && !item.deletedAt)
       .map((item) => serializePublicWebsiteText(item, req.storefront.locale));
@@ -111,7 +114,7 @@ router.get("/content", async (req, res, next) => {
       brands: brands.filter((brand) => brand.isActive !== false).map(serializePublicBrand),
       categories: categories.filter((category) => category.isActive !== false).map(serializePublicCategory),
       products,
-      filterDefinitions: serializePublicProductFilterDefinitions(),
+      filterDefinitions: serializePublicProductFilterDefinitionsFromProducts(rawProducts),
       texts,
       media,
       vlogs: publicVlogsForCompany(req.company, req.storefront.locale),

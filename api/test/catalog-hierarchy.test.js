@@ -23,7 +23,7 @@ test("normalizeCatalogHierarchyInput trims strings, normalizes exact legacy filt
     mainCategoryId: " main ", subcategoryId: "", manufacturer: "  Acme  ", age: "0-12 months",
     gender: "Boys", quickShop: true,
   });
-  assert.deepEqual(out, { mainCategoryId: "main", subcategoryId: null, manufacturer: "Acme", age: ["0-12m"], gender: "boys", quickShop: true });
+  assert.deepEqual(out, { mainCategoryId: "main", subcategoryId: null, manufacturer: "Acme", age: ["0-12m"], gender: ["boys"], quickShop: true });
   assert.throws(() => normalizeCatalogHierarchyInput({ quickShop: "yes" }), /quickShop must be a boolean/);
   assert.throws(() => normalizeCatalogHierarchyInput({ age: "1-3 years" }), /invalid value/);
   assert.throws(() => normalizeCatalogHierarchyInput({ age: "3-6" }), /invalid value/);
@@ -48,9 +48,13 @@ test("validateCatalogHierarchy accepts a valid Brand -> Main -> Subcategory prod
     subcategoryId: "sub-dresses",
     manufacturer: "Acme",
     age: ["7-9y"],
-    gender: null,
-    skill: null,
-    occasion: null,
+    gender: [],
+    skill: [],
+    occasion: [],
+    material: [],
+    productType: [],
+    theme: [],
+    collection: [],
     quickShop: true,
   });
 });
@@ -110,9 +114,9 @@ test("validateCatalogHierarchy normalizes exact legacy filter values in its resu
     },
   });
   assert.deepEqual(result.age, ["0-12m"]);
-  assert.equal(result.gender, "girls");
-  assert.equal(result.skill, "intermediate");
-  assert.equal(result.occasion, "everyday");
+  assert.deepEqual(result.gender, ["girls"]);
+  assert.deepEqual(result.skill, ["intermediate"]);
+  assert.deepEqual(result.occasion, ["everyday"]);
 });
 
 test("validateCatalogHierarchy rejects unknown/inactive brand and category references", () => {
@@ -193,7 +197,9 @@ test("backward compatible: a lone legacy categoryId validates without a Main Cat
 });
 
 test("PRODUCT_FILTER_KEYS exposes the Kids Velvet filters", () => {
-  assert.deepEqual([...PRODUCT_FILTER_KEYS], ["age", "gender", "skill", "occasion", "quickShop"]);
+  assert.deepEqual([...PRODUCT_FILTER_KEYS], [
+    "age", "gender", "skill", "occasion", "material", "productType", "theme", "collection", "quickShop",
+  ]);
 });
 
 test("products route wires hierarchy normalization and validation into create/update", () => {
@@ -212,7 +218,7 @@ test("storefront product serialization exposes hierarchy, manufacturer, and filt
   assert.match(storefrontSource, /subcategoryId:/);
   assert.match(storefrontSource, /manufacturer: String\(product\.manufacturer/);
   assert.match(storefrontSource, /publicFilterAttribute\("age", product\.age\)/);
-  for (const key of ["gender", "skill", "occasion"]) {
+  for (const key of ["gender", "skill", "occasion", "material", "productType", "theme", "collection"]) {
     assert.match(storefrontSource, new RegExp(`publicFilterAttribute\\("${key}", product\\.${key}\\)`));
   }
   assert.match(storefrontSource, /quickShop: product\.quickShop === true/);

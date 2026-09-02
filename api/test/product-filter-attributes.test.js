@@ -16,6 +16,7 @@ import {
   serializePublicProductFilterAttribute,
   serializePublicProductFilterAttributes,
   serializePublicProductFilterDefinitions,
+  serializePublicProductFilterDefinitionsFromProducts,
 } from "../src/catalog/productFilterAttributes.js";
 import { serializePublicProduct } from "../src/storefront/publicContent.js";
 
@@ -117,15 +118,15 @@ test("gender skill and occasion vocabularies stay clean with stable IDs", () => 
 });
 
 test("gender normalization maps legacy display labels to canonical IDs", () => {
-  assert.equal(normalizeProductFilterAttributeValue("gender", "Boys"), "boys");
-  assert.equal(normalizeProductFilterAttributeValue("gender", "Girls"), "girls");
-  assert.equal(normalizeProductFilterAttributeValue("gender", "unisex"), "unisex");
+  assert.deepEqual(normalizeProductFilterAttributeValue("gender", "Boys"), ["boys"]);
+  assert.deepEqual(normalizeProductFilterAttributeValue("gender", "Girls"), ["girls"]);
+  assert.deepEqual(normalizeProductFilterAttributeValue("gender", "unisex"), ["unisex"]);
 });
 
 test("skill and occasion normalization preserve distinct legacy concepts", () => {
-  assert.equal(normalizeProductFilterAttributeValue("skill", "Beginner"), "beginner");
-  assert.equal(normalizeProductFilterAttributeValue("occasion", "Birthday"), "birthday");
-  assert.equal(normalizeProductFilterAttributeValue("occasion", "Everyday"), "everyday");
+  assert.deepEqual(normalizeProductFilterAttributeValue("skill", "Beginner"), ["beginner"]);
+  assert.deepEqual(normalizeProductFilterAttributeValue("occasion", "Birthday"), ["birthday"]);
+  assert.deepEqual(normalizeProductFilterAttributeValue("occasion", "Everyday"), ["everyday"]);
 });
 
 test("serializePublicProduct preserves ambiguous age and normalizes exact legacy age", () => {
@@ -145,7 +146,7 @@ test("serializePublicProduct preserves ambiguous age and normalizes exact legacy
     gender: "Boys",
   });
   assert.deepEqual(exact.age, ["0-12m"]);
-  assert.equal(exact.gender, "boys");
+  assert.deepEqual(exact.gender, ["boys"]);
 });
 
 test("localized labels are available for canonical IDs", () => {
@@ -171,25 +172,29 @@ test("structured public filter attributes expose canonical id and bilingual labe
     id: "3-4y",
     label: { en: "3–4 Years", ar: "3–4 سنوات" },
   }]);
-  assert.deepEqual(serializePublicProductFilterAttribute("gender", "Boys"), {
+  assert.deepEqual(serializePublicProductFilterAttribute("gender", "Boys"), [{
     id: "boys",
     label: { en: "Boys", ar: "أولاد" },
-  });
+  }]);
 });
 
-test("structured public filter attributes return empty arrays or null for empty values", () => {
+test("structured public filter attributes return empty arrays for empty values", () => {
   assert.deepEqual(serializePublicProductFilterAttribute("age", ""), []);
   assert.deepEqual(serializePublicProductFilterAttribute("age", null), []);
   assert.deepEqual(serializePublicProductFilterAttribute("age", []), []);
-  for (const group of ["gender", "skill", "occasion"]) {
-    assert.equal(serializePublicProductFilterAttribute(group, ""), null);
-    assert.equal(serializePublicProductFilterAttribute(group, null), null);
+  for (const group of ["gender", "skill", "occasion", "material", "productType", "theme", "collection"]) {
+    assert.deepEqual(serializePublicProductFilterAttribute(group, ""), []);
+    assert.deepEqual(serializePublicProductFilterAttribute(group, null), []);
   }
   assert.deepEqual(serializePublicProductFilterAttributes({}), {
     age: [],
-    gender: null,
-    skill: null,
-    occasion: null,
+    gender: [],
+    skill: [],
+    occasion: [],
+    material: [],
+    productType: [],
+    theme: [],
+    collection: [],
   });
 });
 
@@ -225,13 +230,14 @@ test("serializePublicProduct keeps flat fields and adds structured filterAttribu
     options: [{ name: { en: "Color", ar: "اللون" }, values: [{ label: { en: "Red", ar: "أحمر" }, color: "#f00" }] }],
   });
   assert.deepEqual(product.age, ["7-9y"]);
-  assert.equal(product.gender, "unisex");
-  assert.equal(product.skill, "creativity");
-  assert.equal(product.occasion, "birthday");
+  assert.deepEqual(product.gender, ["unisex"]);
+  assert.deepEqual(product.skill, ["creativity"]);
+  assert.deepEqual(product.occasion, ["birthday"]);
   assert.deepEqual(product.filterAttributes.age, [{
     id: "7-9y",
     label: { en: "7–9 Years", ar: "7–9 سنوات" },
   }]);
+  assert.deepEqual(product.filterAttributes.gender[0].id, "unisex");
   assert.equal(product.variants.length, 1);
   assert.equal(product.options.length, 1);
 });
@@ -243,7 +249,9 @@ test("legacy pipe-delimited age strings are read-compatible but normalize to arr
 
 test("public filter definitions expose tenant-generic canonical vocabulary metadata", () => {
   const definitions = serializePublicProductFilterDefinitions();
-  assert.deepEqual(Object.keys(definitions), ["age", "gender", "skill", "occasion"]);
+  assert.deepEqual(Object.keys(definitions), [
+    "age", "gender", "skill", "occasion", "material", "productType", "theme", "collection",
+  ]);
   const ageIds = definitions.age.map((entry) => entry.id);
   assert.deepEqual(ageIds, [
     "0-12m", "1-2y", "3-4y", "5-6y", "7-9y", "10-12y", "13-17y", "adults",
@@ -252,4 +260,23 @@ test("public filter definitions expose tenant-generic canonical vocabulary metad
   assert.ok(!ageIds.includes("13+"));
   assert.ok(definitions.age.some((entry) => entry.id === "13-17y" && entry.label.en === "13–17 Years" && entry.label.ar === "13–17 سنة"));
   assert.ok(definitions.gender.some((entry) => entry.id === "unisex"));
+});
+
+test("tenant-scoped filter definitions include only options used by catalog products", () => {
+  const empty = serializePublicProductFilterDefinitionsFromProducts([
+    { age: [], gender: [], skill: [], occasion: [] },
+  ]);
+  for (const group of PRODUCT_FILTER_ATTRIBUTE_GROUPS) {
+    assert.deepEqual(empty[group], [], `expected empty ${group} definitions`);
+  }
+
+  const scoped = serializePublicProductFilterDefinitionsFromProducts([
+    { age: ["3-6y", "6-10y"], gender: ["boys", "girls"], skill: ["creativity"], collection: ["featured"] },
+  ]);
+  assert.deepEqual(scoped.age.map((entry) => entry.id), ["3-6y", "6-10y"]);
+  assert.deepEqual(scoped.gender.map((entry) => entry.id), ["boys", "girls"]);
+  assert.deepEqual(scoped.skill.map((entry) => entry.id), ["creativity"]);
+  assert.deepEqual(scoped.occasion, []);
+  assert.deepEqual(scoped.collection.map((entry) => entry.id), ["featured"]);
+  assert.ok(!scoped.gender.some((entry) => entry.id === "unisex"));
 });
