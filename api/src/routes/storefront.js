@@ -17,7 +17,7 @@ import {
   serializePublicWebsiteMedia,
   serializePublicWebsiteText,
 } from "../storefront/publicContent.js";
-import { serializePublicProductFilterDefinitions } from "../../../shared/catalog/productFilterAttributes.js";
+import { serializePublicProductFilterDefinitions } from "../catalog/productFilterAttributes.js";
 import {
   publicVlogHeroForCompany,
   publicVlogsForCompany,

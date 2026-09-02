@@ -5,6 +5,7 @@ import test from "node:test";
 const dashboard = fs.readFileSync(new URL("../src/pages/AdminDashboardPage.jsx", import.meta.url), "utf8");
 const utils = fs.readFileSync(new URL("../src/utils/productFilterAttributes.js", import.meta.url), "utf8");
 const shared = fs.readFileSync(new URL("../../shared/catalog/productFilterAttributes.js", import.meta.url), "utf8");
+const canonical = fs.readFileSync(new URL("../../api/src/catalog/productFilterAttributes.js", import.meta.url), "utf8");
 
 test("ProductWizard uses shared canonical filter attribute vocabulary", () => {
   assert.match(dashboard, /from "\.\.\/utils\/productFilterAttributes\.js"/);
@@ -16,16 +17,17 @@ test("ProductWizard uses shared canonical filter attribute vocabulary", () => {
 });
 
 test("active age options exclude overlapping retired canonical ranges", () => {
-  assert.doesNotMatch(shared, /option\("1-3y"/);
-  assert.doesNotMatch(shared, /option\("6-9y"/);
-  assert.doesNotMatch(shared, /option\("9-12y"/);
-  assert.doesNotMatch(shared, /option\("13\+"/);
-  assert.match(shared, /option\("3-6y"/);
-  assert.match(shared, /option\("6-10y"/);
-  assert.match(shared, /option\("0-3y"/);
-  assert.match(shared, /option\("10\+y"/);
-  assert.match(shared, /option\("13-17y"/);
-  assert.match(shared, /option\("7-9y"/);
+  assert.match(shared, /export \* from "\.\.\/\.\.\/api\/src\/catalog\/productFilterAttributes\.js"/);
+  assert.doesNotMatch(canonical, /option\("1-3y"/);
+  assert.doesNotMatch(canonical, /option\("6-9y"/);
+  assert.doesNotMatch(canonical, /option\("9-12y"/);
+  assert.doesNotMatch(canonical, /option\("13\+"/);
+  assert.match(canonical, /option\("3-6y"/);
+  assert.match(canonical, /option\("6-10y"/);
+  assert.match(canonical, /option\("0-3y"/);
+  assert.match(canonical, /option\("10\+y"/);
+  assert.match(canonical, /option\("13-17y"/);
+  assert.match(canonical, /option\("7-9y"/);
 });
 
 test("localized filter attribute options expose canonical IDs only for new products", async () => {

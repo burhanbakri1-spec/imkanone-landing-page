@@ -7,7 +7,7 @@ import {
   ageValuesEqual,
   normalizeProductFilterAttributeForRead,
   normalizeProductFilterAttributeValue,
-} from "../../../shared/catalog/productFilterAttributes.js";
+} from "./productFilterAttributes.js";
 
 export const VELVET_COMPANY_ID = "kids-velvet";
 export const VELVET_SITE_ID = "kids-velvet-storefront";

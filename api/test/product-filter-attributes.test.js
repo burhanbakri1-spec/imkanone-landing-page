@@ -16,7 +16,7 @@ import {
   serializePublicProductFilterAttribute,
   serializePublicProductFilterAttributes,
   serializePublicProductFilterDefinitions,
-} from "../../shared/catalog/productFilterAttributes.js";
+} from "../src/catalog/productFilterAttributes.js";
 import { serializePublicProduct } from "../src/storefront/publicContent.js";
 
 test("active age vocabulary is non-overlapping and fully localized", () => {

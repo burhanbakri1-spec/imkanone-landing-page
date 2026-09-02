@@ -17,7 +17,7 @@
 import {
   PRODUCT_FILTER_ATTRIBUTE_GROUPS,
   normalizeProductFilterAttributeValue,
-} from "../../../shared/catalog/productFilterAttributes.js";
+} from "../catalog/productFilterAttributes.js";
 
 const FILTER_KEYS = [...PRODUCT_FILTER_ATTRIBUTE_GROUPS];
 const BOOLEAN_FILTER_KEYS = ["quickShop"];
