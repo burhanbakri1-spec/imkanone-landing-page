@@ -52,10 +52,7 @@ const safeOption = (option = {}) => ({
 });
 
 function publicFilterAttribute(group, value) {
-  if (group === "age") {
-    return normalizeProductFilterAttributeForRead("age", value);
-  }
-  return normalizeProductFilterAttributeForRead(group, value) || "";
+  return normalizeProductFilterAttributeForRead(group, value);
 }
 
 export function serializePublicProduct(product = {}) {
@@ -94,11 +91,15 @@ export function serializePublicProduct(product = {}) {
     mainCategoryId: product.mainCategoryId ? String(product.mainCategoryId) : null,
     subcategoryId: product.subcategoryId ? String(product.subcategoryId) : (product.categoryId ? String(product.categoryId) : null),
     manufacturer: String(product.manufacturer || ""),
-    // Kids Velvet product filters.
+    // Product-level catalog filters.
     age: publicFilterAttribute("age", product.age),
     gender: publicFilterAttribute("gender", product.gender),
     skill: publicFilterAttribute("skill", product.skill),
     occasion: publicFilterAttribute("occasion", product.occasion),
+    material: publicFilterAttribute("material", product.material),
+    productType: publicFilterAttribute("productType", product.productType),
+    theme: publicFilterAttribute("theme", product.theme),
+    collection: publicFilterAttribute("collection", product.collection),
     filterAttributes: serializePublicProductFilterAttributes(product),
     quickShop: product.quickShop === true,
     image: safeUrl(product.image || product.primaryImage),

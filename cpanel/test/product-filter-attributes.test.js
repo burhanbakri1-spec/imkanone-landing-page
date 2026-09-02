@@ -10,7 +10,8 @@ const canonical = fs.readFileSync(new URL("../../api/src/catalog/productFilterAt
 test("ProductWizard uses shared canonical filter attribute vocabulary", () => {
   assert.match(dashboard, /from "\.\.\/utils\/productFilterAttributes\.js"/);
   assert.match(dashboard, /getLocalizedFilterAttributeOptions\("age"/);
-  assert.match(dashboard, /toggleAge\(/);
+  assert.match(dashboard, /toggleFilterAttribute\(/);
+  assert.match(dashboard, /PRODUCT_FILTER_FORM_GROUPS/);
   assert.match(dashboard, /requiresCanonicalAgeSelection\(form\.age\)/);
   assert.doesNotMatch(dashboard, /"1-3 years"/);
   assert.doesNotMatch(dashboard, /\["Boys", "Girls", "Unisex"\]/);
@@ -55,4 +56,6 @@ test("exact legacy age resolves to canonical form value for editing", async () =
   assert.deepEqual(resolveProductFilterAttributeForForm("age", "0-12 months"), ["0-12m"]);
   assert.deepEqual(resolveProductFilterAttributeForForm("age", "1-3 years"), ["1-3 years"]);
   assert.deepEqual(resolveProductFilterAttributeForForm("age", ["3-6y", "6-10y"]), ["3-6y", "6-10y"]);
+  assert.deepEqual(resolveProductFilterAttributeForForm("gender", "boys"), ["boys"]);
+  assert.deepEqual(resolveProductFilterAttributeForForm("skill", ["construction-creativity"]), ["construction-creativity"]);
 });

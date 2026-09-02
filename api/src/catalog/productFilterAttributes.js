@@ -1,16 +1,26 @@
 /**
  * Canonical product filter attribute vocabulary.
  *
- * Single source of truth for product-level catalog filters (age, gender, skill,
- * occasion). Persisted product values MUST be stable machine IDs from this
- * module — never localized display labels.
+ * Single source of truth for product-level catalog filters. Persisted product
+ * values MUST be stable machine IDs from this module — never localized labels.
  *
- * Age is multi-value and persists as a canonical ID array.
+ * All product filter dimensions persist as canonical ID arrays.
  *
  * Browser-safe (no Node-only APIs).
  */
 
-export const PRODUCT_FILTER_ATTRIBUTE_GROUPS = Object.freeze(["age", "gender", "skill", "occasion"]);
+export const PRODUCT_FILTER_ATTRIBUTE_GROUPS = Object.freeze([
+  "age",
+  "gender",
+  "skill",
+  "occasion",
+  "material",
+  "productType",
+  "theme",
+  "collection",
+]);
+
+export const MULTI_VALUE_PRODUCT_FILTER_GROUPS = PRODUCT_FILTER_ATTRIBUTE_GROUPS;
 
 function option(id, en, ar) {
   return Object.freeze({ id, label: Object.freeze({ en, ar }) });
@@ -52,6 +62,11 @@ export const PRODUCT_FILTER_ATTRIBUTE_OPTIONS = Object.freeze({
     option("beginner", "Beginner", "مبتدئ"),
     option("intermediate", "Intermediate", "متوسط"),
     option("advanced", "Advanced", "متقدم"),
+    option("education-skills-intelligence", "Education, Skills & Intelligence", "ألعاب تعليم و تنمية مهارات وذكاء"),
+    option("intelligence-challenge-discovery", "Intelligence, Challenge & Discovery", "ألعاب ذكاء، تحدي واكتشاف"),
+    option("role-play-imagination", "Role Play & Imagination", "الألعاب التمثيلية والخيال"),
+    option("construction-creativity", "Construction & Creativity", "ألعاب التركيب والإبداع"),
+    option("school-education", "School & Education", "مدرسة وتعليم"),
   ]),
   occasion: Object.freeze([
     option("birthday", "Birthday", "عيد ميلاد"),
@@ -63,6 +78,34 @@ export const PRODUCT_FILTER_ATTRIBUTE_OPTIONS = Object.freeze({
     option("newbaby", "New Baby", "مولود جديد"),
     option("gift", "Gift", "هدية"),
     option("festive", "Festive", "احتفالي"),
+  ]),
+  material: Object.freeze([
+    option("wood", "Wood", "خشبيات"),
+  ]),
+  productType: Object.freeze([
+    option("lego", "Lego", "ليجو"),
+    option("lego-models", "Lego Models", "ليجو المجسمات"),
+    option("puzzles", "Puzzles", "بازلات"),
+    option("books-stories", "Books & Stories", "كتب وقصص"),
+    option("play-houses-kitchens-tents", "Play Houses, Kitchens & Tents", "مطابخ وبيوت وخيم"),
+    option("nursery-room-supplies", "Nursery Room Supplies", "مستلزمات غرفة الأطفال"),
+    option("newborn-supplies", "Newborn Supplies", "مستلزمات حديثي الولادة"),
+    option("baby-newborn-supplies", "Baby & Newborn Supplies", "مستلزمات أطفال وحديثي ولادة"),
+    option("costume-dress-up", "Costume Dress-Up", "أزياء تنكرية"),
+    option("baby-care", "Baby Care", "العناية بالأطفال"),
+    option("bundles", "Bundles", "بكجات"),
+  ]),
+  theme: Object.freeze([
+    option("muslim-world", "Little Muslim World", "عالم المسلم الصغير"),
+    option("summer-outdoor", "Summer & Outdoor Play", "ألعاب صيفية وخارجية"),
+    option("family-play", "Family Play", "ألعاب عائلية"),
+  ]),
+  collection: Object.freeze([
+    option("featured", "Featured Toys", "ألعاب مميزة"),
+    option("new-arrivals", "New Arrivals", "وصل حديثا"),
+    option("promotions-discounts", "Promotions & Discounts", "عروض وخصومات"),
+    option("ramadan-clearance", "Ramadan Clearance", "عروض نهاية الكمية رمضان"),
+    option("new-year-promotions", "New Year Promotions", "عروضات رأس السنة"),
   ]),
 });
 
@@ -98,8 +141,11 @@ const legacyAliasesByGroup = Object.fromEntries(
   PRODUCT_FILTER_ATTRIBUTE_GROUPS.map((group) => [group, buildLegacyAliasMap(group)]),
 );
 
-const ageSortOrder = new Map(
-  PRODUCT_FILTER_ATTRIBUTE_OPTIONS.age.map((entry, index) => [entry.id, index]),
+const sortOrderByGroup = Object.fromEntries(
+  PRODUCT_FILTER_ATTRIBUTE_GROUPS.map((group) => [
+    group,
+    new Map(PRODUCT_FILTER_ATTRIBUTE_OPTIONS[group].map((entry, index) => [entry.id, index])),
+  ]),
 );
 
 function normalizeLookupKey(value) {
@@ -140,6 +186,8 @@ function buildLegacyAliasMap(group) {
     add(["boys", "boy"], "boys");
     add(["girls", "girl"], "girls");
     add(["unisex"], "unisex");
+    add(["ألعاب أولاد"], "boys");
+    add(["ألعاب بنات"], "girls");
   }
 
   if (group === "skill") {
@@ -177,6 +225,10 @@ export function isProductFilterAttributeGroup(group) {
   return PRODUCT_FILTER_ATTRIBUTE_GROUPS.includes(group);
 }
 
+export function isMultiValueProductFilterGroup(group) {
+  return MULTI_VALUE_PRODUCT_FILTER_GROUPS.includes(group);
+}
+
 export function getProductFilterAttributeOptions(group) {
   if (!isProductFilterAttributeGroup(group)) return [];
   return PRODUCT_FILTER_ATTRIBUTE_OPTIONS[group];
@@ -209,129 +261,101 @@ function resolveLegacyAlias(group, value) {
   return legacyAliasesByGroup[group].get(normalizeLookupKey(value)) || null;
 }
 
-function isPipeSeparatedAgeValue(value) {
+function isPipeSeparatedValue(value) {
   return typeof value === "string" && value.includes("|");
 }
 
 export function isMultiValueAge(value) {
   if (Array.isArray(value)) return value.length > 1;
-  return isPipeSeparatedAgeValue(value);
+  return isPipeSeparatedValue(value);
 }
 
-function coerceAgeInputParts(value) {
+function coerceFilterInputParts(group, value) {
   if (value === null || value === undefined || value === "") return [];
   if (Array.isArray(value)) {
-    return value.flatMap((entry) => coerceAgeInputParts(entry));
+    return value.flatMap((entry) => coerceFilterInputParts(group, entry));
   }
   if (typeof value !== "string" || !value.trim()) return [];
   const trimmed = value.trim();
-  if (isPipeSeparatedAgeValue(trimmed)) {
+  if (group === "age" && isPipeSeparatedValue(trimmed)) {
     return trimmed.split("|").map((part) => part.trim()).filter(Boolean);
   }
   return [trimmed];
 }
 
-function normalizeSingleAgePart(part, { strict = true } = {}) {
-  if (canonicalIdsByGroup.age.has(part)) return part;
+function normalizeSingleFilterPart(group, part, { strict = true } = {}) {
+  if (canonicalIdsByGroup[group].has(part)) return part;
 
-  if (isAmbiguousLegacyAgeValue(part)) {
-    if (strict) throw new Error("age contains an invalid value.");
+  if (group === "age" && isAmbiguousLegacyAgeValue(part)) {
+    if (strict) throw new Error(`${group} contains an invalid value.`);
     return part;
   }
 
-  const exactAge = resolveExactLegacyAge(part);
-  if (exactAge) return exactAge;
+  if (group === "age") {
+    const exactAge = resolveExactLegacyAge(part);
+    if (exactAge) return exactAge;
+  }
 
-  const mapped = resolveLegacyAlias("age", part);
-  if (mapped && canonicalIdsByGroup.age.has(mapped)) return mapped;
+  const mapped = resolveLegacyAlias(group, part);
+  if (mapped && canonicalIdsByGroup[group].has(mapped)) return mapped;
 
-  if (strict) throw new Error("age contains an invalid value.");
+  if (strict) throw new Error(`${group} contains an invalid value.`);
   return part;
 }
 
-function sortAgeIds(ids = []) {
-  return [...ids].sort((left, right) => (ageSortOrder.get(left) ?? 999) - (ageSortOrder.get(right) ?? 999));
+function sortFilterIds(group, ids = []) {
+  const order = sortOrderByGroup[group];
+  return [...ids].sort((left, right) => (order.get(left) ?? 999) - (order.get(right) ?? 999));
 }
 
-export function normalizeAgeArray(value, { strict = true } = {}) {
-  const parts = coerceAgeInputParts(value);
+export function normalizeFilterAttributeArray(group, value, { strict = true } = {}) {
+  if (!isProductFilterAttributeGroup(group)) {
+    throw new Error(`Unknown product filter attribute group: ${group}`);
+  }
+
+  const parts = coerceFilterInputParts(group, value);
   if (!parts.length) return [];
 
   const normalized = [];
   for (const part of parts) {
-    const resolved = normalizeSingleAgePart(part, { strict });
+    const resolved = normalizeSingleFilterPart(group, part, { strict });
     if (resolved && !normalized.includes(resolved)) normalized.push(resolved);
   }
 
-  return sortAgeIds(normalized);
+  return sortFilterIds(group, normalized);
+}
+
+export function normalizeAgeArray(value, options = {}) {
+  return normalizeFilterAttributeArray("age", value, options);
+}
+
+export function filterAttributeValuesEqual(group, left, right) {
+  return JSON.stringify(normalizeProductFilterAttributeForRead(group, left))
+    === JSON.stringify(normalizeProductFilterAttributeForRead(group, right));
 }
 
 export function ageValuesEqual(left, right) {
-  return JSON.stringify(normalizeAgeArray(left, { strict: false }))
-    === JSON.stringify(normalizeAgeArray(right, { strict: false }));
+  return filterAttributeValuesEqual("age", left, right);
 }
 
-/**
- * Normalize a stored or incoming filter value for writes.
- * Age returns a canonical ID array; other groups return a string or null.
- */
 export function normalizeProductFilterAttributeValue(group, value, { strict = true } = {}) {
   if (!isProductFilterAttributeGroup(group)) {
     throw new Error(`Unknown product filter attribute group: ${group}`);
   }
 
-  if (group === "age") {
-    if (value === null || value === undefined || value === "") return [];
-    if (Array.isArray(value) && value.length === 0) return [];
-    return normalizeAgeArray(value, { strict });
-  }
-
-  if (value === null || value === undefined || value === "") return null;
-  if (typeof value !== "string" || !value.trim()) {
-    if (strict) throw new Error(`${group} must be a non-empty string or empty.`);
-    return null;
-  }
-
-  const trimmed = value.trim();
-  if (trimmed.length > 240) {
-    if (strict) throw new Error(`${group} must be 240 characters or fewer.`);
-    return trimmed;
-  }
-
-  if (canonicalIdsByGroup[group].has(trimmed)) return trimmed;
-
-  const mapped = resolveLegacyAlias(group, trimmed);
-  if (mapped && canonicalIdsByGroup[group].has(mapped)) return mapped;
-
-  if (strict) throw new Error(`${group} contains an invalid value.`);
-  return trimmed;
+  if (value === null || value === undefined || value === "") return [];
+  if (Array.isArray(value) && value.length === 0) return [];
+  return normalizeFilterAttributeArray(group, value, { strict });
 }
 
-/** Read path: age returns a canonical ID array; other groups return a string. */
 export function normalizeProductFilterAttributeForRead(group, value) {
-  if (group === "age") {
-    if (value === null || value === undefined || value === "") return [];
-    return normalizeAgeArray(value, { strict: false });
-  }
-
-  if (value === null || value === undefined || value === "") return "";
-  if (typeof value !== "string" || !value.trim()) return "";
-
-  const trimmed = value.trim();
-  if (canonicalIdsByGroup[group].has(trimmed)) return trimmed;
-
-  const mapped = resolveLegacyAlias(group, trimmed);
-  if (mapped && canonicalIdsByGroup[group].has(mapped)) return mapped;
-
-  return trimmed;
+  if (!isProductFilterAttributeGroup(group)) return [];
+  if (value === null || value === undefined || value === "") return [];
+  return normalizeFilterAttributeArray(group, value, { strict: false });
 }
 
-/** Resolve a stored product value for CPanel controls. */
 export function resolveProductFilterAttributeForForm(group, value) {
-  if (group === "age") {
-    return normalizeProductFilterAttributeForRead("age", value);
-  }
-  return normalizeProductFilterAttributeForRead(group, value) || "";
+  return normalizeProductFilterAttributeForRead(group, value);
 }
 
 export function requiresCanonicalAgeSelection(value) {
@@ -370,10 +394,11 @@ function resolveCanonicalFilterAttributeId(group, rawValue) {
   return null;
 }
 
-function serializePublicAgeFilterAttributes(rawValue) {
-  const ids = normalizeAgeArray(rawValue, { strict: false }).filter((id) => canonicalIdsByGroup.age.has(id));
+function serializePublicFilterArray(group, rawValue) {
+  const ids = normalizeFilterAttributeArray(group, rawValue, { strict: false })
+    .filter((id) => canonicalIdsByGroup[group].has(id));
   return ids.map((id) => {
-    const entry = getProductFilterAttributeOptions("age").find((item) => item.id === id);
+    const entry = getProductFilterAttributeOptions(group).find((item) => item.id === id);
     return {
       id: entry.id,
       label: {
@@ -386,28 +411,11 @@ function serializePublicAgeFilterAttributes(rawValue) {
 
 /** Structured public storefront attribute(s) with canonical id + localized labels. */
 export function serializePublicProductFilterAttribute(group, rawValue) {
-  if (!isProductFilterAttributeGroup(group)) return group === "age" ? [] : null;
-
-  if (group === "age") {
-    return serializePublicAgeFilterAttributes(rawValue);
-  }
-
-  const canonicalId = resolveCanonicalFilterAttributeId(group, rawValue);
-  if (!canonicalId) return null;
-
-  const entry = getProductFilterAttributeOptions(group).find((item) => item.id === canonicalId);
-  if (!entry) return null;
-
-  return {
-    id: entry.id,
-    label: {
-      en: entry.label.en,
-      ar: entry.label.ar,
-    },
-  };
+  if (!isProductFilterAttributeGroup(group)) return [];
+  return serializePublicFilterArray(group, rawValue);
 }
 
-/** Reusable storefront filter vocabulary metadata for all canonical options. */
+/** Full canonical storefront filter vocabulary (admin / shared tooling). */
 export function serializePublicProductFilterDefinitions() {
   return Object.fromEntries(
     PRODUCT_FILTER_ATTRIBUTE_GROUPS.map((group) => [
@@ -423,11 +431,50 @@ export function serializePublicProductFilterDefinitions() {
   );
 }
 
+/**
+ * Tenant-scoped storefront filter definitions: only options referenced by the
+ * supplied catalog products. Empty dimensions stay empty arrays.
+ */
+export function serializePublicProductFilterDefinitionsFromProducts(products = []) {
+  const usedIdsByGroup = Object.fromEntries(
+    PRODUCT_FILTER_ATTRIBUTE_GROUPS.map((group) => [group, new Set()]),
+  );
+
+  for (const product of products) {
+    if (!product || typeof product !== "object") continue;
+    for (const group of PRODUCT_FILTER_ATTRIBUTE_GROUPS) {
+      const ids = normalizeProductFilterAttributeForRead(group, product[group]);
+      for (const id of ids) {
+        if (canonicalIdsByGroup[group].has(id)) usedIdsByGroup[group].add(id);
+      }
+    }
+  }
+
+  return Object.fromEntries(
+    PRODUCT_FILTER_ATTRIBUTE_GROUPS.map((group) => {
+      const usedIds = usedIdsByGroup[group];
+      if (!usedIds.size) return [group, []];
+      return [
+        group,
+        getProductFilterAttributeOptions(group)
+          .filter((entry) => usedIds.has(entry.id))
+          .map((entry) => ({
+            id: entry.id,
+            label: {
+              en: entry.label.en,
+              ar: entry.label.ar,
+            },
+          })),
+      ];
+    }),
+  );
+}
+
 export function serializePublicProductFilterAttributes(product = {}) {
-  return {
-    age: serializePublicAgeFilterAttributes(product.age),
-    gender: serializePublicProductFilterAttribute("gender", product.gender),
-    skill: serializePublicProductFilterAttribute("skill", product.skill),
-    occasion: serializePublicProductFilterAttribute("occasion", product.occasion),
-  };
+  return Object.fromEntries(
+    PRODUCT_FILTER_ATTRIBUTE_GROUPS.map((group) => [
+      group,
+      serializePublicFilterArray(group, product[group]),
+    ]),
+  );
 }

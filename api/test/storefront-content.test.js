@@ -102,19 +102,22 @@ test("storefront content exposes entity-owned media directly on the entity", asy
   assert.equal(body.products[0].usageVideoPoster, "https://cdn.example/play-one-usage-poster.jpg");
 });
 
-test("storefront content exposes reusable filterDefinitions from canonical vocabulary", async () => {
+test("storefront filterDefinitions are tenant-scoped to options used by active products", async () => {
   const { response, body } = await request("/content?locale=en");
   assert.equal(response.status, 200);
   assert.ok(body.filterDefinitions);
-  assert.ok(Array.isArray(body.filterDefinitions.age));
-  const ageIds = body.filterDefinitions.age.map((entry) => entry.id);
-  assert.deepEqual(ageIds, [
-    "0-12m", "1-2y", "3-4y", "5-6y", "7-9y", "10-12y", "13-17y", "adults",
-    "0-3y", "3-6y", "6-10y", "10+y",
-  ]);
-  assert.ok(!ageIds.includes("13+"));
-  assert.ok(body.filterDefinitions.age.some((entry) => entry.id === "13-17y" && entry.label.en === "13–17 Years"));
-  assert.ok(body.filterDefinitions.gender.some((entry) => entry.id === "unisex"));
+  for (const group of ["age", "gender", "skill", "occasion", "material", "productType", "theme", "collection"]) {
+    assert.ok(Array.isArray(body.filterDefinitions[group]));
+    assert.equal(body.filterDefinitions[group].length, 0, `expected no unused ${group} options`);
+  }
+
+  const otherShop = await request("/content?locale=en", {
+    companyId: "other-shop",
+    siteId: "other-shop-storefront",
+    origin: "https://other-shop.example",
+  });
+  assert.equal(otherShop.response.status, 200);
+  assert.deepEqual(otherShop.body.filterDefinitions.age, []);
 });
 
 test("public products expose structured filterAttributes without removing flat fields", async () => {
@@ -125,11 +128,13 @@ test("public products expose structured filterAttributes without removing flat f
   assert.equal("gender" in product, true);
   assert.equal("skill" in product, true);
   assert.equal("occasion" in product, true);
+  assert.equal("collection" in product, true);
   assert.ok(product.filterAttributes);
   assert.deepEqual(product.filterAttributes.age, []);
-  assert.equal(product.filterAttributes.gender, null);
-  assert.equal(product.filterAttributes.skill, null);
-  assert.equal(product.filterAttributes.occasion, null);
+  assert.deepEqual(product.filterAttributes.gender, []);
+  assert.deepEqual(product.filterAttributes.skill, []);
+  assert.deepEqual(product.filterAttributes.occasion, []);
+  assert.deepEqual(product.filterAttributes.material, []);
 });
 
 test("storefront content exposes managed vlogs from company website content settings", async () => {

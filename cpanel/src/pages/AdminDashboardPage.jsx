@@ -64,12 +64,27 @@ import {
   sortDashboardActivity,
 } from "../utils/dashboardHome.js";
 
-const storageKeys = {
-  inventory: "inventory",
-  movements: "stockMovements",
-  settings: "settings",
-  stores: "stores",
-};
+const PRODUCT_FILTER_FORM_GROUPS = Object.freeze([
+  "age",
+  "gender",
+  "skill",
+  "occasion",
+  "material",
+  "productType",
+  "theme",
+  "collection",
+]);
+
+const PRODUCT_FILTER_FORM_LABELS = Object.freeze({
+  age: { en: "Age", ar: "العمر" },
+  gender: { en: "Gender", ar: "الجنس" },
+  skill: { en: "Skill", ar: "المهارة" },
+  occasion: { en: "Occasion", ar: "المناسبة" },
+  material: { en: "Material", ar: "المادة" },
+  productType: { en: "Product Type", ar: "نوع المنتج" },
+  theme: { en: "Theme", ar: "الموضوع" },
+  collection: { en: "Collection", ar: "المجموعة" },
+});
 
 const pageMeta = {
   admin: ["Dashboard", "Overview of your store performance"],
@@ -352,10 +367,10 @@ function createProductFromForm(form) {
     mainCategoryId: form.mainCategoryId || null,
     subcategoryId: form.subcategoryId || null,
     manufacturer: form.manufacturer || "",
-    age: normalizeProductFilterAttributeValue("age", form.age),
-    gender: form.gender || "",
-    skill: form.skill || "",
-    occasion: form.occasion || "",
+    ...Object.fromEntries(PRODUCT_FILTER_FORM_GROUPS.map((group) => [
+      group,
+      normalizeProductFilterAttributeValue(group, form[group]),
+    ])),
     quickShop: Boolean(form.quickShop),
 
     longDescription: createLocalizedCopy(form.fullDescription, form.fullDescriptionAr || form.fullDescription || form.shortDescription),
@@ -1321,10 +1336,10 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
     subcategoryId: editingProduct?.subcategoryId || "",
     mainCategoryId: editingProduct?.mainCategoryId || resolveMainCategoryFor(categories, editingProduct?.mainCategoryId, editingProduct?.subcategoryId || ""),
     manufacturer: editingProduct?.manufacturer || "",
-    age: resolveProductFilterAttributeForForm("age", editingProduct?.age),
-    gender: resolveProductFilterAttributeForForm("gender", editingProduct?.gender),
-    skill: resolveProductFilterAttributeForForm("skill", editingProduct?.skill),
-    occasion: resolveProductFilterAttributeForForm("occasion", editingProduct?.occasion),
+    ...Object.fromEntries(PRODUCT_FILTER_FORM_GROUPS.map((group) => [
+      group,
+      resolveProductFilterAttributeForForm(group, editingProduct?.[group]),
+    ])),
     quickShop: Boolean(editingProduct?.quickShop),
 
     size: editingProduct?.sizes?.[0]?.size || "500ml",
@@ -1472,22 +1487,26 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
     });
   }
 
-  function toggleAge(ageId, checked) {
+  function toggleFilterAttribute(group, valueId, checked) {
     setFieldErrors((current) => {
-      if (!current.age) return current;
+      if (!current[group]) return current;
       const next = { ...current };
-      delete next.age;
+      delete next[group];
       return next;
     });
     setForm((current) => {
-      const selected = Array.isArray(current.age)
-        ? current.age
-        : (current.age ? [current.age] : []);
-      const nextAge = checked
-        ? [...new Set([...selected.filter((entry) => entry !== ageId), ageId])]
-        : selected.filter((entry) => entry !== ageId);
-      return { ...current, age: nextAge };
+      const selected = Array.isArray(current[group])
+        ? current[group]
+        : (current[group] ? [current[group]] : []);
+      const nextValues = checked
+        ? [...new Set([...selected.filter((entry) => entry !== valueId), valueId])]
+        : selected.filter((entry) => entry !== valueId);
+      return { ...current, [group]: nextValues };
     });
+  }
+
+  function toggleAge(ageId, checked) {
+    toggleFilterAttribute("age", ageId, checked);
   }
   function changeBrand(event) {
     const brandId = event.target.value;
@@ -1962,37 +1981,36 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
                   <label>{t("productForm.longDescriptionEn")}<textarea dir="ltr" disabled={readOnly} name="fullDescription" value={form.fullDescription} onChange={change} /></label>
                   <label>{t("productForm.longDescriptionAr")}<textarea dir="rtl" disabled={readOnly} name="fullDescriptionAr" value={form.fullDescriptionAr} onChange={change} /></label>
                   <label>Manufacturer<input disabled={readOnly} name="manufacturer" value={form.manufacturer || ""} onChange={change} /></label>
-                  <div className="full-field">
-                    <span>{ar ? "العمر" : "Age"}</span>
-                    <div className="admin-checkbox-grid">
-                      {getLocalizedFilterAttributeOptions("age", language).map((option) => (
-                        <label className="checkbox-line" key={option.id}>
-                          <input
-                            disabled={readOnly}
-                            type="checkbox"
-                            checked={Array.isArray(form.age) ? form.age.includes(option.id) : false}
-                            onChange={(event) => toggleAge(option.id, event.target.checked)}
-                          />
-                          {option.label}
-                        </label>
+                  {PRODUCT_FILTER_FORM_GROUPS.map((group) => (
+                    <div className="full-field" key={group}>
+                      <span>{ar ? PRODUCT_FILTER_FORM_LABELS[group].ar : PRODUCT_FILTER_FORM_LABELS[group].en}</span>
+                      <div className="admin-checkbox-grid">
+                        {getLocalizedFilterAttributeOptions(group, language).map((option) => (
+                          <label className="checkbox-line" key={option.id}>
+                            <input
+                              disabled={readOnly}
+                              type="checkbox"
+                              checked={Array.isArray(form[group]) ? form[group].includes(option.id) : false}
+                              onChange={(event) => toggleFilterAttribute(group, option.id, event.target.checked)}
+                            />
+                            {option.label}
+                          </label>
+                        ))}
+                      </div>
+                      {group === "age" && Array.isArray(form.age) && form.age.filter((entry) => !getLocalizedFilterAttributeOptions("age", language).some((option) => option.id === entry)).map((legacyValue) => (
+                        <span className="admin-note" key={legacyValue}>
+                          {ar
+                            ? `قيمة عمر قديمة: ${legacyValue}. أزلها واختر نطاقًا معتمدًا قبل الحفظ.`
+                            : `Legacy age value: ${legacyValue}. Remove it and choose canonical ranges before saving.`}
+                        </span>
                       ))}
+                      {group === "age" && requiresCanonicalAgeSelection(form.age) && (
+                        <span className="admin-note">
+                          {ar ? "هذه قيمة عمر قديمة غير دقيقة. اختر نطاقًا معتمدًا قبل الحفظ." : "This legacy age range is ambiguous. Choose a canonical range before saving."}
+                        </span>
+                      )}
                     </div>
-                    {Array.isArray(form.age) && form.age.filter((entry) => !getLocalizedFilterAttributeOptions("age", language).some((option) => option.id === entry)).map((legacyValue) => (
-                      <span className="admin-note" key={legacyValue}>
-                        {ar
-                          ? `قيمة عمر قديمة: ${legacyValue}. أزلها واختر نطاقًا معتمدًا قبل الحفظ.`
-                          : `Legacy age value: ${legacyValue}. Remove it and choose canonical ranges before saving.`}
-                      </span>
-                    ))}
-                    {requiresCanonicalAgeSelection(form.age) && (
-                      <span className="admin-note">
-                        {ar ? "هذه قيمة عمر قديمة غير دقيقة. اختر نطاقًا معتمدًا قبل الحفظ." : "This legacy age range is ambiguous. Choose a canonical range before saving."}
-                      </span>
-                    )}
-                  </div>
-                  <label>{ar ? "الجنس" : "Gender"}<select disabled={readOnly} name="gender" value={form.gender || ""} onChange={change}><option value="">{ar ? "أي" : "Any"}</option>{getLocalizedFilterAttributeOptionsForSelect("gender", language, form.gender || "").map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
-                  <label>{ar ? "المهارة" : "Skill"}<select disabled={readOnly} name="skill" value={form.skill || ""} onChange={change}><option value="">{ar ? "أي" : "Any"}</option>{getLocalizedFilterAttributeOptionsForSelect("skill", language, form.skill || "").map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
-                  <label>{ar ? "المناسبة" : "Occasion"}<select disabled={readOnly} name="occasion" value={form.occasion || ""} onChange={change}><option value="">{ar ? "أي" : "Any"}</option>{getLocalizedFilterAttributeOptionsForSelect("occasion", language, form.occasion || "").map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+                  ))}
                   <div className="admin-checkbox-grid full-field">
                     <label className="checkbox-line"><input disabled={readOnly} name="quickShop" type="checkbox" checked={Boolean(form.quickShop)} onChange={change} />Quick Shop</label>
                     {["featured", "newArrival", "bestseller"].map((field) => (
