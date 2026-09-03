@@ -7,7 +7,7 @@ import {
 import { optionalAuth, requireAnyPermission, requireAuth } from "../middleware/auth.js";
 import { isProductSettingsModuleEnabled } from "../tenancy/company.js";
 import {
-  defaultProductSchema,
+  resolveDefaultProductSchema,
   sanitizeProductSchema,
 } from "../productSchema/schema.js";
 
@@ -17,7 +17,7 @@ export const adminProductSchemaRouter = Router();
 function schemaForCompany(companyId) {
   const record = companyProductSchemaRepository.findByCompany(companyId, (item) => item.id === `product-schema-${companyId}`)
     || companyProductSchemaRepository.findByCompany(companyId, () => true);
-  return record?.schema || defaultProductSchema();
+  return record?.schema || resolveDefaultProductSchema(companyId);
 }
 
 publicProductSchemaRouter.get("/", optionalAuth, (req, res) => {

@@ -47,9 +47,91 @@ const safeOption = (option = {}) => ({
     label: localized(value.label || { en: value.labelEn, ar: value.labelAr }),
     color: String(value.color || "").slice(0, 32),
     priceDelta: finiteNumber(value.priceDelta, 0),
-    image: safeUrl(value.image),
+    image: safeUrl(value.image || value.imageUrl || value.image_url),
   })),
 });
+
+function localizedTextKey(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return String(value.en || value.ar || "").trim().toLowerCase();
+  }
+  return String(value || "").trim().toLowerCase();
+}
+
+/** Derive Color/Size options (with color images) from real variant combinations. */
+export function deriveProductOptionsFromVariants(variants = []) {
+  const colors = new Map();
+  const sizes = new Map();
+
+  for (const variant of variants) {
+    const colorName = localized(variant.colorName || variant.color_name || "");
+    const colorKey = localizedTextKey(colorName) || String(variant.colorValue || variant.color_value || "").trim().toLowerCase();
+    const image = safeUrl(variant.image || variant.imageUrl || variant.image_url);
+    if (colorKey) {
+      const existing = colors.get(colorKey);
+      if (!existing) {
+        colors.set(colorKey, {
+          label: colorName,
+          color: String(variant.colorValue || variant.color_value || "").slice(0, 32),
+          priceDelta: 0,
+          image,
+        });
+      } else if (!existing.image && image) {
+        existing.image = image;
+      }
+    }
+
+    const sizeLabel = localized(variant.size || "");
+    const sizeKey = localizedTextKey(sizeLabel);
+    if (sizeKey && !sizes.has(sizeKey)) {
+      sizes.set(sizeKey, {
+        label: sizeLabel,
+        color: "",
+        priceDelta: 0,
+        image: "",
+      });
+    }
+  }
+
+  const options = [];
+  if (colors.size) {
+    options.push({
+      name: { en: "Color", ar: "اللون" },
+      values: [...colors.values()],
+    });
+  }
+  if (sizes.size) {
+    options.push({
+      name: { en: "Size", ar: "الحجم" },
+      values: [...sizes.values()],
+    });
+  }
+  return options;
+}
+
+function enrichOptionsWithVariantImages(options = [], variants = []) {
+  if (!options.length) return deriveProductOptionsFromVariants(variants);
+  const imageByColor = new Map();
+  for (const variant of variants) {
+    const colorKey = localizedTextKey(variant.colorName || variant.color_name)
+      || String(variant.colorValue || variant.color_value || "").trim().toLowerCase();
+    const image = safeUrl(variant.image || variant.imageUrl || variant.image_url);
+    if (colorKey && image && !imageByColor.has(colorKey)) imageByColor.set(colorKey, image);
+  }
+  return options.map((option) => {
+    const nameKey = localizedTextKey(option.name);
+    const isColorOption = nameKey === "color" || nameKey === "اللون" || option.values?.some((value) => value.color);
+    if (!isColorOption) return option;
+    return {
+      ...option,
+      values: (option.values || []).map((value) => {
+        if (value.image) return value;
+        const key = localizedTextKey(value.label) || String(value.color || "").trim().toLowerCase();
+        return { ...value, image: imageByColor.get(key) || "" };
+      }),
+    };
+  });
+}
 
 function publicFilterAttribute(group, value) {
   return normalizeProductFilterAttributeForRead(group, value);
@@ -71,6 +153,8 @@ export function serializePublicProduct(product = {}) {
       image: safeUrl(variant.image_url || variant.imageUrl || variant.image),
       sortOrder: finiteNumber(variant.sort_order ?? variant.sortOrder, 0),
     }));
+  const explicitOptions = (Array.isArray(product.options) ? product.options : []).map(safeOption);
+  const options = enrichOptionsWithVariantImages(explicitOptions, variants);
 
   return {
     id: String(product.id || ""),
@@ -111,7 +195,7 @@ export function serializePublicProduct(product = {}) {
     stock: variants.length
       ? variants.reduce((total, variant) => total + variant.stock, 0)
       : Math.max(0, finiteNumber(product.stockQty, 0)),
-    options: (Array.isArray(product.options) ? product.options : []).map(safeOption),
+    options,
     badge: localizedWithLegacyArabic(product.label || product.badge, product.labelAr || product.badgeAr),
     availability: localizedWithLegacyArabic(product.availability, product.availabilityAr),
     featured: product.featured === true,
@@ -141,6 +225,7 @@ export function serializePublicBrand(brand = {}) {
     logoUrl: safeUrl(brand.logoUrl),
     heroVideo: safeUrl(brand.heroVideo),
     heroPoster: safeUrl(brand.heroPoster),
+    headerImage: safeUrl(brand.headerImage || brand.header_image),
     sortOrder: finiteNumber(brand.sortOrder, 0),
   };
 }

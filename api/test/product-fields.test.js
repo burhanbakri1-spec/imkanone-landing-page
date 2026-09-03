@@ -21,16 +21,17 @@ test("iCare definitions contain beauty fields but no EB-only detail slots", () =
 });
 
 test("iCare multilingual list fields migrate additively to bilingual repeaters", () => {
-  assert.match(bilingualRepeatersMigration, /where company_id='icare'/i);
+  assert.match(bilingualRepeatersMigration, /where company_id\s*=\s*'icare'/i);
   for (const key of ["skin_types", "hair_types", "benefits", "featured_ingredients", "complete_ingredients", "warnings", "suitable_for"]) {
     assert.match(bilingualRepeatersMigration, new RegExp(key));
   }
-  assert.match(bilingualRepeatersMigration, /field_type='repeatable_list'.*repeatable=true.*translatable=true/is);
+  assert.match(bilingualRepeatersMigration, /field_type\s*=\s*'repeatable_list'[\s\S]*repeatable\s*=\s*true[\s\S]*translatable\s*=\s*true/i);
   assert.doesNotMatch(bilingualRepeatersMigration, /delete from|truncate/i);
 });
 
 test("EB default schema retains its existing fields", () => {
   for (const key of ["dsiHowItWorks1", "dsiImpact1", "dsiSafeToUse", "dsiPracticalBanner", "dsiFaq"]) assert.match(defaultSchema, new RegExp(`"${key}"`));
+  assert.match(defaultSchema, /sharedCatalogProductSchema|resolveDefaultProductSchema/);
 });
 
 test("field values are tenant and product scoped with locale uniqueness", () => {
@@ -68,10 +69,11 @@ test("admin field routes derive tenant from authenticated request", () => {
   assert.match(routes, /error\?\.code === "23505"/);
 });
 
-test("CPanel uses server definitions and keeps EB fields on the legacy branch", () => {
+test("CPanel uses server definitions and schema-gated cosmetics fields on the legacy branch", () => {
   assert.match(cpanel, /productFieldApi\.definitions\(\)/);
   assert.match(cpanel, /usesTenantDefinitions/);
-  assert.match(cpanel, /!usesTenantDefinitions/);
+  assert.match(cpanel, /showSchemaDetailMedia/);
+  assert.match(cpanel, /fetchCompanyProductSchema/);
 });
 
 test("company admin and employee use the same tenant-aware product wizard", () => {

@@ -14,7 +14,7 @@ import {
 } from "./catalogValidation.js";
 
 const router = Router();
-const brandFields = new Set(["slug", "name", "logoUrl", "heroVideo", "heroPoster", "country", "sortOrder", "isActive"]);
+const brandFields = new Set(["slug", "name", "logoUrl", "heroVideo", "heroPoster", "headerImage", "country", "sortOrder", "isActive"]);
 
 function validateText(value, field, { required = false, maxLength = 160 } = {}) {
   if ((value === null || value === "") && !required) return null;
@@ -39,6 +39,7 @@ function validatedBrand(body, current = null) {
   if (Object.hasOwn(body, "logoUrl")) result.logoUrl = validateOptionalUrl(body.logoUrl, "logoUrl");
   if (Object.hasOwn(body, "heroVideo")) result.heroVideo = validateOptionalUrl(body.heroVideo, "heroVideo");
   if (Object.hasOwn(body, "heroPoster")) result.heroPoster = validateOptionalUrl(body.heroPoster, "heroPoster");
+  if (Object.hasOwn(body, "headerImage")) result.headerImage = validateOptionalUrl(body.headerImage, "headerImage");
   if (Object.hasOwn(body, "country")) result.country = validateText(body.country, "country", { maxLength: 120 });
   if (Object.hasOwn(body, "sortOrder")) result.sortOrder = validateSortOrder(body.sortOrder);
   if (Object.hasOwn(body, "isActive")) {
@@ -79,6 +80,7 @@ router.post("/", requireAuth, requireTenantPermission("brands", "create"), async
       logoUrl: values.logoUrl ?? null,
       heroVideo: values.heroVideo ?? null,
       heroPoster: values.heroPoster ?? null,
+      headerImage: values.headerImage ?? null,
       country: values.country ?? null,
       sortOrder: values.sortOrder ?? 0,
       isActive: values.isActive ?? true,

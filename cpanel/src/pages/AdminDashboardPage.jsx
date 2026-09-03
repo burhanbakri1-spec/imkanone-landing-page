@@ -33,6 +33,7 @@ import AdminMediaField from "../components/AdminMediaField.jsx";
 import TenantProductFields from "../components/TenantProductFields.jsx";
 import { deleteProductMedia, uploadImage, uploadImages, uploadProductMedia, uploadWebsiteVideo, validateProductMediaFile } from "../utils/api.js";
 import { fieldStateToValues, productFieldApi, valuesToFieldState } from "../utils/productFields.js";
+import { fetchCompanyProductSchema } from "../utils/productSchemaApi.js";
 import {
   getMainCategoriesForBrand,
   getSubcategoriesForMain,
@@ -1316,6 +1317,7 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
   const [videoProgress, setVideoProgress] = React.useState(0);
   const [tenantDefinitions, setTenantDefinitions] = React.useState([]);
   const [tenantValues, setTenantValues] = React.useState({});
+  const [productSchema, setProductSchema] = React.useState(null);
   const [contentRetryId, setContentRetryId] = React.useState("");
   const [isSaving, setIsSaving] = React.useState(false);
   const [activeChildUploads, setActiveChildUploads] = React.useState(0);
@@ -1394,9 +1396,11 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
     Promise.all([
       productFieldApi.definitions(),
       editingProduct?.id ? productFieldApi.values(editingProduct.id) : Promise.resolve([]),
-    ]).then(([definitions, values]) => {
+      fetchCompanyProductSchema().catch(() => null),
+    ]).then(([definitions, values, schema]) => {
       if (cancelled) return;
       setTenantDefinitions(Array.isArray(definitions) ? definitions : []);
+      setProductSchema(schema && typeof schema === "object" ? schema : null);
       const fieldState = valuesToFieldState(values, definitions);
       setTenantValues(fieldState);
       if (fieldState.product_video) setForm((current) => ({ ...current, videoUrl: fieldState.product_video }));
@@ -1409,6 +1413,35 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
   }, [editingProduct?.id]);
 
   const usesTenantDefinitions = tenantDefinitions.length > 0;
+  const schemaFieldEnabled = React.useCallback((key) => {
+    if (!productSchema) return false;
+    const buckets = [
+      ...(Array.isArray(productSchema.fields) ? productSchema.fields : []),
+      ...(Array.isArray(productSchema.mediaFields) ? productSchema.mediaFields : []),
+    ];
+    const found = buckets.find((entry) => entry?.key === key);
+    return Boolean(found && found.enabled !== false);
+  }, [productSchema]);
+  const showSchemaDetailFields = !usesTenantDefinitions && [
+    "howToUse", "ingredients", "benefits", "skinTypes", "concerns",
+  ].some(schemaFieldEnabled);
+  const showSchemaDetailMedia = !usesTenantDefinitions && [
+    "dsiHowItWorks1", "dsiHowItWorks2", "dsiHowItWorks3",
+    "dsiImpact1", "dsiImpact2", "dsiSafeToUse", "dsiPracticalBanner",
+    "dsiIngredients", "dsiFaq", "detailStatements",
+  ].some(schemaFieldEnabled);
+  const schemaDetailMediaFields = [
+    { key: "dsiHowItWorks1", label: "How it Works image 1" },
+    { key: "dsiHowItWorks2", label: "How it Works image 2" },
+    { key: "dsiHowItWorks3", label: "How it Works image 3" },
+    { key: "dsiImpact1", label: "Impact section image 1" },
+    { key: "dsiImpact2", label: "Impact section image 2" },
+    { key: "dsiSafeToUse", label: "Safe to use image" },
+    { key: "dsiPracticalBanner", label: "Practical banner image" },
+    { key: "dsiIngredients", label: "Ingredients section image" },
+    { key: "dsiFaq", label: "FAQ side image" },
+  ].filter((entry) => schemaFieldEnabled(entry.key));
+  const showDetailStatements = !usesTenantDefinitions && schemaFieldEnabled("detailStatements");
   const additionalMediaDefinitions = tenantDefinitions.filter((definition) => !["gallery_images", "product_video"].includes(definition.field_key));
   const updateTenantValue = (key, value) => setTenantValues((current) => ({ ...current, [key]: value }));
 
@@ -2186,26 +2219,16 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
               </div>
             </div>
             {usesTenantDefinitions && <TenantProductFields definitions={additionalMediaDefinitions} language={language} section="media" value={tenantValues} onChange={updateTenantValue} />}
-            {!usesTenantDefinitions && <>
+            {showSchemaDetailMedia && <>
             <div className="full-field">
               <strong>Product Details Section Images</strong>
               <div className="admin-dsi-grid">
-                {[
-                  { key: "dsiHowItWorks1", label: "How it Works image 1" },
-                  { key: "dsiHowItWorks2", label: "How it Works image 2" },
-                  { key: "dsiHowItWorks3", label: "How it Works image 3" },
-                  { key: "dsiImpact1", label: "Impact section image 1" },
-                  { key: "dsiImpact2", label: "Impact section image 2" },
-                  { key: "dsiSafeToUse", label: "Safe to use image" },
-                  { key: "dsiPracticalBanner", label: "Practical banner image" },
-                  { key: "dsiIngredients", label: "Ingredients section image" },
-                  { key: "dsiFaq", label: "FAQ side image" },
-                ].map(({ key, label }) => (
+                {schemaDetailMediaFields.map(({ key, label }) => (
                   <MediaField key={key} label={label} language={language} name={key} onUploadingChange={trackChildUpload} value={form[key] || ""} onChange={change} />
                 ))}
               </div>
             </div>
-            <div className="full-field">
+            {showDetailStatements && <div className="full-field">
               <strong>Product Details Banner Statements</strong>
               <div className="admin-dsi-grid">
                 {(form.detailStatements || []).map((statement, index) => (
@@ -2263,17 +2286,17 @@ export function ProductWizard({ brands = [], categories = [], editingProduct, on
                   + Add statement
                 </button>
               </div>
-            </div>
+            </div>}
             </>}
           </>
         )}
         {step === "details" && <>
-          {!usesTenantDefinitions && <>
-            <label>{t("productForm.howToUse")}<textarea name="howToUse" value={form.howToUse} onChange={change} /></label>
-            <label>{t("productForm.ingredients")}<textarea name="ingredients" value={form.ingredients} onChange={change} /></label>
-            <label>{t("productForm.benefits")}<textarea name="benefits" value={form.benefits} onChange={change} /></label>
-            <label>{t("productForm.skinTypes")}<input name="skinTypes" value={form.skinTypes} onChange={change} /></label>
-            <label>{t("productForm.concerns")}<input name="concerns" value={form.concerns} onChange={change} /></label>
+          {showSchemaDetailFields && <>
+            {schemaFieldEnabled("howToUse") && <label>{t("productForm.howToUse")}<textarea name="howToUse" value={form.howToUse} onChange={change} /></label>}
+            {schemaFieldEnabled("ingredients") && <label>{t("productForm.ingredients")}<textarea name="ingredients" value={form.ingredients} onChange={change} /></label>}
+            {schemaFieldEnabled("benefits") && <label>{t("productForm.benefits")}<textarea name="benefits" value={form.benefits} onChange={change} /></label>}
+            {schemaFieldEnabled("skinTypes") && <label>{t("productForm.skinTypes")}<input name="skinTypes" value={form.skinTypes} onChange={change} /></label>}
+            {schemaFieldEnabled("concerns") && <label>{t("productForm.concerns")}<input name="concerns" value={form.concerns} onChange={change} /></label>}
           </>}
           {usesTenantDefinitions && <><TenantProductFields definitions={tenantDefinitions} language={language} section="details" value={tenantValues} onChange={updateTenantValue} /><TenantProductFields definitions={tenantDefinitions} language={language} section="showcase" value={tenantValues} onChange={updateTenantValue} /></>}
         </>}
@@ -2640,7 +2663,7 @@ function AdminDashboardPage({
       if (current && !canUpdateBrands) return <EmptyState title="Access denied" description="You do not have permission to edit brands." />;
       if (!current && !canCreateBrands) return <EmptyState title="Access denied" description="You do not have permission to create brands." />;
       const ar = language === "ar";
-      return <GenericEntityForm isEditing={Boolean(current)} language={language} title={current ? (ar ? "تعديل العلامة" : "Edit Brand") : (ar ? "علامة جديدة" : "New Brand")} initial={{ active: current?.isActive !== false, country: current?.country || "", heroPoster: current?.heroPoster || "", heroVideo: current?.heroVideo || "", logo: current?.logoUrl || "", nameAr: getText(current?.name, "ar"), nameEn: getText(current?.name, "en"), slug: current?.slug || "" }} fields={[
+      return <GenericEntityForm isEditing={Boolean(current)} language={language} title={current ? (ar ? "تعديل العلامة" : "Edit Brand") : (ar ? "علامة جديدة" : "New Brand")} initial={{ active: current?.isActive !== false, country: current?.country || "", headerImage: current?.headerImage || "", heroPoster: current?.heroPoster || "", heroVideo: current?.heroVideo || "", logo: current?.logoUrl || "", nameAr: getText(current?.name, "ar"), nameEn: getText(current?.name, "en"), slug: current?.slug || "" }} fields={[
         { name: "nameEn", label: ar ? "اسم العلامة بالإنجليزية *" : "Brand name — English *", required: true, dir: "ltr" },
         { name: "nameAr", label: ar ? "اسم العلامة بالعربية *" : "Brand name — Arabic *", required: true, dir: "rtl" },
         { name: "slug", label: ar ? "الرابط المختصر" : "Slug", dir: "ltr" },
@@ -2648,8 +2671,9 @@ function AdminDashboardPage({
         { name: "logo", label: ar ? "شعار العلامة" : "Brand Logo", type: "media" },
         { name: "heroVideo", label: ar ? "فيديو الواجهة" : "Brand Hero Video", type: "media", allowVideo: true },
         { name: "heroPoster", label: ar ? "صورة الواجهة" : "Brand Hero Poster", type: "media" },
+        { name: "headerImage", label: ar ? "صورة هيدر صفحة البراند" : "Brand Page Header Image", type: "media" },
         { name: "active", label: ar ? "نشطة" : "Active", type: "checkbox" },
-      ]} onCancel={() => { setEditingBrand(null); onNavigate("admin-brands"); }} onSave={async (form) => { await onSaveBrand({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.nameEn || form.nameAr), name: createLocalizedCopy(form.nameEn, form.nameAr), country: form.country || null, logoUrl: form.logo || null, heroVideo: form.heroVideo || null, heroPoster: form.heroPoster || null, isActive: form.active }); setEditingBrand(null); onNavigate("admin-brands", { preserveStatusMessage: true }); }} />;
+      ]} onCancel={() => { setEditingBrand(null); onNavigate("admin-brands"); }} onSave={async (form) => { await onSaveBrand({ ...(current?.id ? { id: current.id } : {}), slug: form.slug || makeSlug(form.nameEn || form.nameAr), name: createLocalizedCopy(form.nameEn, form.nameAr), country: form.country || null, logoUrl: form.logo || null, heroVideo: form.heroVideo || null, heroPoster: form.heroPoster || null, headerImage: form.headerImage || null, isActive: form.active }); setEditingBrand(null); onNavigate("admin-brands", { preserveStatusMessage: true }); }} />;
     }
     if (kind === "vlog" && !canEdit) {
       return <EmptyState title="View-only access" description="You do not have permission to create records." />;
