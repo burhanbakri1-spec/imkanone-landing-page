@@ -67,6 +67,7 @@ import {
   customModulePath,
   isCustomModulePage,
   isCustomModulePath,
+  isCustomModulesCapabilityEnabled,
   parseCustomModuleKeyFromPage,
 } from "./utils/customModulesUi.js";
 import { performSecureCompanySwitch } from "./utils/companySwitcher.js";
@@ -357,6 +358,10 @@ function CPanelApp() {
       setCustomModules([]);
       return Promise.resolve([]);
     }
+    if (!isCustomModulesCapabilityEnabled(modules)) {
+      setCustomModules([]);
+      return Promise.resolve([]);
+    }
     return fetchCustomModules()
       .then((data) => {
         const rows = Array.isArray(data) ? data : [];
@@ -367,7 +372,7 @@ function CPanelApp() {
         setCustomModules([]);
         return [];
       });
-  }, [company, currentUser, isAuthResolving]);
+  }, [company, currentUser, isAuthResolving, modules]);
 
   React.useEffect(() => {
     void refreshCustomModules();
