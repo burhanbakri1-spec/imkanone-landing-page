@@ -1551,6 +1551,7 @@ function normalizeBrand(brand, index = 0) {
     logoUrl: brand.logoUrl || brand.logo_url || null,
     heroVideo: brand.heroVideo || brand.hero_video || null,
     heroPoster: brand.heroPoster || brand.hero_poster || null,
+    headerImage: brand.headerImage || brand.header_image || null,
     country: brand.country || null,
     sortOrder: Number(brand.sortOrder ?? brand.sort_order ?? 0),
     isActive: brand.isActive !== false && brand.is_active !== false,

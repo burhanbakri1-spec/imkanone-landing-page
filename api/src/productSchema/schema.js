@@ -1,3 +1,5 @@
+import { DEFAULT_COMPANY_ID, normalizeCompanyId } from "../tenancy/company.js";
+
 export const PRODUCT_FIELD_TYPES = Object.freeze([
   "text", "textarea", "number", "date", "boolean", "select", "multi_select",
   "url", "image_url", "file_url",
@@ -9,6 +11,17 @@ export const PRODUCT_TAB_KEYS = Object.freeze([
 
 export const PROTECTED_PRODUCT_FIELD_KEYS = Object.freeze([
   "nameEn", "slug", "categoryId", "brandId", "brand", "active", "featured", "newArrival", "bestseller",
+]);
+
+/** Cosmetics/detail-section fields used by the default EB Chemical product form. */
+export const COSMETICS_PRODUCT_FIELD_KEYS = Object.freeze([
+  "howToUse", "ingredients", "benefits", "skinTypes", "concerns",
+]);
+
+export const COSMETICS_MEDIA_FIELD_KEYS = Object.freeze([
+  "dsiHowItWorks1", "dsiHowItWorks2", "dsiHowItWorks3",
+  "dsiImpact1", "dsiImpact2", "dsiSafeToUse", "dsiPracticalBanner",
+  "dsiIngredients", "dsiFaq", "detailStatements",
 ]);
 
 const types = new Set(PRODUCT_FIELD_TYPES);
@@ -57,11 +70,6 @@ const defaultFields = [
   field("shortDescriptionAr", "basic", "Short Description Arabic", "الوصف المختصر بالعربية", "textarea", { enabled: false, storefrontVisible: true, sortOrder: 80 }),
   field("fullDescription", "basic", "Full Description", "الوصف الكامل", "textarea", { storefrontVisible: true, sortOrder: 90 }),
   field("fullDescriptionAr", "basic", "Full Description Arabic", "الوصف الكامل بالعربية", "textarea", { enabled: false, storefrontVisible: true, sortOrder: 100 }),
-  field("howToUse", "basic", "How to Use", "طريقة الاستخدام", "textarea", { storefrontVisible: true, sortOrder: 110 }),
-  field("ingredients", "basic", "Ingredients", "المكونات", "textarea", { storefrontVisible: true, sortOrder: 120 }),
-  field("benefits", "basic", "Benefits", "الفوائد", "textarea", { storefrontVisible: true, sortOrder: 130 }),
-  field("skinTypes", "basic", "Skin Types", "أنواع البشرة", "text", { storefrontVisible: true, sortOrder: 140 }),
-  field("concerns", "basic", "Concerns", "المشكلات", "text", { storefrontVisible: true, sortOrder: 150 }),
   field("active", "basic", "Active", "نشط", "boolean", { protected: true, defaultValue: true, sortOrder: 160 }),
   field("featured", "basic", "Featured", "مميز", "boolean", { protected: true, sortOrder: 170 }),
   field("newArrival", "basic", "New Arrival", "وصل حديثاً", "boolean", { protected: true, sortOrder: 180 }),
@@ -72,11 +80,22 @@ const defaultFields = [
   field("metaDescription", "seo", "Meta Description", "وصف محركات البحث", "textarea", { sortOrder: 20 }),
 ];
 
-const defaultMediaFields = [
+const cosmeticsProductFields = [
+  field("howToUse", "basic", "How to Use", "طريقة الاستخدام", "textarea", { storefrontVisible: true, sortOrder: 110 }),
+  field("ingredients", "basic", "Ingredients", "المكونات", "textarea", { storefrontVisible: true, sortOrder: 120 }),
+  field("benefits", "basic", "Benefits", "الفوائد", "textarea", { storefrontVisible: true, sortOrder: 130 }),
+  field("skinTypes", "basic", "Skin Types", "أنواع البشرة", "text", { storefrontVisible: true, sortOrder: 140 }),
+  field("concerns", "basic", "Concerns", "المشكلات", "text", { storefrontVisible: true, sortOrder: 150 }),
+];
+
+const sharedMediaFields = [
   field("image", "media", "Featured Image", "الصورة الرئيسية", "image_url", { storefrontVisible: true, sortOrder: 10 }),
   field("hoverImage", "media", "Second / Hover Image", "الصورة الثانية", "image_url", { storefrontVisible: true, sortOrder: 20 }),
   field("videoUrl", "media", "Video URL", "رابط الفيديو", "url", { storefrontVisible: true, sortOrder: 30 }),
   field("galleryImages", "media", "Vertical Gallery Images", "صور المعرض", "image_url", { storefrontVisible: true, sortOrder: 40 }),
+];
+
+const cosmeticsMediaFields = [
   field("dsiHowItWorks1", "media", "How it Works image 1", "صورة طريقة الاستخدام 1", "image_url", { storefrontVisible: true, sortOrder: 50 }),
   field("dsiHowItWorks2", "media", "How it Works image 2", "صورة طريقة الاستخدام 2", "image_url", { storefrontVisible: true, sortOrder: 60 }),
   field("dsiHowItWorks3", "media", "How it Works image 3", "صورة طريقة الاستخدام 3", "image_url", { storefrontVisible: true, sortOrder: 70 }),
@@ -95,7 +114,7 @@ const defaultVariantAttributes = [
   field("size", "variants", "Size", "الحجم", "text", { required: true, storefrontVisible: true, sortOrder: 30 }),
 ];
 
-const defaultShowcaseSections = [
+const cosmeticsShowcaseSections = [
   { key: "how_it_works", title: { en: "How it Works", ar: "طريقة الاستخدام" }, enabled: true, storefrontVisible: true, sortOrder: 10, fields: [] },
   { key: "impact", title: { en: "Impact", ar: "الأثر" }, enabled: true, storefrontVisible: true, sortOrder: 20, fields: [] },
   { key: "safe_to_use", title: { en: "Safe to Use", ar: "آمن للاستخدام" }, enabled: true, storefrontVisible: true, sortOrder: 30, fields: [] },
@@ -103,7 +122,7 @@ const defaultShowcaseSections = [
   { key: "faq", title: { en: "Frequently Asked Questions", ar: "الأسئلة الشائعة" }, enabled: true, storefrontVisible: true, sortOrder: 50, fields: [] },
 ];
 
-export function defaultProductSchema() {
+function buildProductSchema({ fields, mediaFields, showcaseSections }) {
   const tabLabels = {
     basic: { en: "Basic", ar: "الأساسي" }, variants: { en: "Variants", ar: "المتغيرات" },
     media: { en: "Media", ar: "الوسائط" }, seo: { en: "SEO", ar: "تحسين البحث" },
@@ -114,16 +133,56 @@ export function defaultProductSchema() {
     tabs: PRODUCT_TAB_KEYS.map((key, index) => ({
       key,
       label: tabLabels[key],
-      enabled: key !== "custom_sections",
+      enabled: key !== "custom_sections" && !(key === "showcase" && !(showcaseSections || []).length),
       protected: key === "basic",
       sortOrder: (index + 1) * 10,
     })),
-    fields: defaultFields,
+    fields,
     variantAttributes: defaultVariantAttributes,
-    mediaFields: defaultMediaFields,
-    showcaseSections: defaultShowcaseSections,
+    mediaFields,
+    showcaseSections: showcaseSections || [],
     storefrontVisibility: { customFields: true, customSections: true },
   }));
+}
+
+/** Shared multi-tenant catalog schema (no cosmetics/detail-section fields). */
+export function sharedCatalogProductSchema() {
+  return buildProductSchema({
+    fields: defaultFields,
+    mediaFields: sharedMediaFields,
+    showcaseSections: [],
+  });
+}
+
+/** Legacy cosmetics/default-company schema (EB Chemical). */
+export function defaultProductSchema() {
+  return buildProductSchema({
+    fields: [...defaultFields, ...cosmeticsProductFields],
+    mediaFields: [...sharedMediaFields, ...cosmeticsMediaFields],
+    showcaseSections: cosmeticsShowcaseSections,
+  });
+}
+
+/**
+ * Resolve the default product schema for a company when no stored schema exists.
+ * Uses the platform default-company profile for cosmetics fields — not tenant hardcoding
+ * of non-default companies.
+ */
+export function resolveDefaultProductSchema(companyId) {
+  return normalizeCompanyId(companyId) === DEFAULT_COMPANY_ID
+    ? defaultProductSchema()
+    : sharedCatalogProductSchema();
+}
+
+export function isProductSchemaFieldEnabled(schema, fieldKey) {
+  const key = String(fieldKey || "");
+  if (!key || !schema || typeof schema !== "object") return false;
+  const buckets = [
+    ...(Array.isArray(schema.fields) ? schema.fields : []),
+    ...(Array.isArray(schema.mediaFields) ? schema.mediaFields : []),
+  ];
+  const found = buckets.find((entry) => entry?.key === key);
+  return Boolean(found && found.enabled !== false);
 }
 
 export function productSchemaError(message, statusCode = 400) {

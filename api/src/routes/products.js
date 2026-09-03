@@ -10,7 +10,7 @@ import {
 import { isVariantVisible, withVariantVisibility } from "../products/variantVisibility.js";
 import { normalizeStockValue, preserveOmittedVariantStock } from "../products/productStock.js";
 import { recordActivityLog } from "../activityLog/logger.js";
-import { defaultProductSchema, sanitizeProductSchemaData } from "../productSchema/schema.js";
+import { resolveDefaultProductSchema, sanitizeProductSchemaData } from "../productSchema/schema.js";
 import { effectiveTenantRole, optionalAuth, requireAuth, requirePermission } from "../middleware/auth.js";
 import { listTenantProductFieldValues } from "../productSchema/fieldValues.js";
 import { normalizeCatalogHierarchyInput, validateCatalogHierarchy } from "./catalogHierarchy.js";
@@ -128,7 +128,7 @@ function normalizeProductForRequest(product, authenticated) {
 }
 
 function productSchemaForCompany(companyId) {
-  return companyProductSchemaRepository.findByCompany(companyId, () => true)?.schema || defaultProductSchema();
+  return companyProductSchemaRepository.findByCompany(companyId, () => true)?.schema || resolveDefaultProductSchema(companyId);
 }
 
 function hasOwn(object, key) {

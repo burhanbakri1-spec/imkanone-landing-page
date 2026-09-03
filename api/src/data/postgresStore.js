@@ -400,6 +400,7 @@ function brandRow(brand, companyId) {
     logo_url: brand.logoUrl || null,
     hero_video: brand.heroVideo || null,
     hero_poster: brand.heroPoster || null,
+    header_image: brand.headerImage || null,
     country: brand.country || null,
     sort_order: Number(brand.sortOrder || 0),
     is_active: brand.isActive !== false,
@@ -2203,6 +2204,7 @@ function mergeBrand(row) {
     logoUrl: row.logo_url || null,
     heroVideo: row.hero_video || null,
     heroPoster: row.hero_poster || null,
+    headerImage: row.header_image || null,
     country: row.country || null,
     sortOrder: Number(row.sort_order || 0),
     isActive: row.is_active !== false,
@@ -2253,6 +2255,7 @@ const brandPatchColumns = Object.freeze({
   logoUrl: "logo_url",
   heroVideo: "hero_video",
   heroPoster: "hero_poster",
+  headerImage: "header_image",
   country: "country",
   sortOrder: "sort_order",
   isActive: "is_active",
@@ -2829,9 +2832,9 @@ export async function createBrandForCompanyInSupabase(companyId, data) {
   const row = brandRow(data, normalizeCompanyId(companyId));
   const result = await query(
     `insert into public.company_brands
-      (id, company_id, slug, name, logo_url, hero_video, hero_poster, country, sort_order, is_active, created_at, updated_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
-    [row.id, row.company_id, row.slug, row.name, row.logo_url, row.hero_video, row.hero_poster,
+      (id, company_id, slug, name, logo_url, hero_video, hero_poster, header_image, country, sort_order, is_active, created_at, updated_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning *`,
+    [row.id, row.company_id, row.slug, row.name, row.logo_url, row.hero_video, row.hero_poster, row.header_image,
       row.country, row.sort_order, row.is_active, row.created_at, row.updated_at].map(toPgValue),
   );
   return mergeBrand(result.rows[0]);

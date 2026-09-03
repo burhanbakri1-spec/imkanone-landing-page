@@ -92,6 +92,7 @@ test("storefront content exposes entity-owned media directly on the entity", asy
   assert.equal(body.brands[0].logoUrl, "https://cdn.example/velvet-logo.png");
   assert.equal(body.brands[0].heroVideo, "https://cdn.example/velvet-hero.mp4");
   assert.equal(body.brands[0].heroPoster, "https://cdn.example/velvet-poster.jpg");
+  assert.equal(body.brands[0].headerImage, "");
   assert.equal("company_id" in body.brands[0], false);
 
   assert.equal(body.categories[0].brandId, "velvet");
