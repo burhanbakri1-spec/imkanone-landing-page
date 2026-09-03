@@ -87,6 +87,13 @@ const PRODUCT_FILTER_FORM_LABELS = Object.freeze({
   collection: { en: "Collection", ar: "المجموعة" },
 });
 
+const storageKeys = {
+  inventory: "inventory",
+  movements: "stockMovements",
+  settings: "settings",
+  stores: "stores",
+};
+
 const pageMeta = {
   admin: ["Dashboard", "Overview of your store performance"],
   "admin-products": ["Products", "Manage your product catalog"],

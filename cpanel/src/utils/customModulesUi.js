@@ -1,4 +1,5 @@
 import { isCompanyAdmin } from "./roles.js";
+import { moduleAllowsPage } from "./moduleRegistry.js";
 
 export const CUSTOM_FIELD_TYPES = [
   "text", "textarea", "number", "date", "datetime", "boolean", "select", "multi_select",
@@ -9,6 +10,11 @@ const KEY_PATTERN = /^[a-z][a-z0-9_]{1,49}$/;
 export const CUSTOM_MODULE_PAGE_PREFIX = "admin-custom-module:";
 export const CUSTOM_MODULE_PAGE = "admin-custom-module";
 export const CUSTOM_MODULE_PATH_PREFIX = "/admin/custom-modules/";
+
+/** API /admin/custom-modules is gated by settings.unit_creator (admin-unit-creator). */
+export function isCustomModulesCapabilityEnabled(modules = []) {
+  return moduleAllowsPage(modules, "admin-unit-creator");
+}
 
 export function isCustomModulePage(page) {
   return page === CUSTOM_MODULE_PAGE || String(page || "").startsWith(CUSTOM_MODULE_PAGE_PREFIX);
