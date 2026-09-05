@@ -45,6 +45,7 @@ import {
   Zap,
 } from "lucide-react";
 import CompanySwitcher from "./CompanySwitcher.jsx";
+import AdminQuickNavigator from "./AdminQuickNavigator.jsx";
 import {
   navigationContainsPage,
   platformNavigation,
@@ -56,6 +57,7 @@ import { groupCompanyModules, normalizedModulePage } from "../utils/moduleRegist
 import { customModuleNavItems } from "../utils/customModulesUi.js";
 import { canonicalAdminPageKey } from "../utils/cpanelAccess.js";
 import { canAccessAdminPage, isScopedPlatformSuperAdmin } from "../utils/roles.js";
+import { isQuickNavigatorShortcut } from "../utils/adminQuickNavigator.js";
 
 const iconMap = {
   activity: Activity,
@@ -278,6 +280,7 @@ function AdminLayout({
   const [openMain, setOpenMain] = React.useState(activeMain);
   const [openNested, setOpenNested] = React.useState({});
   const [activePopover, setActivePopover] = React.useState(null);
+  const [quickNavigatorOpen, setQuickNavigatorOpen] = React.useState(false);
   const [locationPath, setLocationPath] = React.useState(() => (typeof window !== "undefined" ? window.location.pathname : ""));
   const sidebarId = "admin-shell-sidebar";
   const closeMobileSidebar = React.useCallback(() => setMobileOpen(false), []);
@@ -289,6 +292,7 @@ function AdminLayout({
   // Close on route/page/auth changes so Back/Forward and login cannot leave a stale drawer.
   React.useEffect(() => {
     closeMobileSidebar();
+    setQuickNavigatorOpen(false);
     if (typeof window !== "undefined") setLocationPath(window.location.pathname);
   }, [activeKey, activePage, company?.id, currentUser?.id, closeMobileSidebar]);
 
@@ -320,6 +324,18 @@ function AdminLayout({
   }, [activePopover, closeMobileSidebar, mobileOpen]);
 
   React.useEffect(() => {
+    const openFromShortcut = (event) => {
+      if (!isQuickNavigatorShortcut(event)) return;
+      event.preventDefault();
+      closeMobileSidebar();
+      setActivePopover(null);
+      setQuickNavigatorOpen(true);
+    };
+    window.addEventListener("keydown", openFromShortcut);
+    return () => window.removeEventListener("keydown", openFromShortcut);
+  }, [closeMobileSidebar]);
+
+  React.useEffect(() => {
     if (!mobileOpen) return undefined;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -328,14 +344,17 @@ function AdminLayout({
     };
   }, [mobileOpen]);
 
-  const activatePopover = (name) => setActivePopover((current) => toggleExclusivePopover(current, name));
+  const activatePopover = (name) => {
+    setQuickNavigatorOpen(false);
+    setActivePopover((current) => toggleExclusivePopover(current, name));
+  };
   const labels = {
     allSites: ar ? "كل المواقع" : "All Sites",
     resources: ar ? "المصادر" : "Resources",
     community: ar ? "المجتمع" : "Community",
     help: ar ? "المساعدة" : "Help",
     upgrade: ar ? "ترقية" : "Upgrade",
-    search: ar ? "بحث..." : "Search...",
+    quickSearch: ar ? "بحث سريع" : "Quick search",
     inbox: ar ? "البريد الوارد" : "Inbox",
     notifications: ar ? "الإشعارات" : "Notifications",
     news: ar ? "آخر الأخبار" : "Latest news",
@@ -352,9 +371,19 @@ function AdminLayout({
 
   const go = (pageKey, item = null) => {
     closeMobileSidebar();
+    if (item?.newTab && item?.path) {
+      window.open(item.path, "_blank", "noopener,noreferrer");
+      return;
+    }
     if (typeof onNavigate !== "function") return;
     if (item?.path) onNavigate(pageKey, { path: item.path });
     else onNavigate(pageKey);
+  };
+
+  const openQuickNavigator = () => {
+    closeMobileSidebar();
+    setActivePopover(null);
+    setQuickNavigatorOpen(true);
   };
 
   const toggleMobileSidebar = () => setMobileOpen((open) => !open);
@@ -408,7 +437,14 @@ function AdminLayout({
         </div>
         <button className={`admin-topnav-btn ${activePopover === "help" ? "active" : ""}`} aria-label={labels.help} onClick={() => activatePopover("help")} type="button"><CircleHelp size={17} /><span className="admin-topnav-optional-label">{labels.help}</span></button>
         {isTenant && <button className="admin-upgrade-button" onClick={() => go("admin-tenant-placeholder-upgrade")} type="button"><Zap size={15} />{labels.upgrade}</button>}
-        {isTenant && <label className="admin-global-search"><Search size={15} /><input aria-label={labels.search} placeholder={labels.search} /></label>}
+        <button
+          aria-haspopup="dialog"
+          aria-label={labels.quickSearch}
+          className="admin-global-search"
+          data-admin-quick-navigator-trigger
+          onClick={openQuickNavigator}
+          type="button"
+        ><Search size={15} /><span>{labels.quickSearch}</span><kbd>Ctrl K</kbd></button>
         {isTenant && <button className={`admin-topnav-btn admin-icon-only ${activePopover === "inbox" ? "active" : ""}`} aria-label={labels.inbox} onClick={() => activatePopover("inbox")} type="button"><Inbox size={17} /><i>3</i></button>}
         <button className={`admin-topnav-btn admin-icon-only ${activePopover === "notifications" ? "active" : ""}`} aria-label={labels.notifications} onClick={() => activatePopover("notifications")} type="button"><Bell size={17} /><i>2</i></button>
         <button className={`admin-topnav-btn admin-icon-only ${activePopover === "news" ? "active" : ""}`} aria-label={labels.news} onClick={() => activatePopover("news")} type="button"><Newspaper size={17} /></button>
@@ -422,6 +458,14 @@ function AdminLayout({
         {["help", "inbox", "notifications", "news", "quickActions"].includes(activePopover) && <ShellPopover active={activePopover} companyScoped={isTenant} language={language} onClose={() => setActivePopover(null)} onLogout={onLogout} onNavigate={go} quickActions={quickActions} user={currentUser} />}
       </div>
     </header>
+    <AdminQuickNavigator
+      language={language}
+      onClose={() => setQuickNavigatorOpen(false)}
+      onSelect={(destination) => go(destination.pageKey, destination)}
+      open={quickNavigatorOpen}
+      resolveIcon={iconFor}
+      sections={sections}
+    />
     <div className="admin-body">
       <aside className={`admin-sidebar ${mobileOpen ? "open" : ""}`} id={sidebarId}>
         <div className="admin-sidebar-brand">
